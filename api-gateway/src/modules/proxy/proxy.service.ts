@@ -39,23 +39,25 @@ export class ProxyService {
         query?: any,
     ): Promise<any> {
         let servicePath = path.replace(/^\/api/, '');
-        const routePattern = service.routes[0];
-        const servicePrefix = routePattern.replace('/api', '').replace('/*', '');
-        servicePath = servicePath.replace(new RegExp(`^${servicePrefix}`), '');
+
         if (!servicePath.startsWith('/')) {
             servicePath = '/' + servicePath;
         }
 
         const url = `${service.url}${servicePath}`;
-        this.logger.log(`Forwarding ${method} request to HTTP ${url}`);
+        this.logger.log(`Forwarding ${method} request to ${url}`);
+
+        const sanitizedHeaders = this.sanitizeHeaders(headers);
+        sanitizedHeaders['content-type'] = 'application/json';
 
         const config: AxiosRequestConfig = {
             method: method.toLowerCase() as any,
             url,
             data: body,
-            headers: headers,
+            headers: sanitizedHeaders,
             params: query,
-            withCredentials: true
+            withCredentials: true,
+            timeout: 30000,
         };
 
         try {
@@ -113,11 +115,14 @@ export class ProxyService {
         const sanitized = { ...headers };
         delete sanitized['host'];
         delete sanitized['content-length'];
-        // Preserve cookie header for OAuth state management
+        delete sanitized['connection'];
+        delete sanitized['accept-encoding'];
+
         if (headers['cookie']) {
             sanitized['cookie'] = headers['cookie'];
         }
-        return headers;
+
+        return sanitized;
     }
 
     getServiceForRoute(path: string): string | null {

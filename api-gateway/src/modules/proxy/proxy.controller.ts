@@ -4,13 +4,16 @@ import {
     Req,
     Res,
     HttpException,
-    HttpStatus
+    HttpStatus,
+    Logger
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ProxyService } from './proxy.service';
 
 @Controller()
 export class ProxyController {
+    private readonly logger = new Logger(ProxyController.name);
+
     constructor(private readonly proxyService: ProxyService) { }
 
     @All('*')
@@ -41,7 +44,6 @@ export class ProxyController {
             res.setHeader(key, value as string);
         }
 
-        console.log('Proxy result:', result);
         if (result?.data?.redirect && result?.data?.url) {
             return res.status(result.status).redirect(result.data.url);
         }
