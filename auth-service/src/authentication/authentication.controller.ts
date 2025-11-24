@@ -5,7 +5,6 @@ import { AuthenticationService } from './authentication.service';
 import { SignInDto, SignUpDto } from './dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 
 @Controller('auth')
 export class AuthenticationController {
