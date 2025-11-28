@@ -5,8 +5,11 @@ import {
     Res,
     HttpException,
     HttpStatus,
-    Logger
+    Logger,
+    UseInterceptors,
+    UploadedFiles,
 } from '@nestjs/common';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { ProxyService } from './proxy.service';
 
@@ -17,7 +20,12 @@ export class ProxyController {
     constructor(private readonly proxyService: ProxyService) { }
 
     @All('*')
-    async handleRequest(@Req() req: Request, @Res() res: Response) {
+    @UseInterceptors(AnyFilesInterceptor())
+    async handleRequest(
+        @Req() req: Request,
+        @Res() res: Response,
+        @UploadedFiles() files?: Array<Express.Multer.File>,
+    ) {
         const path = req.path;
         if (path.startsWith('/api/health')) {
             return res.json({ status: 'ok' });
@@ -31,18 +39,34 @@ export class ProxyController {
             );
         }
 
+        const filesObj = files?.reduce((acc, file) => {
+            if (!acc[file.fieldname]) {
+                acc[file.fieldname] = [];
+            }
+            acc[file.fieldname].push(file);
+            return acc;
+        }, {} as Record<string, Express.Multer.File[]>);
+
+        const enrichedHeaders = { ...req.headers };
+        if (req['user']) {
+            enrichedHeaders['x-user'] = JSON.stringify(req['user']);
+        }
+
+        if (req['session']) {
+            enrichedHeaders['x-session'] = JSON.stringify(req['session']);
+        }
+
         const result = await this.proxyService.forwardRequest(
             serviceName,
             path,
             req.method,
             req.body,
-            req.headers,
+            enrichedHeaders,
             req.query,
+            filesObj,
         );
 
-        for (const [key, value] of Object.entries(result.headers || {})) {
-            res.setHeader(key, value as string);
-        }
+        res.setHeaders(new Headers(result.headers));
 
         if (result?.data?.redirect && result?.data?.url) {
             return res.status(result.status).redirect(result.data.url);

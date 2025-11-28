@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
     provider = "postgresql"
-    schemas  = ["ragauth"]
 }
 
 model User {
@@ -22,7 +21,6 @@ model User {
     @@unique([email])
     @@unique([username])
     @@map("user")
-    @@schema("ragauth")
 }
 
 model Session {
@@ -38,7 +36,6 @@ model Session {
 
     @@unique([token])
     @@map("session")
-    @@schema("ragauth")
 }
 
 model Account {
@@ -58,7 +55,6 @@ model Account {
     updatedAt             DateTime  @updatedAt
 
     @@map("account")
-    @@schema("ragauth")
 }
 
 model Verification {
@@ -70,5 +66,4 @@ model Verification {
     updatedAt  DateTime @default(now()) @updatedAt
 
     @@map("verification")
-    @@schema("ragauth")
 }

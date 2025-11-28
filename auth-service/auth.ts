@@ -1,15 +1,29 @@
+import 'dotenv/config';
 import { betterAuth } from "better-auth";
 import type { BetterAuthOptions } from "better-auth";
 import { PrismaClient } from "@prisma/client";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import { Logger } from "@nestjs/common";
 
-const prisma = new PrismaClient();
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
+
+const adapter = new PrismaPg(pool);
+
+const prisma = new PrismaClient({
+    adapter,
+    log: ['error', 'warn'],
+});
 
 const authConfig = {
-    trustedOrigins: ["http://localhost:8000", "http://localhost:8001"],
+    trustedOrigins: ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000"],
     database: prismaAdapter(prisma, {
         provider: "postgresql",
     }),
+    secret: process.env.BETTER_AUTH_SECRET || 'default_secret_key',
     emailAndPassword: {
         enabled: true,
         autoSignIn: true,

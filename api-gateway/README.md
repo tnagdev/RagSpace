@@ -1,219 +1,111 @@
-# API Gateway<p align="center">
+# API Gateway
 
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+The API Gateway serves as the single entry point for all client requests, handling routing, authentication, rate limiting, and request forwarding to appropriate microservices.
 
-The API Gateway serves as the single entry point for all client requests, handling routing, authentication, rate limiting, and request forwarding to appropriate microservices.</p>
-
-
-
-## Architecture[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## Architecture
 
 ### Folder Structure
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-
-```    <p align="center">
-
-src/<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-
-├── common/                      # Shared utilities and types<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-
-│   ├── decorators/             # Custom decorators (@Public, etc.)<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-
-│   └── types/                  # TypeScript type definitions<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-
-├── config/                     # Configuration files<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-
-│   ├── rate-limit.config.ts    # Rate limiting configuration<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-
-│   └── services.config.ts      # Service registry and routing rules<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-
-├── filters/                    # Exception filters  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-
-│   └── global-exception.filter.ts    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-
-├── guards/                     # Route guards  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-
-│   ├── auth.guard.ts          # JWT authentication guard</p>
-
-│   └── throttler.guard.ts     # Rate limiting guard  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-
-├── interceptors/              # Request/Response interceptors  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
-│   └── logging.interceptor.ts # Request/response logging
-
-├── modules/                   # Feature modules## Description
-
-│   └── proxy/                 # Proxy module for service routing
-
-│       ├── proxy.controller.ts[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-│       ├── proxy.service.ts
-
-│       └── proxy.module.ts## Project setup
-
-├── app.controller.ts          # Root controller (health checks)
-
-├── app.module.ts              # Root module```bash
-
-├── app.service.ts             # Root service$ npm install
-
-└── main.ts                    # Application entry point```
-
 ```
-
-## Compile and run the project
+src/
+├── common/                      # Shared utilities and types
+│   ├── decorators/             # Custom decorators (@Public, etc.)
+│   └── types/                  # TypeScript type definitions
+├── config/                     # Configuration files
+│   ├── rate-limit.config.ts    # Rate limiting configuration
+│   └── services.config.ts      # Service registry and routing rules
+├── filters/                    # Exception filters
+│   └── global-exception.filter.ts
+├── guards/                     # Route guards
+│   ├── auth.guard.ts          # Session authentication guard
+│   └── throttler.guard.ts     # Rate limiting guard
+├── interceptors/              # Request/Response interceptors
+│   └── logging.interceptor.ts # Request/response logging
+├── modules/                   # Feature modules
+│   └── proxy/                 # Proxy module for service routing
+│       ├── proxy.controller.ts
+│       ├── proxy.service.ts
+│       └── proxy.module.ts
+├── prisma/                    # Prisma schema for session validation
+│   └── schema.prisma
+├── app.controller.ts          # Root controller (health checks)
+├── app.module.ts              # Root module
+├── app.service.ts             # Root service
+└── main.ts                    # Application entry point
+```
 
 ## Features
 
-```bash
-
-### 1. **Request Routing**# development
-
-- Automatically routes requests to appropriate microservices based on path patterns$ npm run start
-
+### 1. **Request Routing**
+- Automatically routes requests to appropriate microservices based on path patterns
 - Service registry in `config/services.config.ts` defines routing rules
-
-- Supports wildcard patterns for flexible route matching# watch mode
-
-$ npm run start:dev
+- Supports wildcard patterns for flexible route matching
+- Special handling for file uploads (multipart/form-data)
 
 ### 2. **Authentication**
-
-- JWT-based authentication using `AuthGuard`# production mode
-
-- Token validation for protected routes$ npm run start:prod
-
-- Public routes can be marked with `@Public()` decorator```
-
-- Auth tokens generated by `auth-service`
-
-## Run tests
+- Session-based authentication using `AuthGuard`
+- Validates better-auth session cookies directly from database
+- Protects all routes by default (use `@Public()` decorator for public routes)
+- Injects user information headers (`x-user-id`, `x-user-email`, etc.) for downstream services
 
 ### 3. **Rate Limiting**
+- Protects against abuse with configurable rate limits
+- Uses IP address for anonymous users, user ID for authenticated users
+- Configured via `RATE_LIMIT_TTL` and `RATE_LIMIT_MAX` environment variables
 
-- Protects against abuse with configurable rate limits```bash
+### 4. **File Upload Support**
+- Special handling for multipart/form-data requests
+- Uses `AnyFilesInterceptor` to capture uploaded files
+- Forwards files to appropriate services (e.g., upload-manager)
+- Maintains file metadata and original form fields
 
-- Uses IP address for anonymous users, user ID for authenticated users# unit tests
+### 5. **Global Error Handling**
+- Custom exception filter for consistent error responses
+- Detailed error logging with request context
+- User-friendly error messages
 
-- Configurable TTL and request limits per window$ npm run test
+### 6. **Request Logging**
+- Logs all incoming requests and outgoing responses
+- Includes HTTP method, path, status code, and response time
+- Tracks user information when available
 
+## Environment Configuration
 
+Create a `.env` file based on `.env.example`:
 
-### 4. **Logging**# e2e tests
-
-- Request/response logging with timing information$ npm run test:e2e
-
-- Logs method, URL, IP, user agent, status code, and response time
-
-# test coverage
-
-### 5. **Error Handling**$ npm run test:cov
-
-- Global exception filter for consistent error responses```
-
-- Proper HTTP status codes and error messages
-
-- Graceful handling of service unavailability## Deployment
-
-
-
-## ConfigurationWhen you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-
-
-### Environment VariablesIf you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-
-
-Create a `.env` file based on `.env.example`:```bash
-
-$ npm install -g @nestjs/mau
-
-```bash$ mau deploy
-
-# API Gateway```
-
+```bash
+# API Gateway Configuration
 PORT=3000
+NODE_ENV=development
 
-NODE_ENV=developmentWith Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+# Gateway Microservice Port (for internal communication)
+GATEWAY_MICROSERVICE_PORT=8000
+GATEWAY_HOST=0.0.0.0
 
+# Database Configuration (for session validation)
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/scenestore
 
-
-# JWT Configuration## Resources
-
+# JWT Configuration (legacy, may be removed)
 JWT_SECRET=your-secret-key-change-this-in-production
+JWT_EXPIRATION=1h
 
-JWT_EXPIRATION=1hCheck out a few resources that may come in handy when working with NestJS:
+# Rate Limiting
+RATE_LIMIT_TTL=60          # Time window in seconds
+RATE_LIMIT_MAX=100         # Max requests per window
 
-
-
-# Rate Limiting- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-
-RATE_LIMIT_TTL=60          # Time window in seconds- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-
-RATE_LIMIT_MAX=100         # Max requests per window- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-
-# Service URLs- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-
-AUTH_SERVICE_URL=http://auth-service:3001- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-
-UPLOAD_MANAGER_URL=http://upload-manager:3002- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-
-SCENE_DETECTOR_URL=http://scene-detector:3003- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
+# Service URLs
+AUTH_SERVICE_URL=http://auth-service:3001
+UPLOAD_MANAGER_URL=http://upload-manager:3002
+SCENE_DETECTOR_URL=http://scene-detector:3003
 FILE_EMBEDDER_URL=http://file-embedder:3004
+CHAT_MANAGER_URL=http://chat-manager:3005
 
-CHAT_MANAGER_URL=http://chat-manager:3005## Support
+# Service Microservice Ports (TCP)
+AUTH_SERVICE_HOST=localhost
+AUTH_SERVICE_PORT=8001
 
-
-
-# CORSNest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
+# CORS
 CORS_ORIGIN=*
-
-```## Stay in touch
-
-
-
-### Service Registry- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-
-- Website - [https://nestjs.com](https://nestjs.com/)
-
-Edit `src/config/services.config.ts` to add or modify service routes:- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-
-
-```typescript## License
-
-export const SERVICES = {
-
-  AUTH_SERVICE: {Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-
-    name: 'auth-service',
-    url: process.env.AUTH_SERVICE_URL,
-    routes: ['/auth/login', '/auth/register', '/auth/refresh'],
-  },
-  // Add more services...
-};
-```
-
-## API Endpoints
-
-### Health Check
-```
-GET /api/health
-```
-Public endpoint to check API Gateway status.
-
-### Protected Routes
-All other routes require a valid JWT token in the Authorization header:
-```
-Authorization: Bearer <token>
 ```
 
 ## Installation
@@ -222,8 +114,8 @@ Authorization: Bearer <token>
 # Install dependencies
 npm install
 
-# Install required packages
-npm install @nestjs/jwt @nestjs/throttler @nestjs/axios axios
+# Generate Prisma client
+npx prisma generate
 ```
 
 ## Running
@@ -242,10 +134,37 @@ npm run start:prod
 1. **Client Request** → API Gateway
 2. **Logging Interceptor** → Logs incoming request
 3. **Rate Limit Guard** → Checks request rate
-4. **Auth Guard** → Validates JWT token (if not public route)
-5. **Proxy Controller** → Determines target service
-6. **Proxy Service** → Forwards request to microservice
+4. **Auth Guard** → Validates session cookie from database (if not public route)
+5. **Proxy Controller** → Determines target service, enriches headers with user info
+6. **Proxy Service** → Forwards request to microservice (with files if present)
 7. **Response** → Returns to client with logging
+
+## Authentication Flow
+
+The API Gateway uses a direct database session validation approach:
+
+1. **Session Cookie Extraction**: Extracts `better-auth.session_token` from request cookies
+2. **Database Lookup**: Queries the session table directly using Prisma
+3. **Session Validation**: Checks if session exists and hasn't expired
+4. **User Population**: Loads user data associated with the session
+5. **Header Injection**: Adds user information to downstream service requests:
+   - `x-user-id`: User's unique identifier
+   - `x-user-email`: User's email address
+   - `x-user-username`: User's username
+   - `x-user-name`: User's display name
+
+This approach eliminates the need for service-to-service calls to auth-service and provides better performance and reliability.
+
+## API Endpoints
+
+### Health Check
+```
+GET /api/health
+```
+Public endpoint to check API Gateway status.
+
+### Protected Routes
+All other routes require a valid session cookie (automatically set after login via auth-service).
 
 ## Adding a New Service
 
@@ -267,11 +186,12 @@ NEW_SERVICE_URL=http://new-service:3006
 
 ## Security Best Practices
 
-1. **Change JWT Secret**: Use a strong, random secret in production
-2. **CORS Configuration**: Restrict CORS origin to your frontend domain
+1. **Database Access**: API Gateway has read-only access to user/session tables
+2. **CORS Configuration**: Restrict CORS origin to your frontend domain in production
 3. **Rate Limiting**: Adjust limits based on your use case
 4. **HTTPS**: Always use HTTPS in production
 5. **Environment Variables**: Never commit `.env` files to version control
+6. **Session Security**: Sessions are validated on every request against the database
 
 ## Testing
 
@@ -291,7 +211,30 @@ npm run test:cov
 The gateway routes to these services:
 
 - **auth-service** (Port 3001): Authentication & authorization
-- **upload-manager** (Port 3002): File upload handling
+- **upload-manager** (Port 3002): File upload handling with S3 integration
 - **scene-detector** (Port 3003): Scene detection processing
 - **file-embedder** (Port 3004): File embedding generation
 - **chat-manager** (Port 3005): Chat/conversation management
+
+## Troubleshooting
+
+### 401 Unauthorized Errors
+
+- Ensure you have a valid session cookie (login through auth-service first)
+- Check that DATABASE_URL is correctly configured
+- Verify the session hasn't expired (default expiration varies)
+- Check browser DevTools → Application → Cookies for `better-auth.session_token`
+
+### File Upload Issues
+
+- Ensure `Content-Type: multipart/form-data` header is set
+- Check upload-manager service is running and accessible
+- Verify file size doesn't exceed limits
+- Check logs for detailed error messages
+
+### Service Connection Errors
+
+- Verify all service URLs in `.env` are correct
+- Ensure target services are running
+- Check Docker network configuration if using containers
+- Review service logs for connectivity issues

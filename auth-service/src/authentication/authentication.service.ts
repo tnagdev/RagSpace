@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthenticationService {
+    protected readonly logger = new Logger(AuthenticationService.name);
     constructor(private prisma: PrismaService) { }
 
     async findUserByUsername(username: string) {

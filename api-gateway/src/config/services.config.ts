@@ -1,5 +1,3 @@
-import { Transport } from '@nestjs/microservices';
-
 export interface ServiceConfig {
     name: string;
     transport: 'http' | 'microservice';
@@ -19,8 +17,8 @@ export const SERVICES: Record<string, ServiceConfig> = {
     UPLOAD_MANAGER: {
         name: 'upload-manager',
         transport: 'http',
-        url: process.env.UPLOAD_MANAGER_URL || 'http://upload-manager:3002',
-        routes: ['/api/upload/*'],
+        url: process.env.UPLOAD_MANAGER_URL || 'http://localhost:3002',
+        routes: ['/api/upload', '/api/upload/*'],
     },
     SCENE_DETECTOR: {
         name: 'scene-detector',

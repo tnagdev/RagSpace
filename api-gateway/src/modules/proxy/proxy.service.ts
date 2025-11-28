@@ -3,6 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, catchError } from 'rxjs';
 import { AxiosRequestConfig, AxiosError } from 'axios';
 import { SERVICES, ServiceConfig } from '../../config/services.config';
+import FormData from 'form-data';
 
 @Injectable()
 export class ProxyService {
@@ -17,6 +18,7 @@ export class ProxyService {
         body?: any,
         headers?: any,
         query?: any,
+        files?: any,
     ): Promise<any> {
         const service = this.getServiceByName(serviceName);
 
@@ -27,7 +29,7 @@ export class ProxyService {
             );
         }
 
-        return this.forwardToHttp(service, path, method, body, headers, query);
+        return this.forwardToHttp(service, path, method, body, headers, query, files);
     }
 
     private async forwardToHttp(
@@ -37,6 +39,7 @@ export class ProxyService {
         body?: any,
         headers?: any,
         query?: any,
+        files?: any,
     ): Promise<any> {
         let servicePath = path.replace(/^\/api/, '');
 
@@ -48,17 +51,55 @@ export class ProxyService {
         this.logger.log(`Forwarding ${method} request to ${url}`);
 
         const sanitizedHeaders = this.sanitizeHeaders(headers);
-        sanitizedHeaders['content-type'] = 'application/json';
+        let requestData = body;
+
+        // Handle file uploads with multipart/form-data
+        if (files && Object.keys(files).length > 0) {
+            const formData = new FormData();
+
+            // Add files
+            for (const fieldName in files) {
+                const fileArray = Array.isArray(files[fieldName]) ? files[fieldName] : [files[fieldName]];
+                fileArray.forEach((file: any) => {
+                    formData.append(fieldName, file.buffer, {
+                        filename: file.originalname,
+                        contentType: file.mimetype,
+                    });
+                });
+            }
+
+            // Add other form fields
+            if (body) {
+                for (const key in body) {
+                    formData.append(key, body[key]);
+                }
+            }
+
+            requestData = formData;
+            Object.assign(sanitizedHeaders, formData.getHeaders());
+        } else if (headers['content-type'] && headers['content-type'].includes('multipart/form-data')) {
+            sanitizedHeaders['content-type'] = headers['content-type'];
+        } else {
+            sanitizedHeaders['content-type'] = 'application/json';
+        }
 
         const config: AxiosRequestConfig = {
             method: method.toLowerCase() as any,
             url,
-            data: body,
+            data: requestData,
             headers: sanitizedHeaders,
             params: query,
             withCredentials: true,
             timeout: 30000,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
         };
+
+        this.logger.log(`Request config for ${service.name}:`, {
+            method: config.method,
+            url: config.url,
+            headers: config.headers,
+        });
 
         try {
             const response = await firstValueFrom(
@@ -117,11 +158,6 @@ export class ProxyService {
         delete sanitized['content-length'];
         delete sanitized['connection'];
         delete sanitized['accept-encoding'];
-
-        if (headers['cookie']) {
-            sanitized['cookie'] = headers['cookie'];
-        }
-
         return sanitized;
     }
 

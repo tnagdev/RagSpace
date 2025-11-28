@@ -3,22 +3,23 @@ import {
     CanActivate,
     ExecutionContext,
     UnauthorizedException,
+    Logger,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
+import { HttpService } from '@nestjs/axios';
 import { Request } from 'express';
-import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
+import { firstValueFrom } from 'rxjs';
+import { SERVICES } from '../config/services.config';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-    private readonly publicPaths = [
-        '/api/auth/*',
-        '/api/health',
-    ];
+    private readonly logger = new Logger(AuthGuard.name);
+    private publicRoutes: string[] = ['/api/auth/signup', '/api/auth/signin', '/api/auth/google'];
 
     constructor(
-        private jwtService: JwtService,
-        private reflector: Reflector,
+        private readonly httpService: HttpService,
+        private readonly reflector: Reflector,
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -27,47 +28,54 @@ export class AuthGuard implements CanActivate {
             context.getClass(),
         ]);
 
-        if (isPublic) {
+        if (isPublic) return true;
+
+        this.logger.log(context.switchToHttp().getRequest<Request>().path);
+        if (this.publicRoutes.includes(context.switchToHttp().getRequest<Request>().path)) {
             return true;
         }
+
 
         const request = context.switchToHttp().getRequest<Request>();
-        const path = request.path;
-
-        if (this.isPublicPath(path)) {
-            return true;
-        }
-
-        const token = this.extractTokenFromHeader(request);
-
-        if (!token) {
-            throw new UnauthorizedException('No token provided');
-        }
-
         try {
-            const payload = await this.jwtService.verifyAsync(token, {
-                secret: process.env.JWT_SECRET || 'your-secret-key-change-this-in-production',
-            });
-            request['user'] = payload;
-        } catch (error) {
-            throw new UnauthorizedException('Invalid token');
-        }
+            const authServiceUrl = SERVICES.AUTH_SERVICE.url;
+            const authHeaders = {
+                cookie: request.headers.cookie || '',
+                'user-agent': request.headers['user-agent'] || '',
+            };
 
-        return true;
-    }
-
-    private isPublicPath(path: string): boolean {
-        return this.publicPaths.some(publicPath => {
-            if (publicPath.endsWith('*')) {
-                const prefix = publicPath.slice(0, -1);
-                return path.startsWith(prefix);
+            const response = await firstValueFrom(
+                this.httpService.get(`${authServiceUrl}/auth/session`, {
+                    headers: authHeaders,
+                    withCredentials: true,
+                    timeout: 5000,
+                })
+            );
+            const sessionData = response.data;
+            if (!sessionData || !sessionData.user || !sessionData.session) {
+                this.logger.debug('Invalid session response structure');
+                throw new UnauthorizedException('No authentication provided');
             }
-            return path === publicPath || path.startsWith(publicPath);
-        });
-    }
+            request['user'] = sessionData.user;
+            request['session'] = sessionData.session;
+            return true;
+        } catch (error) {
+            if (error instanceof UnauthorizedException) {
+                throw error;
+            }
 
-    private extractTokenFromHeader(request: Request): string | undefined {
-        const [type, token] = request.headers.authorization?.split(' ') ?? [];
-        return type === 'Bearer' ? token : undefined;
+            if (error?.response?.status === 401) {
+                this.logger.debug('Session validation returned 401');
+                throw new UnauthorizedException('Invalid or expired session');
+            }
+
+            if (error?.code === 'ECONNREFUSED') {
+                this.logger.error('Auth service unavailable');
+                throw new UnauthorizedException('Authentication service unavailable');
+            }
+
+            this.logger.error('Session validation failed', error?.response?.data || error.message);
+            throw new UnauthorizedException('Authentication failed');
+        }
     }
 }

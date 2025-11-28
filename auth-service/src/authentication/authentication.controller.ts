@@ -18,9 +18,7 @@ export class AuthenticationController {
         try {
             const { emailOrUsername, password } = body;
             const isEmail = emailOrUsername.includes('@');
-
             let email = emailOrUsername;
-
             if (!isEmail) {
                 const user = await this.authService.findUserByUsername(emailOrUsername);
                 if (!user) {
@@ -37,16 +35,11 @@ export class AuthenticationController {
                 asResponse: true,
             });
 
-            if (result) {
-                result.headers.forEach((value: string, key: string) => {
-                    res.setHeader(key, value);
-                });
-
-                const data = await result.json();
-                return res.json(data);
+            if (!result) {
+                return res.status(401).json({ error: 'Invalid credentials' });
             }
 
-            return res.status(401).json({ error: 'Invalid credentials' });
+            return res.setHeaders(result.headers).json(await result.json());
         } catch (error) {
             this.logger.error('Error in sign in:', error);
             return res.status(500).json({ error: 'Internal server error', details: error.message });
@@ -76,16 +69,11 @@ export class AuthenticationController {
             });
 
             if (result) {
-                result.headers.forEach((value: string, key: string) => {
-                    res.setHeader(key, value);
-                });
-
+                res.setHeaders(result.headers);
                 const data = await result.json();
-
                 if (data.user && data.user.id) {
                     await this.authService.updateUserUsername(data.user.id, finalUsername);
                 }
-
                 return res.json(data);
             }
 
@@ -108,10 +96,7 @@ export class AuthenticationController {
             });
 
             if (result) {
-                result.headers.forEach((value: string, key: string) => {
-                    res.setHeader(key, value);
-                });
-
+                res.setHeaders(result.headers);
                 const data = await result.json();
                 return res.json(data);
             }
@@ -136,14 +121,7 @@ export class AuthenticationController {
                 },
                 redirect: 'manual',
             });
-
-            response.headers.forEach((value: string, key: string) => {
-                res.setHeader(key, value);
-            });
-
-            this.logger.log('OAuth callback status:', response.status);
-            this.logger.log('OAuth callback headers:', Object.fromEntries(response.headers.entries()));
-
+            res.setHeaders(response.headers);
             if (response.status === 302 || response.status === 301) {
                 const location = response.headers.get('location');
                 return res.json({
@@ -173,5 +151,24 @@ export class AuthenticationController {
             return res.status(401).json({ error: 'Unauthorized' });
         }
         return res.json({ user });
+    }
+
+    @Public()
+    @Get('/session')
+    async getSession(@Req() req: Request, @Res() res: Response) {
+        try {
+            const session = await auth.api.getSession({
+                headers: req.headers as any,
+            });
+
+            if (!session) {
+                return res.status(401).json({ error: 'No active session' });
+            }
+
+            return res.json(session);
+        } catch (error) {
+            this.logger.error('Error fetching session:', error);
+            return res.status(401).json({ error: 'Invalid or expired session' });
+        }
     }
 }
