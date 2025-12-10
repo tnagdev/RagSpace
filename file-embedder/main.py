@@ -1,0 +1,134 @@
+"""
+FastAPI application for file embedding service.
+Processes audio and video content to generate embeddings for semantic search.
+"""
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from src.config import settings
+from src.services.AudioEmbedderService import AudioEmbedderService
+from src.services.VideoEmbedderService import VideoEmbedderService
+from src.services.ImageEmbedderService import ImageEmbedderService
+from src.services.S3ClientService import S3ClientService
+from src.db.chroma_db import ChromaDatabaseManager
+from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
+from src.routers import Search
+import src.rabbitmq.handlers
+from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
+import pytesseract
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+os.makedirs(settings.temp_dir, exist_ok=True)
+
+pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application.
+    Handles startup and shutdown events.
+    """
+    # Startup
+    logger.info("Starting file-embedder service...")
+    logger.info(f"ChromaDB path: {settings.chroma_db_path}")
+    logger.info(f"Temp directory: {settings.temp_dir}")
+    
+    # Initialize singletons
+    chroma_db = ChromaDatabaseManager()
+    AudioEmbedderService()
+    VideoEmbedderService()
+    ImageEmbedderService()
+    S3ClientService(
+        endpoint=settings.aws_s3_endpoint,
+        access_key=settings.aws_access_key_id,
+        secret_key=settings.aws_secret_access_key,
+        bucket_name=settings.aws_s3_bucket
+    )
+    
+    try:
+        chroma_db.get_text_collection()
+        chroma_db.get_image_collection()
+        logger.info("ChromaDB collections initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize ChromaDB collections: {e}")
+        raise
+    
+    try:
+        routing_keys = [
+            FileEventType.UPLOAD_COMPLETED,
+            FileEventType.PROCESSING_COMPLETED,
+            FileEventType.FILE_DELETED
+        ]
+        await rabbitmq_consumer.start(routing_keys=routing_keys)
+        logger.info("RabbitMQ consumer started and bound to events")
+    except Exception as e:
+        logger.error(f"Failed to start RabbitMQ consumer: {e}")
+        raise
+    
+    yield
+    
+    logger.info("Shutting down file-embedder service...")
+    try:
+        await rabbitmq_consumer.stop()
+        logger.info("RabbitMQ consumer stopped")
+    except Exception as e:
+        logger.error(f"Error stopping RabbitMQ consumer: {e}")
+
+
+
+app = FastAPI(
+    title="File Embedder Service",
+    description="Service for generating embeddings from audio and video files",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(InterServiceMiddleware)
+app.include_router(router=Search.router, prefix='/embed')
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "service": "file-embedder",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    try:
+        chroma_db = ChromaDatabaseManager()
+        chroma_db.get_text_collection()
+        chroma_db.get_image_collection() 
+        return {
+            "status": "healthy",
+            "chroma_db": "connected"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=settings.service_port,
+        reload=settings.mode == "development"
+    )

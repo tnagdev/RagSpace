@@ -29,7 +29,7 @@ export const SERVICES: Record<string, ServiceConfig> = {
     FILE_EMBEDDER: {
         name: 'file-embedder',
         transport: 'http',
-        url: process.env.FILE_EMBEDDER_URL || 'http://file-embedder:3004',
+        url: process.env.FILE_EMBEDDER_URL || 'http://localhost:8003',
         routes: ['/api/embed/*'],
     },
     CHAT_MANAGER: {

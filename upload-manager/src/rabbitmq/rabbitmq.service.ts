@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqp-connection-manager';
 import { ChannelWrapper } from 'amqp-connection-manager';
 import { Channel } from 'amqplib';
+import { AuthSession, AuthUser } from 'src/common/decorators/current-user.decorator';
 
 export enum FileEventType {
     UPLOAD_STARTED = 'file.upload.started',
@@ -17,12 +18,14 @@ export enum FileEventType {
     PROCESSING_STARTED = 'file.processing.started',
     PROCESSING_COMPLETED = 'file.processing.completed',
     PROCESSING_FAILED = 'file.processing.failed',
+    FILE_DELETED = 'file.deleted',
 }
 
 export interface FileEvent {
     type: FileEventType;
     fileId: string;
-    userId: string;
+    user: AuthUser;
+    session?: AuthSession;
     timestamp: Date;
     data?: any;
 }

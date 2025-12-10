@@ -13,6 +13,7 @@ import {
     ProcessingStage,
 } from '@prisma/client';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
+import { AuthUser } from 'src/common/decorators/current-user.decorator';
 
 @Injectable()
 export class UploadService {
@@ -24,19 +25,12 @@ export class UploadService {
         private rabbitmqService: RabbitmqService,
     ) { }
 
-    async uploadFile(file: Express.Multer.File, userId: string) {
-        this.logger.log(
-            `Starting file upload for user: ${userId}, file: ${file.originalname}`,
-        );
-
+    async uploadFile(file: Express.Multer.File, user: AuthUser) {
         try {
-            // Determine file type from mimetype
             const fileType = this.getFileTypeFromMimeType(file.mimetype);
-
-            // Create initial file record
             const fileRecord = await this.prisma.file.create({
                 data: {
-                    userId,
+                    userId: user.id,
                     filename: file.originalname,
                     originalFilename: file.originalname,
                     fileSize: file.size,
@@ -50,24 +44,22 @@ export class UploadService {
                 },
             });
 
-            // Publish upload started event
             await this.rabbitmqService.publishEvent({
                 type: FileEventType.UPLOAD_STARTED,
                 fileId: fileRecord.id,
-                userId,
+                user: user,
                 timestamp: new Date(),
                 data: {
-                    filename: file.originalname,
+                    fileName: file.originalname,
                     fileSize: file.size,
                     mimeType: file.mimetype,
                 },
             });
 
             try {
-                // Upload to S3
                 const uploadResult = await this.s3Service.uploadFile(
                     file,
-                    userId,
+                    user.id,
                     (progress) => {
                         this.logger.debug(
                             `Upload progress for ${fileRecord.id}: ${progress}%`,
@@ -75,7 +67,6 @@ export class UploadService {
                     },
                 );
 
-                // Update file record with S3 information
                 const updatedFile = await this.prisma.file.update({
                     where: { id: fileRecord.id },
                     data: {
@@ -87,16 +78,18 @@ export class UploadService {
                     },
                 });
 
-                // Publish upload completed event
                 await this.rabbitmqService.publishEvent({
                     type: FileEventType.UPLOAD_COMPLETED,
                     fileId: fileRecord.id,
-                    userId,
+                    user: user,
                     timestamp: new Date(),
                     data: {
+                        fileName: file.originalname,
+                        fileSize: file.size,
+                        mimeType: file.mimetype,
+                        fileType,
                         s3Key: uploadResult.key,
                         s3Url: uploadResult.url,
-                        fileType,
                     },
                 });
 
@@ -108,18 +101,16 @@ export class UploadService {
                     error,
                 );
 
-                // Publish upload failed event before deletion
                 await this.rabbitmqService.publishEvent({
                     type: FileEventType.UPLOAD_FAILED,
                     fileId: fileRecord.id,
-                    userId,
+                    user,
                     timestamp: new Date(),
                     data: {
                         error: error.message,
                     },
                 });
 
-                // Delete the file record from database
                 await this.prisma.file.delete({
                     where: { id: fileRecord.id },
                 });
@@ -127,9 +118,16 @@ export class UploadService {
                 throw error;
             }
         } catch (error) {
-            this.logger.error(`Error uploading file for user ${userId}`, error);
+            this.logger.error(`Error uploading file for user ${user.id}`, error);
             throw error;
         }
+    }
+
+    async updateFile(id: string, data: Partial<any>) {
+        return this.prisma.file.update({
+            where: { id },
+            data,
+        });
     }
 
     async getFileById(id: string, userId: string) {
@@ -144,7 +142,6 @@ export class UploadService {
             throw new NotFoundException(`File with ID ${id} not found`);
         }
 
-        // Generate fresh signed URL if file is completed
         if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
             const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
             return {
@@ -154,6 +151,36 @@ export class UploadService {
         }
 
         return file;
+    }
+
+    async getFileByIds(ids: string[], userId: string, query?: GetFilesQueryDto) {
+        const { uploadStatus, processingStatus } = query || {};
+        const where: any = { userId };
+        if (uploadStatus) {
+            where.uploadStatus = uploadStatus;
+        }
+        if (processingStatus) {
+            where.processingStatus = processingStatus;
+        }
+        where.id = { in: ids };
+        const files = await this.prisma.file.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+        });
+
+        const filesWithUrls = files.map(async (file) => {
+            try {
+                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                    const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
+                    file.s3Url = signedUrl;
+                }
+            } catch (error) {
+                this.logger.error(`Failed to get signed URL for file ${file.id}`, error);
+            }
+            return file;
+        });
+
+        return await Promise.all(filesWithUrls);
     }
 
     async getFiles(userId: string, query: GetFilesQueryDto) {
@@ -180,26 +207,63 @@ export class UploadService {
             this.prisma.file.count({ where }),
         ]);
 
+        const filesWithUrls = files.map(async (file) => {
+            try {
+                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                    const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
+                    file.s3Url = signedUrl;
+                }
+            } catch (error) {
+                this.logger.error(`Failed to get signed URL for file ${file.id}`, error);
+            }
+            return file;
+        });
+
         return {
-            files,
+            files: await Promise.all(filesWithUrls),
             total,
             page,
             limit,
         };
     }
 
-    async deleteFile(id: string, userId: string) {
-        const file = await this.getFileById(id, userId);
+    async deleteFile(id: string, user: AuthUser) {
+        const file = await this.getFileById(id, user.id);
 
-        if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
-            await this.s3Service.deleteFile(file.s3Key);
+        // Publish deletion event to notify other services (file-embedder) to clean up
+        try {
+            await this.rabbitmqService.publishEvent({
+                type: FileEventType.FILE_DELETED,
+                fileId: id,
+                user: user,
+                timestamp: new Date(),
+                data: {
+                    fileType: file.fileType,
+                    fileName: file.filename,
+                },
+            });
+            this.logger.log(`Published file deletion event for: ${id}`);
+        } catch (error) {
+            this.logger.error(`Failed to publish file deletion event: ${error.message}`);
+            // Continue with deletion even if event publishing fails
         }
 
+        // Delete from S3
+        if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+            try {
+                await this.s3Service.deleteFile(file.s3Key);
+                this.logger.log(`Deleted S3 file: ${file.s3Key}`);
+            } catch (error) {
+                this.logger.error(`Failed to delete S3 file: ${error.message}`);
+            }
+        }
+
+        // Delete from database
         await this.prisma.file.delete({
             where: { id },
         });
 
-        this.logger.log(`File deleted: ${id}`);
+        this.logger.log(`File deleted from database: ${id}`);
         return { message: 'File deleted successfully' };
     }
 

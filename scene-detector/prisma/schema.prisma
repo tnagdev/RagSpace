@@ -1,0 +1,35 @@
+generator client {
+    provider        = "prisma-client-py"
+    interface       = "asyncio"
+    previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+    provider = "postgresql"
+    schemas  = ["scene_detector"]
+    url      = env("DIRECT_URL")
+}
+
+model Scene {
+    id             String   @id @default(uuid())
+    fileId         String
+    userId         String
+    sceneNumber    Int
+    startTime      Float
+    endTime        Float
+    startFrame     Int
+    endFrame       Int
+    keyframe       Int
+    duration       Float
+    thumbnailS3Key String
+    thumbnailS3Url String?
+    metadata       Json?
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
+
+    @@unique([fileId, sceneNumber])
+    @@index([fileId])
+    @@index([userId])
+    @@index([sceneNumber])
+    @@schema("scene_detector")
+}

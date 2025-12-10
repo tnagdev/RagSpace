@@ -23,4 +23,8 @@ export class GetFilesQueryDto {
     @IsOptional()
     @IsEnum(ProcessingStatus)
     processingStatus?: ProcessingStatus;
+
+    @IsOptional()
+    @IsString()
+    fileIds?: string;
 }

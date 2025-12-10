@@ -12,6 +12,8 @@ import {
     ParseFilePipe,
     MaxFileSizeValidator,
     Logger,
+    Put,
+    Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
@@ -20,6 +22,7 @@ import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { ConfigService } from '@nestjs/config';
+import { UpdateFileDto } from './dto/update-file.dto';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
@@ -56,7 +59,7 @@ export class UploadController {
         this.logger.log(
             `File upload request from user: ${user.id}, file: ${file.originalname}`,
         );
-        return this.uploadService.uploadFile(file, user.id);
+        return this.uploadService.uploadFile(file, user);
     }
 
     @Get()
@@ -64,6 +67,19 @@ export class UploadController {
         @Query() query: GetFilesQueryDto,
         @CurrentUser() user: AuthUser,
     ) {
+        let fileIds: string[] = [];
+        if (query.fileIds) {
+            const idList = query.fileIds
+                .split(',')
+                .map((id) => id.trim())
+                .filter((id) => id.length);
+            if (idList.length) {
+                fileIds = idList;
+            }
+        }
+        if (fileIds.length) {
+            return this.uploadService.getFileByIds(fileIds, user.id, query);
+        }
         return this.uploadService.getFiles(user.id, query);
     }
 
@@ -72,9 +88,18 @@ export class UploadController {
         return this.uploadService.getFileById(id, user.id);
     }
 
+    @Put(':id')
+    async updateFile(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthUser,
+        @Body() body: UpdateFileDto
+    ) {
+        return this.uploadService.updateFile(id, body);
+    }
+
     @Delete(':id')
     async deleteFile(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-        return this.uploadService.deleteFile(id, user.id);
+        return this.uploadService.deleteFile(id, user);
     }
 
     @Get('health')

@@ -1,0 +1,25 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+python-dotenv
+
+# RabbitMQ
+aio-pika
+
+# Prisma ORM
+prisma
+
+# AWS S3
+boto3
+
+# Scene Detection
+scenedetect[opencv]
+opencv-python
+
+# Image Processing
+Pillow
+
+# Utilities
+python-multipart
+httpx

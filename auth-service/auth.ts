@@ -40,8 +40,8 @@ const authConfig = {
     },
     socialProviders: {
         google: {
-            clientId: "584784281382-pkl3nt5ork93dc0ipco9hupqpvmj5b4n.apps.googleusercontent.com",
-            clientSecret: "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",
+            clientId: "253583722822-b4omr6cuehk90gustvnf6sq4p9mcen4e.apps.googleusercontent.com",
+            clientSecret: "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",
             scope: ["openid", "email", "profile"],
             prompt: "select_account",
             redirectURI: "http://localhost:8001/auth/google/callback"
