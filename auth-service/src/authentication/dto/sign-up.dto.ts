@@ -2,5 +2,6 @@ export class SignUpDto {
     email: string;
     username?: string;
     password: string;
-    name: string;
+    firstName: string;
+    lastName: string;
 }

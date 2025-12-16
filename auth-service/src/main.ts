@@ -9,12 +9,15 @@ const logger = new Logger('AuthService');
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
   app.enableCors({
-    origin: ['*'],
+    origin: [process.env.CORS_ORIGIN || 'http://localhost:3000', 'http://localhost:8000'],
     credentials: true,
-    allowedHeaders: ['*'],
-    exposedHeaders: ['*'],
-    methods: ['*']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'x-user', 'x-session'],
+    exposedHeaders: ['Set-Cookie'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
   });
 
   const authHandler = toNodeHandler(auth);

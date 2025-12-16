@@ -75,6 +75,8 @@ export class UploadService {
                         s3Url: uploadResult.url,
                         uploadStatus: UploadStatus.COMPLETED,
                         uploadedAt: new Date(),
+                        processingStatus: ProcessingStatus.IN_PROGRESS,
+                        processingStage: ProcessingStage.EMBEDDING,
                     },
                 });
 
@@ -184,7 +186,8 @@ export class UploadService {
     }
 
     async getFiles(userId: string, query: GetFilesQueryDto) {
-        const { page = 1, limit = 20, uploadStatus, processingStatus } = query;
+        const { page = 1, limit: _limit = 20, uploadStatus, processingStatus } = query;
+        const limit = parseInt(_limit as any, 10);
         const skip = (page - 1) * limit;
 
         const where: any = { userId };
@@ -279,5 +282,150 @@ export class UploadService {
             return FileType.DOCUMENT;
         }
         return FileType.OTHER;
+    }
+
+    async initMultipartUpload(
+        fileName: string,
+        fileSize: number,
+        mimeType: string,
+        chunkSize: number,
+        user: AuthUser,
+    ) {
+        try {
+            const fileType = this.getFileTypeFromMimeType(mimeType);
+
+            // Initialize multipart upload in S3 first to get the s3Key
+            const uploadInit = await this.s3Service.initMultipartUpload(
+                fileName,
+                fileSize,
+                mimeType,
+                user.id,
+                chunkSize,
+            );
+
+            // Create file record with the generated s3Key
+            const fileRecord = await this.prisma.file.create({
+                data: {
+                    userId: user.id,
+                    filename: fileName,
+                    originalFilename: fileName,
+                    fileSize: fileSize,
+                    mimeType: mimeType,
+                    fileType,
+                    s3Key: uploadInit.key,
+                    s3Bucket: uploadInit.bucket,
+                    uploadStatus: UploadStatus.UPLOADING,
+                    processingStatus: ProcessingStatus.NOT_STARTED,
+                    processingStage: ProcessingStage.UPLOAD,
+                    metadata: {
+                        uploadId: uploadInit.uploadId,
+                        chunkSize,
+                        totalChunks: uploadInit.presignedUrls.length,
+                    },
+                },
+            });
+
+            this.logger.log(`Multipart upload initialized for file: ${fileRecord.id}`);
+
+            return {
+                fileId: fileRecord.id,
+                uploadId: uploadInit.uploadId,
+                key: uploadInit.key,
+                presignedUrls: uploadInit.presignedUrls,
+                chunkSize,
+                file: fileRecord,
+            };
+        } catch (error) {
+            this.logger.error('Error initializing multipart upload', error);
+            throw error;
+        }
+    }
+
+    async completeMultipartUpload(
+        fileId: string,
+        key: string,
+        uploadId: string,
+        parts: Array<{ ETag: string; PartNumber: number }>,
+        totalSize: number,
+        user: AuthUser,
+    ) {
+        try {
+            const fileRecord = await this.getFileById(fileId, user.id);
+
+            // Complete multipart upload in S3
+            const uploadResult = await this.s3Service.completeMultipartUpload(
+                key,
+                uploadId,
+                parts,
+            );
+
+            // Update file record
+            const updatedFile = await this.prisma.file.update({
+                where: { id: fileId },
+                data: {
+                    s3Url: uploadResult.url,
+                    fileSize: totalSize,
+                    uploadStatus: UploadStatus.COMPLETED,
+                    uploadedAt: new Date(),
+                    processingStatus: ProcessingStatus.IN_PROGRESS,
+                    processingStage: ProcessingStage.EMBEDDING,
+                },
+            });
+
+            // Publish upload completed event
+            await this.rabbitmqService.publishEvent({
+                type: FileEventType.UPLOAD_COMPLETED,
+                fileId: fileRecord.id,
+                user: user,
+                timestamp: new Date(),
+                data: {
+                    fileName: fileRecord.originalFilename,
+                    fileSize: totalSize,
+                    mimeType: fileRecord.mimeType,
+                    fileType: fileRecord.fileType,
+                    s3Key: uploadResult.key,
+                    s3Url: uploadResult.url,
+                },
+            });
+
+            this.logger.log(`Multipart upload completed for file: ${fileId}`);
+            return updatedFile;
+        } catch (error) {
+            this.logger.error('Error completing multipart upload', error);
+            throw error;
+        }
+    }
+
+    async abortMultipartUpload(fileId: string, user: AuthUser) {
+        try {
+            const fileRecord = await this.getFileById(fileId, user.id);
+            const metadata = fileRecord.metadata as any;
+
+            // Only try to abort if this was a multipart upload
+            if (metadata?.uploadId && fileRecord.s3Key) {
+                try {
+                    await this.s3Service.abortMultipartUpload(
+                        fileRecord.s3Key,
+                        metadata.uploadId,
+                    );
+                } catch (s3Error) {
+                    // If abort fails (upload already completed/aborted), log but continue with deletion
+                    this.logger.warn(`Failed to abort multipart upload for ${fileId}: ${s3Error.message}`);
+                }
+            } else {
+                this.logger.log(`File ${fileId} was not a multipart upload, skipping abort`);
+            }
+
+            // Delete the file record regardless of abort outcome
+            await this.prisma.file.delete({
+                where: { id: fileId },
+            });
+
+            this.logger.log(`File record deleted: ${fileId}`);
+            return { message: 'Upload aborted successfully' };
+        } catch (error) {
+            this.logger.error('Error aborting multipart upload', error);
+            throw error;
+        }
     }
 }

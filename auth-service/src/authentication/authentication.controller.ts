@@ -51,7 +51,7 @@ export class AuthenticationController {
     async signUp(@Body() body: SignUpDto, @Req() req: Request, @Res() res: Response) {
 
         try {
-            const { email, username, password, name } = body;
+            const { email, username, password, firstName, lastName } = body;
             const finalUsername = username || email.split('@')[0];
 
             const existingUser = await this.authService.findUserByUsername(finalUsername);
@@ -63,7 +63,7 @@ export class AuthenticationController {
                 body: {
                     email: email,
                     password: password,
-                    name: name,
+                    name: [firstName, lastName].filter(Boolean).join(' '),
                 },
                 asResponse: true,
             });

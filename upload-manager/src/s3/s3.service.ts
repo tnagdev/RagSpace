@@ -5,6 +5,10 @@ import {
     GetObjectCommand,
     DeleteObjectCommand,
     HeadObjectCommand,
+    CreateMultipartUploadCommand,
+    UploadPartCommand,
+    CompleteMultipartUploadCommand,
+    AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -16,6 +20,18 @@ export interface UploadResult {
     bucket: string;
     url: string;
     size: number;
+}
+
+export interface MultipartUploadInitResult {
+    uploadId: string;
+    key: string;
+    bucket: string;
+    presignedUrls: string[];
+}
+
+export interface CompletedPart {
+    ETag: string;
+    PartNumber: number;
 }
 
 @Injectable()
@@ -176,6 +192,142 @@ export class S3Service {
             };
         } catch (error) {
             this.logger.error(`Error getting file metadata: ${key}`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Initialize multipart upload and generate presigned URLs for each part
+     */
+    async initMultipartUpload(
+        fileName: string,
+        fileSize: number,
+        mimeType: string,
+        userId: string,
+        chunkSize: number = 5 * 1024 * 1024, // 5MB default
+    ): Promise<MultipartUploadInitResult> {
+        try {
+            const fileExtension = path.extname(fileName);
+            const generatedFileName = `${uuidv4()}${fileExtension}`;
+            const key = `uploads/${userId}/${new Date().getFullYear()}/${new Date().getMonth() + 1}/${generatedFileName}`;
+
+            // Create multipart upload
+            const createCommand = new CreateMultipartUploadCommand({
+                Bucket: this.bucket,
+                Key: key,
+                ContentType: mimeType,
+                Metadata: {
+                    originalName: fileName,
+                    userId,
+                    uploadDate: new Date().toISOString(),
+                },
+            });
+
+            const { UploadId } = await this.s3Client.send(createCommand);
+
+            if (!UploadId) {
+                throw new Error('Failed to initialize multipart upload');
+            }
+
+            // Calculate number of parts
+            const numParts = Math.ceil(fileSize / chunkSize);
+
+            // Generate presigned URLs for each part
+            const presignedUrls: string[] = [];
+            for (let partNumber = 1; partNumber <= numParts; partNumber++) {
+                const uploadPartCommand = new UploadPartCommand({
+                    Bucket: this.bucket,
+                    Key: key,
+                    UploadId,
+                    PartNumber: partNumber,
+                });
+
+                const presignedUrl = await getSignedUrl(
+                    this.s3Client,
+                    uploadPartCommand,
+                    { expiresIn: 3600 }, // 1 hour
+                );
+                presignedUrls.push(presignedUrl);
+            }
+
+            this.logger.log(
+                `Multipart upload initialized: ${UploadId}, ${numParts} parts`,
+            );
+
+            return {
+                uploadId: UploadId,
+                key,
+                bucket: this.bucket,
+                presignedUrls,
+            };
+        } catch (error) {
+            this.logger.error('Error initializing multipart upload', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Complete multipart upload
+     */
+    async completeMultipartUpload(
+        key: string,
+        uploadId: string,
+        parts: CompletedPart[],
+    ): Promise<UploadResult> {
+        try {
+            const completeCommand = new CompleteMultipartUploadCommand({
+                Bucket: this.bucket,
+                Key: key,
+                UploadId: uploadId,
+                MultipartUpload: {
+                    Parts: parts.map((part) => ({
+                        ETag: part.ETag,
+                        PartNumber: part.PartNumber,
+                    })),
+                },
+            });
+
+            await this.s3Client.send(completeCommand);
+
+            const url = await this.getSignedUrl(key);
+
+            this.logger.log(`Multipart upload completed: ${key}`);
+
+            // Calculate total size from parts (approximation)
+            const size = parts.length * 5 * 1024 * 1024; // Rough estimate
+
+            return {
+                key,
+                bucket: this.bucket,
+                url,
+                size,
+            };
+        } catch (error) {
+            this.logger.error('Error completing multipart upload', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Abort multipart upload
+     */
+    async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+        try {
+            const abortCommand = new AbortMultipartUploadCommand({
+                Bucket: this.bucket,
+                Key: key,
+                UploadId: uploadId,
+            });
+
+            await this.s3Client.send(abortCommand);
+            this.logger.log(`Multipart upload aborted: ${uploadId}`);
+        } catch (error) {
+            // If the upload doesn't exist (already completed or never existed), that's fine
+            if (error.name === 'NoSuchUpload' || error.Code === 'S3Error') {
+                this.logger.warn(`Multipart upload ${uploadId} does not exist (may have been completed or aborted already)`);
+                return; // Gracefully handle this case
+            }
+            this.logger.error('Error aborting multipart upload', error);
             throw error;
         }
     }

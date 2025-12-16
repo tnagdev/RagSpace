@@ -23,6 +23,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { ConfigService } from '@nestjs/config';
 import { UpdateFileDto } from './dto/update-file.dto';
+import { InitMultipartUploadDto } from './dto/init-multipart.dto';
+import { CompleteMultipartUploadDto } from './dto/complete-multipart.dto';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
@@ -100,6 +102,43 @@ export class UploadController {
     @Delete(':id')
     async deleteFile(@Param('id') id: string, @CurrentUser() user: AuthUser) {
         return this.uploadService.deleteFile(id, user);
+    }
+
+    @Post('multipart/init')
+    async initMultipartUpload(
+        @Body() dto: InitMultipartUploadDto,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.uploadService.initMultipartUpload(
+            dto.fileName,
+            dto.fileSize,
+            dto.mimeType,
+            dto.chunkSize || 5 * 1024 * 1024, // Default 5MB
+            user,
+        );
+    }
+
+    @Post('multipart/complete')
+    async completeMultipartUpload(
+        @Body() dto: CompleteMultipartUploadDto,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.uploadService.completeMultipartUpload(
+            dto.fileId,
+            dto.key,
+            dto.uploadId,
+            dto.parts,
+            dto.totalSize,
+            user,
+        );
+    }
+
+    @Delete('multipart/abort/:fileId')
+    async abortMultipartUpload(
+        @Param('fileId') fileId: string,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.uploadService.abortMultipartUpload(fileId, user);
     }
 
     @Get('health')

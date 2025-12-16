@@ -93,6 +93,7 @@ export class ProxyService {
             timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
+            validateStatus: () => true, // Accept all status codes as valid
         };
 
         this.logger.log(`Request config for ${service.name}:`, {
