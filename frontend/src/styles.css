@@ -175,7 +175,7 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-card-hover-border);
   border-radius: 4px;
 }
 
@@ -291,6 +291,14 @@ input:-webkit-autofill::first-line {
   --color-header-bg: #1a1625;
   --color-header-border: rgba(255, 255, 255, 0.1);
 
+  /* Card Colors */
+  --color-card-bg: #13132e;
+  --color-card-hover-bg: #1a1a3e;
+  --color-card-border: rgba(168, 85, 247, 0.15);
+  --color-card-hover-border: rgba(168, 85, 247, 0.4);
+  --color-card-badge-bg: rgba(168, 85, 247, 0.08);
+  --color-card-badge-border: rgba(168, 85, 247, 0.2);
+
   /* Gradient Colors */
   --gradient-primary-start: #a855f7;
   --gradient-primary-end: #ec4899;
@@ -351,6 +359,14 @@ input:-webkit-autofill::first-line {
   --brand-secondary: #ec4899;
   --brand-tertiary: #f472b6;
   --brand-dark: #7c3aed;
+
+  /* Card Custom Colors for Tailwind */
+  --card: var(--color-card-bg);
+  --card-hover: var(--color-card-hover-bg);
+  --card-border: var(--color-card-border);
+  --card-hover-border: var(--color-card-hover-border);
+  --card-badge: var(--color-card-badge-bg);
+  --card-badge-border: var(--color-card-badge-border);
 }
 
 /* Shimmer animation for processing progress bar */

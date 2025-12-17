@@ -85,6 +85,11 @@ export class UploadController {
         return this.uploadService.getFiles(user.id, query);
     }
 
+    @Get('storage/stats')
+    async getStorageStats(@CurrentUser() user: AuthUser) {
+        return this.uploadService.getStorageStats(user.id);
+    }
+
     @Get(':id')
     async getFile(@Param('id') id: string, @CurrentUser() user: AuthUser) {
         return this.uploadService.getFileById(id, user.id);

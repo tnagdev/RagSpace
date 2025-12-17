@@ -59,14 +59,35 @@ const FilesPage = () => {
         async (files: File[]) => {
             files.forEach(async (file) => {
                 try {
-                    const response = await uploadMutation.mutateAsync({
+                    const fakeId = `uploading-${Date.now()}-${file.name}`;
+                    setPollingFiles((prev) => [...prev, {
+                        id:
+                            fakeId, file: {
+                                id: fakeId,
+                                originalFilename: file.name,
+                                filename: file.name,
+                                processingStage: 'UPLOAD',
+                                fileSize: file.size,
+                                mimeType: file.type,
+                            } as any
+                    }]);
+                    setUploadProgress((prev) => ({
+                        ...prev,
+                        [fakeId]: 0,
+                    }));
+
+                    await uploadMutation.mutateAsync({
                         file,
                         onInit: (fileRecord) => {
-                            setPollingFiles((prev) => [...prev, { id: fileRecord.id, file: fileRecord }]);
-                            setUploadProgress((prev) => ({
-                                ...prev,
-                                [fileRecord.id]: 0,
-                            }));
+                            setPollingFiles((prev) => prev.map((pf) => pf.id === fakeId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf));
+                            setUploadProgress((prev) => {
+                                const newProgress = { ...prev };
+                                delete newProgress[fakeId];
+                                return {
+                                    ...newProgress,
+                                    [fileRecord.id]: 0,
+                                };
+                            });
                         },
                         onProgress: (fileRecord, progress) => {
                             if (fileRecord.id) {
@@ -76,7 +97,7 @@ const FilesPage = () => {
                                 }));
                             }
                         },
-                        onError: (fileRecord, error) => {
+                        onError: (error, fileRecord) => {
                             if (fileRecord && fileRecord.id) {
                                 setPollingFiles((prev) => prev.filter((f) => f.id !== fileRecord.id));
                                 setUploadProgress((prev) => {
@@ -142,10 +163,6 @@ const FilesPage = () => {
         [deleteMutation, refetch]
     );
 
-    const handleRefresh = useCallback(() => {
-        refetch();
-    }, [refetch]);
-
     return (
         <div className="flex gap-6 h-full">
             {/* Left Upload Section */}
@@ -161,7 +178,6 @@ const FilesPage = () => {
                         </div>
                         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                             {allProcessingFiles.map(({ id, file }) => {
-                                // Get latest file data from API if available
                                 const latestFile = filesData?.files.find(f => f.id === id);
 
                                 return (
@@ -189,15 +205,15 @@ const FilesPage = () => {
                             Your Media Library
                         </h1>
                         <p className="text-sm text-text-secondary">
-                            {completedFiles.length} {completedFiles.length === 1 ? 'file' : 'files'} completed
+                            {completedFiles.length} {completedFiles.length === 1 ? 'file' : 'files'}
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
                         <Button
                             variant="secondary"
                             size="md"
-                            icon={<RefreshCw className="w-4 h-4" />}
-                            onClick={handleRefresh}
+                            icon={<RefreshCw className={`w-4 h-4 ${isLoadingFiles ? 'animate-spin' : ''}`} />}
+                            onClick={() => refetch()}
                             disabled={isLoadingFiles}
                         >
                             Refresh
@@ -216,7 +232,7 @@ const FilesPage = () => {
                     ) : completedFiles.length === 0 ? (
                         <div className="flex items-center justify-center h-64">
                             <div className="text-center">
-                                <p className="text-text-secondary mb-2">No completed files yet</p>
+                                <p className="text-text-secondary mb-2">No files yet</p>
                                 <p className="text-sm text-text-muted">Upload your first file to get started</p>
                             </div>
                         </div>

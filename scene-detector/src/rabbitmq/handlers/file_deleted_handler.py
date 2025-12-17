@@ -15,9 +15,9 @@ async def handle_file_deleted(event: FileDeletedEventModel):
             await prisma_service.connect()
         
         deleted = await prisma_service.prisma.scene.delete_many(
-            where={"fileId": event.file_id}
+            where={"fileId": event.fileId}
         )
-        logger.info(f"Deleted {deleted} scenes for file: {event.file_id}")
+        logger.info(f"Deleted {deleted} scenes for file: {event.fileId}")
         
     except Exception as e:
-        logger.error(f"Failed to delete scenes for file {event.file_id}: {e}", exc_info=True)
+        logger.error(f"Failed to delete scenes for file {event.fileId}: {e}", exc_info=True)

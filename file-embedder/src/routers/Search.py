@@ -47,14 +47,30 @@ async def query_embeddings(
         if not user_id and hasattr(request.state, 'user'):
             user_id = request.state.user.get("id") if request.state.user else None
         
-        filters = {}
-        filter_fields = ["file_id", "file_type"]
-        for field in filter_fields:
-            if getattr(body, field) is not None:
-                filters[field] = getattr(body, field)
-
+        # Build ChromaDB where filter with proper operators
+        filters = None
+        filter_conditions = []
+        
+        # Add file_ids filter (use $or for multiple files)
+        if body.file_ids and len(body.file_ids) > 0:
+            if len(body.file_ids) == 1:
+                filter_conditions.append({"file_id": body.file_ids[0]})
+            else:
+                filter_conditions.append({"$or": [{"file_id": fid} for fid in body.file_ids]})
+        
+        # Add file_type filter
+        if body.file_type:
+            filter_conditions.append({"file_type": body.file_type})
+        
+        # Add user_id filter
         if user_id:
-            filters["user_id"] = user_id
+            filter_conditions.append({"user_id": user_id})
+        
+        # Combine all conditions with $and if multiple exist
+        if len(filter_conditions) == 1:
+            filters = filter_conditions[0]
+        elif len(filter_conditions) > 1:
+            filters = {"$and": filter_conditions}
         
         options = {
             "top_k": body.top_k,

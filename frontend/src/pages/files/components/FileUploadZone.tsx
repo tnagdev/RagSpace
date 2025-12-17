@@ -45,7 +45,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
         <div
             onDrop={handleDrop}
             onDragOver={handleDragOver}
-            className="border-2 border-dashed border-sidebar-border rounded-xl p-8 text-center bg-bg-secondary/30 hover:bg-bg-secondary/50 hover:border-accent-primary transition-all cursor-pointer"
+            className="relative border-2 border-dashed border-sidebar-border rounded-xl p-8 text-center bg-bg-secondary/30 hover:bg-bg-secondary/50 hover:border-accent-primary transition-all cursor-pointer"
         >
             <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-bg-tertiary flex items-center justify-center">
@@ -59,19 +59,14 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
                         AI will automatically organize them into smart folders with context-aware tagging
                     </p>
                 </div>
-                <div className="relative">
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple={multiple}
-                        accept={accept}
-                        onChange={handleFileInput}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <Button size="md" variant="primary">
-                        Upload
-                    </Button>
-                </div>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple={multiple}
+                    accept={accept}
+                    onChange={handleFileInput}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
             </div>
         </div>
     );

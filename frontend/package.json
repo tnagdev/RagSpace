@@ -21,6 +21,7 @@
     "axios": "^1.13.2",
     "formik": "^2.4.9",
     "lucide-react": "^0.544.0",
+    "moment": "^2.30.1",
     "nitro": "latest",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

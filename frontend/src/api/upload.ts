@@ -4,11 +4,13 @@ import type {
     FileListResponseDto,
     GetFilesQueryDto,
     UpdateFileDto,
+    StorageStatsDto,
 } from '@/types/upload.types';
 import axios from 'axios';
 
 const UPLOAD_BASE = '/api/upload';
 const CHUNK_SIZE = 10 * 1024 * 1024;
+const uploadAbortControllers = new Map<string, AbortController>();
 
 interface MultipartInitResponse {
     fileId: string;
@@ -30,34 +32,9 @@ export const uploadAPI = {
         onProgress?: (fileRecord: FileResponseDto, progress: number) => void,
         onInit?: (fileRecord: FileResponseDto) => void,
         onComplete?: (fileRecord: FileResponseDto) => void,
-        onError?: (fileRecord: FileResponseDto, error: Error) => void
+        onError?: (error: Error, fileRecord?: FileResponseDto) => void
     ): Promise<FileResponseDto> => {
-        if (file.size > CHUNK_SIZE) {
-            return uploadAPI.uploadFileChunked(file, onProgress, onInit, onComplete, onError);
-        }
-
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await privateAxios.post<FileResponseDto>(UPLOAD_BASE, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-                onUploadProgress: (progressEvent) => {
-                    if (progressEvent.total) {
-                        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                        onProgress?.(response.data, progress);
-                    }
-                },
-            });
-            onComplete?.(response.data);
-            return response.data;
-        } catch (error) {
-            if (error instanceof Error) {
-                onError?.(null, error);
-            }
-            throw error;
-        }
+        return uploadAPI.uploadFileChunked(file, onProgress, onInit, onComplete, onError);
     },
 
     uploadFileChunked: async (
@@ -65,9 +42,11 @@ export const uploadAPI = {
         onProgress?: (fileRecord: FileResponseDto, progress: number) => void,
         onInit?: (fileRecord: FileResponseDto) => void,
         onComplete?: (fileRecord: FileResponseDto) => void,
-        onError?: (fileRecord: FileResponseDto, error: Error) => void
+        onError?: (error: Error, fileRecord?: FileResponseDto) => void
     ): Promise<FileResponseDto> => {
-        let uploadedFile: FileResponseDto;
+        let uploadedFile: FileResponseDto | undefined = undefined;
+        let abortController: AbortController;
+
         try {
             const initResponse = await privateAxios.post<MultipartInitResponse>(
                 `${UPLOAD_BASE}/multipart/init`,
@@ -79,7 +58,10 @@ export const uploadAPI = {
                 }
             );
             const { fileId, uploadId, key, presignedUrls, file: fileRecord } = initResponse.data;
-            const uploadedFile = fileRecord;
+            uploadedFile = fileRecord;
+            abortController = new AbortController();
+            uploadAbortControllers.set(fileId, abortController);
+
             if (onInit && fileRecord) {
                 onInit(fileRecord);
             }
@@ -93,10 +75,12 @@ export const uploadAPI = {
                 const end = Math.min(start + CHUNK_SIZE, file.size);
                 const chunk = file.slice(start, end);
                 const presignedUrl = presignedUrls[i];
+
                 const uploadResponse = await axios.put(presignedUrl, chunk, {
                     headers: {
                         'Content-Type': file.type,
                     },
+                    signal: abortController.signal,
                     onUploadProgress: (progressEvent) => {
                         const chunkProgress = progressEvent.loaded || 0;
                         const totalUploaded = uploadedBytes + chunkProgress;
@@ -127,18 +111,33 @@ export const uploadAPI = {
                     totalSize: file.size,
                 }
             );
+
+            uploadAbortControllers.delete(fileId);
             onComplete?.(completeResponse.data);
             return completeResponse.data;
         } catch (error) {
             console.error('Chunked upload failed:', error);
+            if (uploadedFile?.id) {
+                uploadAbortControllers.delete(uploadedFile.id);
+            }
+
+            if (axios.isCancel(error)) {
+                console.log('Upload cancelled by user');
+            }
+
             if (error instanceof Error) {
-                onError?.(uploadedFile, error);
+                onError?.(error, uploadedFile);
             }
             throw error;
         }
     },
 
     abortMultipartUpload: async (fileId: string): Promise<void> => {
+        const abortController = uploadAbortControllers.get(fileId);
+        if (abortController) {
+            abortController.abort();
+            uploadAbortControllers.delete(fileId);
+        }
         await privateAxios.delete(`${UPLOAD_BASE}/multipart/abort/${fileId}`);
     },
 
@@ -161,5 +160,10 @@ export const uploadAPI = {
 
     deleteFile: async (id: string): Promise<void> => {
         await privateAxios.delete(`${UPLOAD_BASE}/${id}`);
+    },
+
+    getStorageStats: async (): Promise<StorageStatsDto> => {
+        const response = await privateAxios.get<StorageStatsDto>(`${UPLOAD_BASE}/storage/stats`);
+        return response.data;
     },
 };

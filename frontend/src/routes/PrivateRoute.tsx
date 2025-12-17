@@ -3,8 +3,9 @@ import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
 import { useCurrentUser } from "@/hooks/auth";
-import { Activity, Settings, Globe, Briefcase, BarChart3, FileText, Folder } from 'lucide-react';
+import { Activity, Settings, Globe, Briefcase, BarChart3, FileText, Folder, Search } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
+import SearchPage from "@/pages/search/SearchPage";
 
 
 export interface NavRoute {
@@ -31,19 +32,23 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Files',
                 path: '/',
                 component: () => <FilesPage />,
-            },
-            {
-                name: 'Execution Log Details',
-                path: '$id',
-                component: () => <div>Execution Log Details</div>,
-            },
-            {
-                name: 'Task Details',
-                path: '$id/task/$taskId',
-                component: () => <div>Task Details</div>,
             }
         ],
     },
+    {
+        name: 'Search',
+        path: '/search',
+        component: () => <Outlet />,
+        nav: true,
+        icon: Search,
+        children: [
+            {
+                name: 'Search',
+                path: '/',
+                component: () => <SearchPage />,
+            }
+        ],
+    }
 ];
 
 

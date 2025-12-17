@@ -230,6 +230,32 @@ export class UploadService {
         };
     }
 
+    async getStorageStats(userId: string) {
+        const result = await this.prisma.file.aggregate({
+            where: {
+                userId,
+                uploadStatus: UploadStatus.COMPLETED
+            },
+            _sum: {
+                fileSize: true,
+            },
+            _count: true,
+        });
+
+        const usedBytes = result._sum.fileSize || 0;
+        const totalBytes = 100 * 1024 * 1024 * 1024; // 100GB in bytes
+        const fileCount = result._count;
+
+        return {
+            usedBytes,
+            totalBytes,
+            usedGB: (usedBytes / (1024 * 1024 * 1024)).toFixed(2),
+            totalGB: 100,
+            usedPercentage: ((usedBytes / totalBytes) * 100).toFixed(1),
+            fileCount,
+        };
+    }
+
     async deleteFile(id: string, user: AuthUser) {
         const file = await this.getFileById(id, user.id);
 

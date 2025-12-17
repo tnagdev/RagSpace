@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Logo } from './Logo';
 import { IconButton } from './IconButton';
 import { NavLink } from './NavLink';
+import { useStorageStats } from '@/hooks/useUpload';
 
 
 interface SidebarProps {
@@ -29,6 +30,7 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     const { isOpen, setIsOpen } = useContext(SidebarContext);
     const navigate = useNavigate();
     const location = useLocation();
+    const { data: storageStats, isLoading: isLoadingStorage } = useStorageStats();
 
     const handleNavClick = async (item: any, e: React.MouseEvent) => {
         if (item?.path === '/countries') {
@@ -93,12 +95,25 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
                     Upgrade
                 </span>
             </div>
-            <div className="mb-2">
-                <div className="w-full bg-sidebar-border rounded-full h-2">
-                    <div className="bg-linear-to-r from-gradient-primary-start to-gradient-primary-end h-2 rounded-full" style={{ width: '38%' }}></div>
-                </div>
-            </div>
-            <p className="text-xs text-text-muted">38.8 of 100 GB</p>
+            {isLoadingStorage ? (
+                <div className="text-xs text-text-muted">Loading...</div>
+            ) : storageStats ? (
+                <>
+                    <div className="mb-2">
+                        <div className="w-full bg-sidebar-border rounded-full h-2">
+                            <div
+                                className="bg-linear-to-r from-gradient-primary-start to-gradient-primary-end h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${storageStats.usedPercentage}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                    <p className="text-xs text-text-muted">
+                        {storageStats.usedGB} of {storageStats.totalGB} GB ({storageStats.fileCount} files)
+                    </p>
+                </>
+            ) : (
+                <p className="text-xs text-text-muted">Unable to load storage info</p>
+            )}
         </div>
     </aside>
 }

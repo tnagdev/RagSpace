@@ -35,7 +35,7 @@ class ImageEmbedderService(TextEmbedderService):
         self.model.eval().to(self.device)
         super().__init__(text_model_name=text_model_name, **kwargs)
     
-    def embed_image(self, image_path: str) -> np.ndarray:
+    def embed_image(self, image_path: str) -> np.ndarray | None:
         """
         Generate embedding for an image using CLIP.
         """
@@ -57,7 +57,7 @@ class ImageEmbedderService(TextEmbedderService):
             return None
 
     @validate_call
-    def embed_text_with_clip(self, text: str) -> Tensor:
+    def embed_text_with_clip(self, text: str) -> np.ndarray | None:
         """
         Generate text embedding using CLIP's text encoder (512-dim).
         This is compatible with image embeddings from CLIP.

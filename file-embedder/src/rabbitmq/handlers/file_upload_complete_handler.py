@@ -73,7 +73,7 @@ async def process_image(event: UploadCompletedEventModel):
                 "vector": embedding,
                 "text": text
             }
-        ]
+        ] if embedding is not None else []
 
 
         text_items = [
@@ -86,15 +86,19 @@ async def process_image(event: UploadCompletedEventModel):
                 "vector": text_embedding,
                 "text": text
             }
-        ] if text is not None else []
+        ] if text and text_embedding is not None else []
 
         if image_items:
             chroma_db.upsert_items(chroma_db.image_index_name, image_items)
+            logger.info(f"Successfully embedded image for file: {file_id}")
+        else:
+            logger.warning(f"No image embedding generated for file: {file_id}")
+            
         if text_items:
             chroma_db.upsert_items(chroma_db.text_index_name, text_items)
-            logger.info(f"Successfully embedded image for file: {file_id}, {len(image_items)} segments")
+            logger.info(f"Successfully embedded text from image for file: {file_id}")
         else:
-            logger.warning(f"No image segments to embed for file: {file_id}")
+            logger.warning(f"No text embedding generated for file: {file_id}")
     
     except Exception as e:
         logger.error(f"Error processing image file {event.fileId}: {e}", exc_info=True)

@@ -5,6 +5,7 @@ import type {
     FileListResponseDto,
     GetFilesQueryDto,
     UpdateFileDto,
+    StorageStatsDto,
 } from '@/types/upload.types';
 
 
@@ -14,6 +15,9 @@ export const uploadKeys = {
     list: (query?: GetFilesQueryDto) => [...uploadKeys.lists(), query] as const,
     details: () => [...uploadKeys.all, 'detail'] as const,
     detail: (id: string) => [...uploadKeys.details(), id] as const,
+    mutations: () => [...uploadKeys.all, 'mutation'] as const,
+    mutation: (fileId: string) => [...uploadKeys.mutations(), fileId] as const,
+    storage: () => [...uploadKeys.all, 'storage'] as const,
 };
 
 interface UploadFileParams {
@@ -21,18 +25,22 @@ interface UploadFileParams {
     onProgress?: (fileRecord: FileResponseDto, progress: number) => void;
     onInit?: (fileRecord: FileResponseDto) => void;
     onComplete?: (fileRecord: FileResponseDto) => void;
-    onError?: (fileRecord: FileResponseDto, error: Error) => void;
+    onError?: (error: Error, fileRecord?: FileResponseDto) => void;
 }
 
 export const useUploadFile = (
-    options?: Omit<UseMutationOptions<FileResponseDto, Error, UploadFileParams>, 'mutationFn'>
+    options?: Omit<UseMutationOptions<FileResponseDto, Error, UploadFileParams>, 'mutationFn' | 'mutationKey'>
 ) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ file, onProgress, onInit, onComplete, onError }: UploadFileParams) =>
-            uploadAPI.uploadFile(file, onProgress, onInit, onComplete, onError),
+        mutationFn: async ({ file, onProgress, onInit, onComplete, onError }: UploadFileParams) => {
+            const result = await uploadAPI.uploadFile(file, onProgress, onInit, onComplete, onError);
+            return result;
+        },
+        mutationKey: uploadKeys.mutations(),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
         },
         ...options,
     });
@@ -88,6 +96,7 @@ export const useDeleteFile = (
         onSuccess: (_data, variables) => {
             queryClient.removeQueries({ queryKey: uploadKeys.detail(variables) });
             queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
         },
         ...options,
     });
@@ -102,6 +111,8 @@ export const useAbortMultipartUpload = (
         mutationFn: (fileId: string) => uploadAPI.abortMultipartUpload(fileId),
         onSuccess: (_data, variables) => {
             queryClient.removeQueries({ queryKey: uploadKeys.detail(variables) });
+            queryClient.removeQueries({ queryKey: uploadKeys.mutations() });
+            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
             queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
         },
         ...options,
@@ -131,5 +142,15 @@ export const useFilePolling = (
             return interval;
         },
         refetchIntervalInBackground: true,
+    });
+};
+export const useStorageStats = (
+    options?: Omit<UseQueryOptions<StorageStatsDto, Error>, 'queryKey' | 'queryFn'>
+) => {
+    return useQuery({
+        queryKey: uploadKeys.storage(),
+        queryFn: () => uploadAPI.getStorageStats(),
+        staleTime: 1000 * 60 * 5, // Consider data fresh for 5 minutes
+        ...options,
     });
 };

@@ -153,7 +153,7 @@ export const Drawer: React.FC<DrawerProps> = ({
             <div
                 ref={drawerRef}
                 className={twMerge(
-                    'absolute top-0 bottom-0 bg-white shadow-xl flex flex-col',
+                    'absolute top-0 bottom-0 shadow-xl flex flex-col',
                     positionClasses,
                     widthClasses[width],
                     slideAnimation,
@@ -164,8 +164,8 @@ export const Drawer: React.FC<DrawerProps> = ({
             >
                 {/* Header */}
                 {(showHeader && (title || showCloseButton)) && (
-                    <div className="flex items-center justify-between p-6 border-b border-gray-200 shrink-0">
-                        {title && <h2 className="text-xl font-semibold text-gray-900">{title}</h2>}
+                    <div className="flex items-center justify-between p-6 shrink-0">
+                        {title && <h2 className="text-xl font-semibold">{title}</h2>}
                         {showCloseButton && (
                             <button
                                 onClick={handleClose}

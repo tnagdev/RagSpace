@@ -73,3 +73,12 @@ export interface UpdateFileDto {
     filename?: string;
     metadata?: any;
 }
+
+export interface StorageStatsDto {
+    usedBytes: number;
+    totalBytes: number;
+    usedGB: string;
+    totalGB: number;
+    usedPercentage: string;
+    fileCount: number;
+}
