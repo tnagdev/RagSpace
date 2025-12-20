@@ -42,6 +42,7 @@ export interface FileResponseDto {
     fileType: FileType;
     s3Key: string;
     s3Url?: string;
+    thumbnailUrl?: string; // Generated signed URL from thumbnailPath
     uploadStatus: UploadStatus;
     processingStatus: ProcessingStatus;
     processingStage: ProcessingStage;

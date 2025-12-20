@@ -63,16 +63,77 @@ class SceneProcessor:
             work_dir = tempfile.mkdtemp(dir=self.temp_dir)
             logger.info(f"Created work directory: {work_dir}")
 
-            video_filename = os.path.basename(file_record['s3Key'])
-            video_path = os.path.join(work_dir, video_filename)
+            file_type = file_record.get('fileType', '').upper()
+            filename = os.path.basename(file_record['s3Key'])
+            file_path = os.path.join(work_dir, filename)
 
             await self.s3_service.download_file(
                 file_record['s3Key'], 
-                video_path,
+                file_path,
                 bucket=file_record.get('s3Bucket', 'user-uploads')
             )
 
-            scenes_data = await self.scene_detection_service.detect_scenes(video_path)
+            # Generate and upload file thumbnail
+            thumbnail_path = None
+            try:
+                thumbnail_filename = f"thumbnail_{file_id}.jpg"
+                thumbnail_local_path = os.path.join(work_dir, thumbnail_filename)
+                
+                await self.scene_detection_service.generate_file_thumbnail(
+                    file_path,
+                    file_type,
+                    thumbnail_local_path
+                )
+                
+                year = datetime.utcnow().year
+                month = datetime.utcnow().month
+                thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/{file_id}.jpg"
+                
+                # Use the same bucket as the original file
+                original_bucket = file_record.get('s3Bucket', 'user-uploads')
+                
+                # Temporarily override bucket for thumbnail upload
+                original_s3_bucket = self.s3_service.bucket
+                self.s3_service.bucket = original_bucket
+                
+                thumbnail_url = await self.s3_service.upload_file(
+                    thumbnail_local_path,
+                    thumbnail_s3_key,
+                    content_type='image/jpeg'
+                )
+                
+                # Restore original bucket
+                self.s3_service.bucket = original_s3_bucket
+                
+                logger.info(f"Generated and uploaded file thumbnail to bucket '{original_bucket}': {thumbnail_s3_key}")
+                
+                # Update file record with thumbnail path (S3 key)
+                await self.upload_manager_client.update_file_status(
+                    file_id,
+                    UpdateFileStatusParams(
+                        metadata={
+                            'thumbnailPath': thumbnail_s3_key
+                        }
+                    )
+                )
+                
+            except Exception as thumb_error:
+                logger.error(f"Failed to generate file thumbnail: {thumb_error}", exc_info=True)
+                # Continue processing even if thumbnail fails
+
+            # Only process scenes for video files
+            if file_type != 'VIDEO':
+                logger.info(f"Skipping scene detection for non-video file: {file_type}")
+                return await self.upload_manager_client.update_file_status(
+                    file_id,
+                    UpdateFileStatusParams(
+                        processingStatus=ProcessingStatus.COMPLETED.value,
+                        processingStage=ProcessingStage.COMPLETED.value,
+                        processingCompletedAt=datetime.utcnow()
+                    )
+                )
+
+            scenes_data = await self.scene_detection_service.detect_scenes(file_path)
             
             if not scenes_data:
                 logger.warning(f"No scenes detected in file: {file_id}")
@@ -99,7 +160,7 @@ class SceneProcessor:
                     thumbnail_path = os.path.join(work_dir, thumbnail_filename)
 
                     await self.scene_detection_service.extract_thumbnail(
-                        video_path,
+                        file_path,
                         scene_data['keyframe'],
                         thumbnail_path
                     )

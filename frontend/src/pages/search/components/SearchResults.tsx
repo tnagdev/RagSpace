@@ -80,10 +80,10 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                         id: fileId,
                                         title: (
                                             <div className="flex items-start gap-4 py-1">
-                                                {firstResult.scene_details?.thumbnailUrl && (
+                                                {(firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
                                                     <img
-                                                        src={firstResult.scene_details.thumbnailUrl}
-                                                        alt={`Scene ${firstResult.scene_details.sceneNumber}`}
+                                                        src={firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
+                                                        alt={firstResult.scene_details?.thumbnailUrl ? `Scene ${firstResult.scene_details.sceneNumber}` : fileDetails?.fileName}
                                                         className="w-32 h-24 object-cover rounded"
                                                     />
                                                 )}
@@ -132,10 +132,10 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                                         )}
                                                     >
                                                         <div className="flex items-start gap-3">
-                                                            {result.scene_details?.thumbnailUrl && (
+                                                            {(result.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
                                                                 <img
-                                                                    src={result.scene_details.thumbnailUrl}
-                                                                    alt={`Scene ${result.scene_details.sceneNumber}`}
+                                                                    src={result.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
+                                                                    alt={result.scene_details?.thumbnailUrl ? `Scene ${result.scene_details.sceneNumber}` : fileDetails?.fileName}
                                                                     className="w-24 h-16 object-cover rounded"
                                                                 />
                                                             )}
@@ -190,17 +190,17 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                         )}
                     >
                         <div className="flex items-start gap-4">
-                            {isImage && fileDetails?.url && (
+                            {isImage && (fileDetails?.url || fileDetails?.thumbnailUrl) && (
                                 <img
-                                    src={fileDetails.url}
+                                    src={fileDetails?.url || fileDetails?.thumbnailUrl}
                                     alt={fileDetails.fileName}
                                     className="w-32 h-24 object-cover rounded"
                                 />
                             )}
-                            {isVideo && firstResult.scene_details?.thumbnailUrl && (
+                            {isVideo && (firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
                                 <img
-                                    src={firstResult.scene_details.thumbnailUrl}
-                                    alt={`Scene ${firstResult.scene_details.sceneNumber}`}
+                                    src={firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
+                                    alt={firstResult.scene_details?.thumbnailUrl ? `Scene ${firstResult.scene_details.sceneNumber}` : fileDetails?.fileName}
                                     className="w-32 h-24 object-cover rounded"
                                 />
                             )}

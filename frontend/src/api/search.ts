@@ -6,7 +6,7 @@ const SEARCH_BASE = '/api/embed';
 export const searchAPI = {
     search: async (params: QueryRequest): Promise<QueryResponse> => {
         const response = await privateAxios.post<QueryResponse>(
-            `${SEARCH_BASE}/search`,
+            `${SEARCH_BASE}/search/advanced`,
             params
         );
         return response.data;

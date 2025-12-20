@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     # Scene Detection
     scene_detection_threshold: float = 27.0  # Default threshold for scene detection
     scene_detection_min_scene_length: int = 15  # Minimum scene length in frames
-    thumbnail_width: int = 1280
-    thumbnail_height: int = 720
-    thumbnail_quality: int = 85
+    thumbnail_width: int = 256
+    thumbnail_height: int = 256
+    thumbnail_quality: int = 70
     
     # Processing
     temp_dir: str = "/tmp/file-embedder"

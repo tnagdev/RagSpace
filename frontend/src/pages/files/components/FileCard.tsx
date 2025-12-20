@@ -3,6 +3,7 @@ import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, More
 import moment from 'moment';
 import type { FileResponseDto, FileType } from '@/types/upload.types';
 import Button from '@/components/Button';
+import { cn } from '@/lib/utils';
 
 interface FileCardProps {
     file: FileResponseDto;
@@ -63,9 +64,27 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
             <div className="relative p-5">
                 {/* Header Section */}
                 <div className="flex items-start justify-between mb-4">
-                    {/* Icon with gradient background */}
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br ${config.bgGradient} border border-sidebar-border/50 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
-                        <Icon className={`w-7 h-7 ${config.color}`} />
+                    {/* Thumbnail or Icon with gradient background */}
+                    <div className="w-14 h-14 rounded-xl border border-sidebar-border/50 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 overflow-hidden">
+                        {file.thumbnailUrl ? (
+                            <img
+                                src={file.thumbnailUrl}
+                                alt={file.originalFilename}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                    // Show icon on error
+                                    e.currentTarget.style.display = 'none';
+                                    const iconDiv = e.currentTarget.nextElementSibling as HTMLElement;
+                                    if (iconDiv) iconDiv.style.display = 'flex';
+                                }}
+                            />
+                        ) : null}
+                        <div
+                            className={`w-full h-full bg-gradient-to-br ${config.bgGradient} flex items-center justify-center`}
+                            style={{ display: file.thumbnailUrl ? 'none' : 'flex' }}
+                        >
+                            <Icon className={`w-7 h-7 ${config.color}`} />
+                        </div>
                     </div>
 
                     {/* Actions Menu */}

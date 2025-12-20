@@ -148,10 +148,23 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                                             : "bg-bg-tertiary/30 border-border-input hover:border-accent-primary/50"
                                     )}
                                 >
-                                    {/* Icon */}
+                                    {/* Thumbnail or Icon */}
+                                    {file.thumbnailUrl ? (
+                                        <img
+                                            src={file.thumbnailUrl}
+                                            alt={file.originalFilename}
+                                            className="w-16 h-12 object-cover rounded shrink-0"
+                                            onError={(e) => {
+                                                // Fallback to icon on error
+                                                e.currentTarget.style.display = 'none';
+                                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                            }}
+                                        />
+                                    ) : null}
                                     <div className={cn(
                                         "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
-                                        `bg-gradient-to-br ${config.bgGradient}`
+                                        `bg-gradient-to-br ${config.bgGradient}`,
+                                        file.thumbnailUrl && "hidden"
                                     )}>
                                         <Icon className={cn("w-5 h-5", config.color)} />
                                     </div>

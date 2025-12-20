@@ -12,9 +12,14 @@ ffmpeg-python
 scenedetect
 whisper
 openai-whisper
+transformers>=4.30.0
+torchaudio
 numpy
 Pillow
 python-dotenv
 httpx
 boto3
 pytesseract
+faiss-cpu
+spacy>=3.0.0
+networkx

@@ -98,6 +98,105 @@ class SceneDetectionService:
                 quality=settings.thumbnail_quality,
                 optimize=True
             )
+            
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Error extracting thumbnail: {e}", exc_info=True)
+            raise
+            
+    async def generate_file_thumbnail(
+        self,
+        file_path: str,
+        file_type: str,
+        output_path: str
+    ) -> str:
+        """Generate thumbnail for image or video file"""
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            if file_type.lower() == 'image':
+                # For images, open and resize
+                with Image.open(file_path) as img:
+                    # Fix rotation based on EXIF orientation
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except Exception:
+                        pass  # If EXIF data is not available, continue without rotation fix
+                    
+                    # Convert RGBA to RGB if needed
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        background = Image.new('RGB', img.size, (255, 255, 255))
+                        if img.mode == 'P':
+                            img = img.convert('RGBA')
+                        background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                        img = background
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    # Create square thumbnail with center crop
+                    # Calculate dimensions for center crop to square
+                    width, height = img.size
+                    size = min(width, height)
+                    left = (width - size) // 2
+                    top = (height - size) // 2
+                    right = left + size
+                    bottom = top + size
+                    
+                    img_cropped = img.crop((left, top, right, bottom))
+                    img_resized = img_cropped.resize(
+                        (settings.thumbnail_width, settings.thumbnail_height),
+                        Image.Resampling.LANCZOS
+                    )
+                    img_resized.save(
+                        output_path,
+                        'JPEG',
+                        quality=settings.thumbnail_quality,
+                        optimize=True
+                    )
+                    logger.info(f"Generated image thumbnail: {output_path}")
+                    
+            elif file_type.lower() == 'video':
+                # For videos, extract first frame
+                cap = cv2.VideoCapture(file_path)
+                ret, frame = cap.read()
+                cap.release()
+                
+                if not ret:
+                    raise Exception("Failed to read first frame from video")
+                
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(frame_rgb)
+                
+                # Create square thumbnail with center crop
+                width, height = image.size
+                size = min(width, height)
+                left = (width - size) // 2
+                top = (height - size) // 2
+                right = left + size
+                bottom = top + size
+                
+                img_cropped = image.crop((left, top, right, bottom))
+                img_resized = img_cropped.resize(
+                    (settings.thumbnail_width, settings.thumbnail_height),
+                    Image.Resampling.LANCZOS
+                )
+                img_resized.save(
+                    output_path,
+                    'JPEG',
+                    quality=settings.thumbnail_quality,
+                    optimize=True
+                )
+                logger.info(f"Generated video thumbnail: {output_path}")
+            else:
+                raise Exception(f"Unsupported file type for thumbnail: {file_type}")
+                
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Error generating thumbnail: {e}", exc_info=True)
+            raise
             cap.release()
             return output_path
             

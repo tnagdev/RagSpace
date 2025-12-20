@@ -7,6 +7,7 @@ export interface FileDetails {
     fileSize?: number;
     mimeType?: string;
     url?: string;
+    thumbnailUrl?: string;
     userId?: string;
 }
 
@@ -48,6 +49,10 @@ export interface QueryRequest {
     top_k?: number;
     text_weight?: number;
     image_weight?: number;
+    use_dynamic_retrieval?: boolean;
+    adaptive_scoring?: boolean;
+    enable_query_expansion?: boolean;
+    use_enhanced?: boolean;
 }
 
 export interface QueryResponse {

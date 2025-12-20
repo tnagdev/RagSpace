@@ -126,9 +126,25 @@ export class UploadService {
     }
 
     async updateFile(id: string, data: Partial<any>) {
+        // Extract thumbnailPath from metadata if present
+        const updateData = { ...data };
+        if (data.metadata && data.metadata.thumbnailPath) {
+            updateData.thumbnailPath = data.metadata.thumbnailPath;
+            // Remove thumbnailPath from metadata to avoid duplication
+            const { thumbnailPath, ...restMetadata } = data.metadata;
+            // Only update metadata if there are other fields
+            if (Object.keys(restMetadata).length > 0) {
+                updateData.metadata = restMetadata;
+            } else {
+                delete updateData.metadata;
+            }
+        }
+
+        this.logger.log(`Updating file ${id} with data:`, JSON.stringify(updateData));
+
         return this.prisma.file.update({
             where: { id },
-            data,
+            data: updateData,
         });
     }
 
@@ -146,9 +162,18 @@ export class UploadService {
 
         if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
             const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
+            let thumbnailUrl: string | null = null;
+            if (file.thumbnailPath) {
+                try {
+                    thumbnailUrl = await this.s3Service.getSignedUrl(file.thumbnailPath);
+                } catch (error) {
+                    this.logger.error(`Failed to generate signed URL for thumbnail ${file.thumbnailPath}:`, error);
+                }
+            }
             return {
                 ...file,
                 s3Url: signedUrl,
+                thumbnailUrl,
             };
         }
 
@@ -177,7 +202,16 @@ export class UploadService {
                     file.s3Url = signedUrl;
                 }
             } catch (error) {
-                this.logger.error(`Failed to get signed URL for file ${file.id}`, error);
+                this.logger.error(`Failed to get signed URL for file ${file.id}:`, error);
+            }
+
+            if (file.thumbnailPath) {
+                try {
+                    const thumbnailUrl = await this.s3Service.getSignedUrl(file.thumbnailPath);
+                    (file as any).thumbnailUrl = thumbnailUrl;
+                } catch (error) {
+                    this.logger.error(`Failed to get signed URL for thumbnail ${file.thumbnailPath}:`, error);
+                }
             }
             return file;
         });
@@ -217,7 +251,16 @@ export class UploadService {
                     file.s3Url = signedUrl;
                 }
             } catch (error) {
-                this.logger.error(`Failed to get signed URL for file ${file.id}`, error);
+                this.logger.error(`Failed to get signed URL for file ${file.id}:`, error);
+            }
+
+            if (file.thumbnailPath) {
+                try {
+                    const thumbnailUrl = await this.s3Service.getSignedUrl(file.thumbnailPath);
+                    (file as any).thumbnailUrl = thumbnailUrl;
+                } catch (error) {
+                    this.logger.error(`Failed to get signed URL for thumbnail ${file.thumbnailPath}:`, error);
+                }
             }
             return file;
         });
@@ -284,6 +327,16 @@ export class UploadService {
                 this.logger.log(`Deleted S3 file: ${file.s3Key}`);
             } catch (error) {
                 this.logger.error(`Failed to delete S3 file: ${error.message}`);
+            }
+        }
+
+        // Delete thumbnail from S3 if exists
+        if ((file as any).thumbnailPath) {
+            try {
+                await this.s3Service.deleteFile((file as any).thumbnailPath);
+                this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
+            } catch (error) {
+                this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
             }
         }
 

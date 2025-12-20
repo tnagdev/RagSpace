@@ -11,6 +11,7 @@ from src.config import settings
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.VideoEmbedderService import VideoEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
+from src.services.AdvancedRetrieverService import AdvancedRetrieverService
 from src.services.S3ClientService import S3ClientService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     AudioEmbedderService()
     VideoEmbedderService()
     ImageEmbedderService()
+    AdvancedRetrieverService()
     S3ClientService(
         endpoint=settings.aws_s3_endpoint,
         access_key=settings.aws_access_key_id,
