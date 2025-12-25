@@ -68,7 +68,7 @@ class S3Service:
             logger.error(f"Failed to download file from S3: {e}")
             raise    
         
-    async def upload_file(self, local_path: str, s3_key: str, content_type: str = 'image/jpeg') -> str:
+    async def upload_file(self, local_path: str, s3_key: str, content_type: str = 'image/jpeg', bucket: str = None) -> str:
         """Upload a file to S3"""
         try:
             logger.info(f"Uploading file to S3: {s3_key}")
@@ -76,7 +76,7 @@ class S3Service:
             # Upload file
             self.s3_client.upload_file(
                 local_path,
-                self.bucket,
+                bucket or self.bucket,
                 s3_key,
                 ExtraArgs={
                     'ContentType': content_type,

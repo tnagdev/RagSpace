@@ -35,7 +35,7 @@ export const SERVICES: Record<string, ServiceConfig> = {
     CHAT_MANAGER: {
         name: 'chat-manager',
         transport: 'http',
-        url: process.env.CHAT_MANAGER_URL || 'http://chat-manager:3005',
-        routes: ['/api/chat/*'],
+        url: process.env.CHAT_MANAGER_URL || 'http://localhost:3005',
+        routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*'],
     },
 };

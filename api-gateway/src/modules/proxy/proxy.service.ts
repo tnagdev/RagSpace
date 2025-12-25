@@ -94,6 +94,7 @@ export class ProxyService {
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             validateStatus: () => true, // Accept all status codes as valid
+            responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
         };
 
         this.logger.log(`Request config for ${service.name}:`, {
@@ -103,6 +104,48 @@ export class ProxyService {
         });
 
         try {
+            // For SSE streams, return immediately without waiting for completion
+            if (config.responseType === 'stream') {
+                const response = await firstValueFrom(
+                    this.httpService.request(config).pipe(
+                        catchError((error: AxiosError) => {
+                            this.logger.error(`Error forwarding request to ${service.name}:`, {
+                                message: error.message,
+                                code: error.code,
+                                status: error.response?.status,
+                            });
+
+                            if (error.response) {
+                                throw new HttpException(
+                                    error.response.data || 'Service error',
+                                    error.response.status || HttpStatus.INTERNAL_SERVER_ERROR,
+                                );
+                            }
+
+                            if (error.code === 'ECONNREFUSED') {
+                                throw new HttpException(
+                                    `Service ${service.name} is not available`,
+                                    HttpStatus.SERVICE_UNAVAILABLE,
+                                );
+                            }
+
+                            throw new HttpException(
+                                error.message || 'Service unavailable',
+                                HttpStatus.SERVICE_UNAVAILABLE,
+                            );
+                        }),
+                    ),
+                );
+
+                // Return the stream directly for SSE
+                return {
+                    status: response.status,
+                    headers: response.headers,
+                    data: response.data, // This is the readable stream
+                };
+            }
+
+            // For regular requests, wait for completion
             const response = await firstValueFrom(
                 this.httpService.request(config).pipe(
                     catchError((error: AxiosError) => {

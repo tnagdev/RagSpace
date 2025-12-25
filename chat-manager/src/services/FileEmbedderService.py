@@ -1,0 +1,72 @@
+"""Service for communicating with file-embedder service"""
+import logging
+from typing import List, Optional, Dict, Any
+from enum import Enum
+from src.services.HttpClientService import HttpClient
+from src.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class FileEmbedderEndpoints(Enum):
+    SEARCH = "/embed/search/advanced"
+
+
+class FileEmbedderService:
+    """Client for file-embedder service API"""
+    
+    def __init__(self, user: Dict[str, Any], session: Dict[str, Any]):
+        self.client = HttpClient(user, session)
+        self.base_url = settings.file_embedder_url
+    
+    async def search(
+        self,
+        query: str,
+        user_id: str,
+        file_ids: Optional[List[str]] = None,
+        max_results: int = 50,
+        use_dynamic_retrieval: bool = True,
+        adaptive_scoring: bool = True,
+        enable_query_expansion: bool = True,
+        use_enhanced: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Perform semantic search via file-embedder service.
+        
+        Args:
+            query: Search query text
+            user_id: User ID for filtering results
+            file_ids: Optional list of file IDs to filter by
+            max_results: Maximum number of results
+            
+        Returns:
+            Search results from file-embedder or None on failure
+        """
+        try:
+            payload = {
+                "query": query,
+                "n_results": max_results,
+                "filters": {
+                    "user_id": user_id
+                },
+                "top_k": max_results,
+                "use_dynamic_retrieval": use_dynamic_retrieval,
+                "adaptive_scoring": adaptive_scoring,
+                "enable_query_expansion": enable_query_expansion,
+                "use_enhanced": use_enhanced,
+                "image_weight": 0.5,
+                "text_weight": 0.5
+            }
+            
+            # Add file_id filter if specified
+            if file_ids:
+                payload["filters"]["file_id"] = {"$in": file_ids}
+            
+            logger.info(f"Searching file-embedder with query: {query[:50]}...")
+            
+            url = f"{self.base_url}{FileEmbedderEndpoints.SEARCH.value}"
+            return await self.client.send_request("POST", url, json_data=payload)
+            
+        except Exception as e:
+            logger.error(f"File embedder search failed: {e}", exc_info=True)
+            raise Exception(f"Search service unavailable: {str(e)}")

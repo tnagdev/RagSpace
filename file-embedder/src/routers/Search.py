@@ -308,7 +308,11 @@ async def query_embeddings(
                     fileSize=fd.get("fileSize"),
                     mimeType=fd.get("mimeType"),
                     url=fd.get("s3Url"),
-                    userId=fd.get("userId")
+                    s3Key=fd.get("s3Key"),
+                    s3Bucket=fd.get("s3Bucket"),
+                    userId=fd.get("userId"),
+                    thumbnailUrl=fd.get("thumbnailUrl"),
+                    thumbnailPath=fd.get("thumbnailPath")
                 )
             
             
@@ -325,7 +329,8 @@ async def query_embeddings(
                             endFrame=scene.get("endFrame", 0),
                             keyframe=scene.get("keyframe", 0),
                             duration=scene.get("duration", 0.0),
-                            thumbnailUrl=scene.get("thumbnailS3Url")
+                            thumbnailUrl=scene.get("thumbnailS3Url"),
+                            thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
                         available_scenes = list(scenes_cache[fid].keys()) if fid in scenes_cache else []
@@ -581,7 +586,11 @@ async def advanced_search(
                     fileSize=fd.get("fileSize"),
                     mimeType=fd.get("mimeType"),
                     url=fd.get("s3Url"),
-                    userId=fd.get("userId")
+                    userId=fd.get("userId"),
+                    thumbnailUrl=fd.get("thumbnailUrl"),
+                    thumbnailPath=fd.get("thumbnailPath"),
+                    s3Key=fd.get("s3Key"),
+                    s3Bucket=fd.get("s3Bucket")
                 )
             
             # Scene details

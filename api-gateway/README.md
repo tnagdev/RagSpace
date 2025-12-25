@@ -210,11 +210,11 @@ npm run test:cov
 
 The gateway routes to these services:
 
-- **auth-service** (Port 3001): Authentication & authorization
+- **auth-service** (Port 8001): Authentication & authorization
 - **upload-manager** (Port 3002): File upload handling with S3 integration
 - **scene-detector** (Port 3003): Scene detection processing
-- **file-embedder** (Port 3004): File embedding generation
-- **chat-manager** (Port 3005): Chat/conversation management
+- **file-embedder** (Port 8003): File embedding generation and semantic search
+- **chat-manager** (Port 3005): AI-powered conversational search with SSE streaming
 
 ## Troubleshooting
 

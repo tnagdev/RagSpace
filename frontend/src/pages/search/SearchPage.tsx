@@ -51,7 +51,7 @@ const SearchPage: React.FC = () => {
         <div className="h-full flex flex-col">
             <div className="flex-1 flex gap-6 min-h-0">
                 {/* Left Panel - Search Input & Results */}
-                <div className='flex flex-col w-1/2 overflow-y-auto custom-scrollbar'>
+                <div className='flex flex-col w-1/2 overflow-y-auto custom-scrollbar pr-2'>
                     {/* Header */}
                     <div className="flex items-center justify-between mb-6">
                         <div>
@@ -65,7 +65,7 @@ const SearchPage: React.FC = () => {
                     </div>
                     <div className="">
                         {/* Search Input - Sticky */}
-                        <div className="sticky top-0 z-10 pb-4">
+                        <div className="z-10 pb-4">
                             <SearchInput
                                 onSearch={handleSearch}
                                 onAttachFiles={() => setIsFilePickerOpen(true)}
@@ -122,7 +122,7 @@ const SearchPage: React.FC = () => {
                 <div className="w-px bg-border-input flex-shrink-0"></div>
 
                 {/* Right Panel - Preview */}
-                <div className="flex-1">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                     {selectedResult ? (
                         <div>
                             {isVideo && <VideoPreview result={selectedResult} />}

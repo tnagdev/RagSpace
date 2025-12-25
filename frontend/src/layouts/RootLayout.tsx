@@ -17,10 +17,8 @@ export const RootLayout = () => {
             <Sidebar />
             <div className="flex flex-col flex-1 overflow-hidden">
                 <Header />
-                <div className="flex-1 overflow-auto relative custom-scrollbar">
-                    <div className="px-8 py-6">
-                        <Outlet />
-                    </div>
+                <div className="flex-1 px-8 py-6 overflow-auto relative custom-scrollbar">
+                    <Outlet />
                 </div>
             </div>
         </SidebarContext.Provider>

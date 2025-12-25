@@ -2,10 +2,10 @@ import { createRoute, Navigate, Outlet, redirect, useLocation } from "@tanstack/
 import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
-import { useCurrentUser } from "@/hooks/auth";
-import { Activity, Settings, Globe, Briefcase, BarChart3, FileText, Folder, Search } from 'lucide-react';
+import { Folder, Search, MessageSquare } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
 import SearchPage from "@/pages/search/SearchPage";
+import ChatPage from "@/pages/chat/ChatPage";
 
 
 export interface NavRoute {
@@ -46,6 +46,20 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Search',
                 path: '/',
                 component: () => <SearchPage />,
+            }
+        ],
+    },
+    {
+        name: 'Chat',
+        path: '/chat',
+        component: () => <Outlet />,
+        nav: true,
+        icon: MessageSquare,
+        children: [
+            {
+                name: 'Chat',
+                path: '/',
+                component: () => <ChatPage />,
             }
         ],
     }

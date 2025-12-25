@@ -190,9 +190,9 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                         )}
                     >
                         <div className="flex items-start gap-4">
-                            {isImage && (fileDetails?.url || fileDetails?.thumbnailUrl) && (
+                            {isImage && (fileDetails?.thumbnailUrl || fileDetails?.url) && (
                                 <img
-                                    src={fileDetails?.url || fileDetails?.thumbnailUrl}
+                                    src={fileDetails?.thumbnailUrl || fileDetails?.url}
                                     alt={fileDetails.fileName}
                                     className="w-32 h-24 object-cover rounded"
                                 />

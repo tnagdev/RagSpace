@@ -87,25 +87,17 @@ class SceneProcessor:
                 
                 year = datetime.utcnow().year
                 month = datetime.utcnow().month
-                thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/{file_id}.jpg"
-                
-                # Use the same bucket as the original file
-                original_bucket = file_record.get('s3Bucket', 'user-uploads')
-                
-                # Temporarily override bucket for thumbnail upload
-                original_s3_bucket = self.s3_service.bucket
-                self.s3_service.bucket = original_bucket
-                
+                thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/files/{file_id}.jpg"
+
+                bucket = file_record.get('s3Bucket', 'user-uploads')
                 thumbnail_url = await self.s3_service.upload_file(
                     thumbnail_local_path,
                     thumbnail_s3_key,
-                    content_type='image/jpeg'
+                    content_type='image/jpeg',
+                    bucket=bucket
                 )
                 
-                # Restore original bucket
-                self.s3_service.bucket = original_s3_bucket
-                
-                logger.info(f"Generated and uploaded file thumbnail to bucket '{original_bucket}': {thumbnail_s3_key}")
+                logger.info(f"Generated and uploaded file thumbnail to bucket '{bucket}': {thumbnail_s3_key}")
                 
                 # Update file record with thumbnail path (S3 key)
                 await self.upload_manager_client.update_file_status(
@@ -166,7 +158,7 @@ class SceneProcessor:
                     )
 
                     thumbnail_s3_key = (
-                        f"scenes/{user_id}/{year}/{month}/"
+                        f"thumbnails/{user_id}/{year}/{month}/scenes/"
                         f"{file_id}/scene_{scene_number:04d}.jpg"
                     )
 

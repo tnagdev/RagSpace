@@ -66,6 +66,23 @@ export class ProxyController {
             filesObj,
         );
 
+        // Handle SSE streaming responses (for chat)
+        if (result.headers['content-type']?.includes('text/event-stream')) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.setHeader('X-Accel-Buffering', 'no');
+
+            // Stream the response
+            if (result.data && typeof result.data.pipe === 'function') {
+                result.data.pipe(res);
+            } else {
+                // If data is already a string/buffer, send it directly
+                return res.status(result.status).send(result.data);
+            }
+            return;
+        }
+
         res.setHeaders(new Headers(result.headers));
 
         if (result?.data?.redirect && result?.data?.url) {
