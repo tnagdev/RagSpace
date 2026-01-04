@@ -18,8 +18,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import type { AuthUser } from '../common/decorators/current-user.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser, AuthSession } from '../common/decorators/current-user.decorator';
+import { CurrentUser, CurrentSession } from '../common/decorators/current-user.decorator';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { ConfigService } from '@nestjs/config';
 import { UpdateFileDto } from './dto/update-file.dto';
@@ -53,6 +53,7 @@ export class UploadController {
         )
         file: Express.Multer.File,
         @CurrentUser() user: AuthUser,
+        @CurrentSession() session: AuthSession,
     ) {
         if (!file) {
             throw new BadRequestException('No file uploaded');
@@ -61,7 +62,7 @@ export class UploadController {
         this.logger.log(
             `File upload request from user: ${user.id}, file: ${file.originalname}`,
         );
-        return this.uploadService.uploadFile(file, user);
+        return this.uploadService.uploadFile(file, user, session);
     }
 
     @Get()

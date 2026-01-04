@@ -1,7 +1,7 @@
 """HTTP client for making requests to other microservices."""
 import httpx
 import logging
-import json
+import json as json_lib
 from typing import Dict, Any, Optional, List
 from src.config import settings
 
@@ -19,7 +19,7 @@ class HttpClient:
         self.session = session
     
 
-    async def send_request(self, method: str, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None, json_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    async def send_request(self, method: str, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None, json: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Send an HTTP request.
         
@@ -28,7 +28,7 @@ class HttpClient:
             url: The URL to send the request to
             headers: Optional headers to include
             params: Optional query parameters
-            json_data: Optional JSON body data
+            json: Optional JSON body data
             
         Returns:
             Response JSON as a dictionary or None on failure
@@ -37,10 +37,12 @@ class HttpClient:
             logger.info(f"Sending {method} request to: {url}")
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 headers = headers or {}
-                headers['x-user'] = json.dumps(self.user)
-                headers['x-session'] = json.dumps(self.session)
+                user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
+                session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
+                headers['x-user'] = json_lib.dumps(user_data) if user_data else ''
+                headers['x-session'] = json_lib.dumps(session_data) if session_data else ''
                 headers['x-service'] = 'file-embedder'
-                response = await client.request(method, url, headers=headers or {}, params=params or {}, json=json_data or {})
+                response = await client.request(method, url, headers=headers, params=params or {}, json=json)
                 response.raise_for_status()
                 return response.json()
                 

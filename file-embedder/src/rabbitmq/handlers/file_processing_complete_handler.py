@@ -10,6 +10,7 @@ from src.models.events import ProcessingCompletedEventModel
 from src.config import settings
 from src.services.VideoEmbedderService import VideoEmbedderService
 from src.services.S3ClientService import S3ClientService
+from src.services.UploadManagerService import UploadManagerService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
 
@@ -24,6 +25,7 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
         s3_client = S3ClientService()
         video_embedder = VideoEmbedderService()
         chroma_db = ChromaDatabaseManager()
+        upload_manager = UploadManagerService(event_data.user, event_data.session)
         
         data = event_data.data
         file_id = event_data.fileId
@@ -53,6 +55,7 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
             try:
                 thumbnail_url = scene.thumbnailUrl
                 thumbnail_s3_key = scene.thumbnailS3Key
+                scene_id = scene.id
 
                 if not thumbnail_url:
                     logger.warning(f"No thumbnail URL for scene {i}, skipping")
@@ -67,6 +70,20 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
                 # Extract and embed text (OCR) - use sentence transformer for text collection
                 text = video_embedder.extract_text(thumbnail_path)
                 text_embedding = video_embedder.embed_text(text) if text else None
+                
+                # Generate scene description using LLM and store metadata
+                try:
+                    description = await video_embedder.generate_image_description(thumbnail_path)
+                    if description and scene_id:
+                        await upload_manager.upsert_file_metadata(
+                            file_id=file_id,
+                            source_type="SCENE",
+                            description=description,
+                            scene_id=scene_id,
+                        )
+                        logger.info(f"Stored metadata for scene {scene_id}")
+                except Exception as e:
+                    logger.error(f"Error generating/storing scene description for scene {i}: {e}")
                 
                 # Visual embedding item
                 visual_item = {

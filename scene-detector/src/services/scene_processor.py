@@ -201,6 +201,14 @@ class SceneProcessor:
                     data=scenes_to_create
                 )
                 logger.info(f"Successfully inserted {len(scenes_to_create)} scenes")
+                
+                # Fetch created scenes to get their IDs
+                created_scenes = await self.prisma_service.prisma.scene.find_many(
+                    where={'fileId': file_id},
+                    order_by={'sceneNumber': 'asc'}
+                )
+                # Create a lookup by sceneNumber for easy ID mapping
+                scene_id_map = {scene.sceneNumber: scene.id for scene in created_scenes}
             
             await self.upload_manager_client.update_file_status(
                 file_id,
@@ -223,12 +231,14 @@ class SceneProcessor:
                     'fileName': file_record.get('filename'),
                     'fileType': file_record.get('fileType'),
                     'user': user.model_dump() if hasattr(user, 'model_dump') else user,
+                    'session': session,
                     'timestamp': datetime.utcnow().isoformat(),
                     'data': {
                         'stage': ProcessingStage.SCENE_DETECTION.value,
                         'scenes_detected': len(scenes_to_create),
                         'scenes': [
                             {
+                                'id': scene_id_map.get(scene['sceneNumber']),
                                 'sceneNumber': scene['sceneNumber'],
                                 'keyframe': scene['keyframe'],
                                 'startFrame': scene['startFrame'],

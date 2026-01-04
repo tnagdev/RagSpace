@@ -15,8 +15,9 @@ from src.services.AdvancedRetrieverService import AdvancedRetrieverService
 from src.services.S3ClientService import S3ClientService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
+from src.rabbitmq import handlers
 from src.routers import Search
-import src.rabbitmq.handlers
+from src.services.LLMService import LLMService
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
 import pytesseract
 
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize singletons
     chroma_db = ChromaDatabaseManager()
+    LLMService()
     AudioEmbedderService()
     VideoEmbedderService()
     ImageEmbedderService()

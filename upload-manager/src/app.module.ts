@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './upload/upload.module';
+import { MetadataModule } from './metadata/metadata.module';
 import { S3Module } from './s3/s3.module';
 import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
 import configuration from './config/configuration';
@@ -16,6 +17,7 @@ import configuration from './config/configuration';
     }),
     PrismaModule,
     UploadModule,
+    MetadataModule,
     S3Module,
     RabbitmqModule,
   ],

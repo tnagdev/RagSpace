@@ -10,6 +10,7 @@ import pytesseract
 from torch import Tensor, cuda
 from src.decorators import singleton
 from src.services.TextEmbedderService import TextEmbedderService
+from src.services.LLMService import LLMService, ImageDescription
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,23 @@ class ImageEmbedderService(TextEmbedderService):
         self.tokenizer = open_clip.get_tokenizer(image_model_name)
         self.model.eval().to(self.device)
         super().__init__(text_model_name=text_model_name, **kwargs)
+    
+    async def generate_image_description(self, image_path: str) -> ImageDescription | None:
+        """
+        Generate a text description for an image using LLM.
+        
+        Args:
+            image_path: Path to the image file
+        Returns:
+            ImageDescription with:
+            - summary: Descriptive summary of the image content
+            - objects: ["person","neon sign","car"] - tags based on the image objects
+            - setting: "city street at night" - context of the image
+            - style: "cyberpunk lighting" - artistic style if applicable
+            - colors: ["purple","teal","black"] - dominant colors in the image
+        """
+        llm_service = LLMService()
+        return await llm_service.generate_image_description(image_path)
     
     def embed_image(self, image_path: str) -> np.ndarray | None:
         """

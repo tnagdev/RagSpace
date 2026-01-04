@@ -23,6 +23,7 @@ model Scene {
     duration       Float
     thumbnailS3Key String
     thumbnailS3Url String?
+    metadataId     String?
     metadata       Json?
     createdAt      DateTime @default(now())
     updatedAt      DateTime @updatedAt
@@ -31,5 +32,6 @@ model Scene {
     @@index([fileId])
     @@index([userId])
     @@index([sceneNumber])
+    @@index([metadataId])
     @@schema("scene_detector")
 }

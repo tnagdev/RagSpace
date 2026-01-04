@@ -12,6 +12,7 @@ from src.services.S3ClientService import S3ClientService
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
 from src.services.VideoEmbedderService import VideoEmbedderService
+from src.services.UploadManagerService import UploadManagerService
 
 
 
@@ -44,6 +45,7 @@ async def process_image(event: UploadCompletedEventModel):
         image_embedder = ImageEmbedderService()
         s3_client = S3ClientService()
         chroma_db = ChromaDatabaseManager()
+        upload_manager = UploadManagerService(event.user, event.session)
 
         file_data: EventFileMetadata = event.data
         file_id = event.fileId
@@ -62,6 +64,19 @@ async def process_image(event: UploadCompletedEventModel):
         embedding = image_embedder.embed_image(image_path)
         text = image_embedder.extract_text(image_path)
         text_embedding = image_embedder.embed_text(text) if text else None
+
+        # Generate image description using LLM and store metadata
+        try:
+            description = await image_embedder.generate_image_description(image_path)
+            if description:
+                await upload_manager.upsert_file_metadata(
+                    file_id=file_id,
+                    source_type="IMAGE",
+                    description=description,
+                )
+                logger.info(f"Stored metadata for image file: {file_id}")
+        except Exception as e:
+            logger.error(f"Error generating/storing image description for {file_id}: {e}")
 
         image_items = [
             {

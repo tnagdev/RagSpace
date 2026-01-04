@@ -47,6 +47,38 @@ enum ProcessingStage {
     @@schema("upload")
 }
 
+enum MetadataSourceType {
+    IMAGE
+    VIDEO
+    SCENE
+
+    @@schema("upload")
+}
+
+model FileMetadata {
+    id          String             @id @default(uuid())
+    fileId      String
+    sceneId     String?
+    sourceType  MetadataSourceType
+    summary     String?
+    objects     String[]
+    setting     String?
+    style       String?
+    colors      String[]
+    rawResponse Json?
+    createdAt   DateTime           @default(now())
+    updatedAt   DateTime           @updatedAt
+
+    file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+    @@unique([fileId, sceneId])
+    @@index([fileId])
+    @@index([sceneId])
+    @@index([sourceType])
+    @@map("file_metadata")
+    @@schema("upload")
+}
+
 model File {
     id                    String           @id @default(uuid())
     userId                String
@@ -69,6 +101,8 @@ model File {
     processingCompletedAt DateTime?
     createdAt             DateTime         @default(now())
     updatedAt             DateTime         @updatedAt
+
+    fileMetadata FileMetadata[]
 
     @@index([userId])
     @@index([uploadStatus])

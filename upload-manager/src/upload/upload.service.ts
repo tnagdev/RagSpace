@@ -13,7 +13,7 @@ import {
     ProcessingStage,
 } from '@prisma/client';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
-import { AuthUser } from 'src/common/decorators/current-user.decorator';
+import { AuthUser, AuthSession } from 'src/common/decorators/current-user.decorator';
 
 @Injectable()
 export class UploadService {
@@ -25,7 +25,7 @@ export class UploadService {
         private rabbitmqService: RabbitmqService,
     ) { }
 
-    async uploadFile(file: Express.Multer.File, user: AuthUser) {
+    async uploadFile(file: Express.Multer.File, user: AuthUser, session?: AuthSession) {
         try {
             const fileType = this.getFileTypeFromMimeType(file.mimetype);
             const fileRecord = await this.prisma.file.create({
@@ -48,6 +48,7 @@ export class UploadService {
                 type: FileEventType.UPLOAD_STARTED,
                 fileId: fileRecord.id,
                 user: user,
+                session: session,
                 timestamp: new Date(),
                 data: {
                     fileName: file.originalname,
@@ -84,6 +85,7 @@ export class UploadService {
                     type: FileEventType.UPLOAD_COMPLETED,
                     fileId: fileRecord.id,
                     user: user,
+                    session: session,
                     timestamp: new Date(),
                     data: {
                         fileName: file.originalname,
@@ -107,6 +109,7 @@ export class UploadService {
                     type: FileEventType.UPLOAD_FAILED,
                     fileId: fileRecord.id,
                     user,
+                    session: session,
                     timestamp: new Date(),
                     data: {
                         error: error.message,

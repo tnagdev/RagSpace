@@ -12,6 +12,7 @@ ffmpeg-python
 scenedetect
 whisper
 openai-whisper
+openai
 transformers>=4.30.0
 torchaudio
 numpy
