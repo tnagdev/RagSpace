@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     nvidia_api_key: Optional[str] = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_model: str = "meta/llama-3.2-11b-vision-instruct"
+    llm_max_concurrent_requests: int = 5  # Rate limit for concurrent LLM API calls
     
     mode: str = "production"
     class Config:

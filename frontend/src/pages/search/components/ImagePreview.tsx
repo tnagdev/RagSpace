@@ -16,7 +16,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ result }) => {
     };
 
     return (
-        <div className="h-full flex flex-col gap-4 overflow-hidden">
+        <div className="flex flex-col gap-4">
             {/* Image Display */}
             <div className="relative bg-black flex items-center rounded-xl justify-center min-h-100 overflow-hidden">
                 {fileDetails?.url ? (
@@ -33,7 +33,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ result }) => {
             </div>
 
             {/* Metadata Section */}
-            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-bg-secondary rounded-xl">
+            <div className="p-6 bg-bg-secondary rounded-xl">
                 <h2 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
                     <ImageIcon size={20} className="text-accent-primary" />
                     {fileDetails?.fileName || 'Unknown Image'}

@@ -7,6 +7,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from src.decorators.singleton import singleton
+from src.config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class S3ClientService:
         self.bucket_name = bucket_name
         
         config = Config(
+            region_name=settings.aws_region,
             signature_version='s3v4',
             retries={'max_attempts': 3, 'mode': 'standard'}
         )

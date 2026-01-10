@@ -135,10 +135,10 @@ async def get_scenes(
             where=where_conditions if where_conditions else None
         )
         
-        # Generate signed URLs for thumbnails (synchronous operation)
+        # Generate signed URLs for thumbnails
         s3_service = S3Service()
         for scene in scenes:
-            scene.thumbnailS3Url = s3_service.get_signed_url(scene.thumbnailS3Key)
+            scene.thumbnailS3Url = await s3_service.get_signed_url(scene.thumbnailS3Key)
 
         # Convert to response model
         scene_responses = [

@@ -1,18 +1,15 @@
 import logging
 import json
-import asyncio
 from fastapi import APIRouter, HTTPException, Request
 from src.models.query import QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails
-from src.services.AudioEmbedderService import AudioEmbedderService
-from src.services.VideoEmbedderService import VideoEmbedderService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.services.UploadManagerService import UploadManagerService
-from src.services.SceneDetectionService import SceneDetectionService, GetScenesParams
+from src.services.SceneDetectionService import SceneDetectionService
 # Enhanced retrieval services from Video-RAG integration
 from src.services.AdvancedRetrieverService import AdvancedRetrieverService
 from src.services.TextEmbedderService import TextEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
-from src.utils.query_utils import expand_query, filter_keywords, extract_entities
+from src.utils.query_utils import expand_query
 
 
 
@@ -317,11 +314,14 @@ async def query_embeddings(
             
             
             scene_details = None
+            scene_id = None
             if ftype == "VIDEO":
                 if scene_idx is not None and fid in scenes_cache:
                     scene = scenes_cache[fid].get(scene_idx)
                     if scene:
+                        scene_id = scene.get("id")
                         scene_details = SceneDetails(
+                            id=scene_id,
                             sceneNumber=scene.get("sceneNumber", scene_idx),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
@@ -351,7 +351,9 @@ async def query_embeddings(
                     cache_key = f"audio_{segment_idx}"
                     scene = scenes_cache[fid].get(cache_key)
                     if scene:
+                        scene_id = scene.get("id")
                         scene_details = SceneDetails(
+                            id=scene_id,
                             sceneNumber=scene.get("sceneNumber", 0),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
@@ -359,7 +361,8 @@ async def query_embeddings(
                             endFrame=scene.get("endFrame", 0),
                             keyframe=scene.get("keyframe", 0),
                             duration=scene.get("duration", 0.0),
-                            thumbnailUrl=scene.get("thumbnailS3Url")
+                            thumbnailUrl=scene.get("thumbnailS3Url"),
+                            thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
                         available_keys = list(scenes_cache[fid].keys()) if fid in scenes_cache else []
@@ -381,6 +384,7 @@ async def query_embeddings(
                 file_id=fid,
                 file_name=result.get("file_name"),
                 file_type=ftype,
+                scene_id=scene_id,
                 scene_index=scene_idx,
                 segment_index=segment_idx,
                 start_time=result.get("start_time"),
@@ -408,8 +412,6 @@ async def query_embeddings(
             'query_expansion_used': query_expansion_enabled and len(queries_to_search) > 1,
             'expanded_queries': queries_to_search if query_expansion_enabled else None
         }
-        
-        logger.info(f"Search stats: {stats}")
         
         return QueryResponse(
             query=body.query,
@@ -595,11 +597,14 @@ async def advanced_search(
             
             # Scene details
             scene_details = None
+            scene_id = None
             if ftype == "VIDEO":
                 if scene_idx is not None and fid in scenes_cache:
                     scene = scenes_cache[fid].get(scene_idx)
                     if scene:
+                        scene_id = scene.get("id")
                         scene_details = SceneDetails(
+                            id=scene_id,
                             sceneNumber=scene.get("sceneNumber", scene_idx),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
@@ -607,7 +612,8 @@ async def advanced_search(
                             endFrame=scene.get("endFrame", 0),
                             keyframe=scene.get("keyframe", 0),
                             duration=scene.get("duration", 0.0),
-                            thumbnailUrl=scene.get("thumbnailS3Url")
+                            thumbnailUrl=scene.get("thumbnailS3Url"),
+                            thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
                         logger.debug(f"Scene {scene_idx} not found in cache for file {fid}. Creating fallback from metadata.")
@@ -628,7 +634,9 @@ async def advanced_search(
                     cache_key = f"audio_{segment_idx}"
                     scene = scenes_cache[fid].get(cache_key)
                     if scene:
+                        scene_id = scene.get("id")
                         scene_details = SceneDetails(
+                            id=scene_id,
                             sceneNumber=scene.get("sceneNumber", 0),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
@@ -636,7 +644,8 @@ async def advanced_search(
                             endFrame=scene.get("endFrame", 0),
                             keyframe=scene.get("keyframe", 0),
                             duration=scene.get("duration", 0.0),
-                            thumbnailUrl=scene.get("thumbnailS3Url")
+                            thumbnailUrl=scene.get("thumbnailS3Url"),
+                            thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
                         logger.debug(f"Audio segment scene '{cache_key}' not found for file {fid}. Creating fallback from metadata.")
@@ -657,6 +666,7 @@ async def advanced_search(
                 file_id=fid,
                 file_name=result.get("file_name"),
                 file_type=ftype,
+                scene_id=scene_id,
                 scene_index=scene_idx,
                 segment_index=segment_idx,
                 start_time=result.get("start_time"),

@@ -50,7 +50,7 @@ const authConfig = {
     session: {
         cookieCache: {
             enabled: true,
-            maxAge: 300,
+            maxAge: 3000,
         },
     },
     advanced: {

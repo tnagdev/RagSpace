@@ -143,6 +143,7 @@ class SceneProcessor:
             scenes_to_create = []
             year = datetime.utcnow().year
             month = datetime.utcnow().month
+            scene_bucket = file_record.get('s3Bucket', 'user-uploads')
             
             async def process_scene(scene_data):
                 """Process a single scene asynchronously"""
@@ -165,7 +166,8 @@ class SceneProcessor:
                     thumbnail_url = await self.s3_service.upload_file(
                         thumbnail_path,
                         thumbnail_s3_key,
-                        content_type='image/jpeg'
+                        content_type='image/jpeg',
+                        bucket=scene_bucket
                     )
 
                     logger.info(f"Processed scene {scene_number}/{len(scenes_data)}")
@@ -205,7 +207,7 @@ class SceneProcessor:
                 # Fetch created scenes to get their IDs
                 created_scenes = await self.prisma_service.prisma.scene.find_many(
                     where={'fileId': file_id},
-                    order_by={'sceneNumber': 'asc'}
+                    order={'sceneNumber': 'asc'}
                 )
                 # Create a lookup by sceneNumber for easy ID mapping
                 scene_id_map = {scene.sceneNumber: scene.id for scene in created_scenes}
@@ -231,7 +233,6 @@ class SceneProcessor:
                     'fileName': file_record.get('filename'),
                     'fileType': file_record.get('fileType'),
                     'user': user.model_dump() if hasattr(user, 'model_dump') else user,
-                    'session': session,
                     'timestamp': datetime.utcnow().isoformat(),
                     'data': {
                         'stage': ProcessingStage.SCENE_DETECTION.value,

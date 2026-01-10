@@ -8,10 +8,44 @@ from src.services.FileEmbedderService import FileEmbedderService
 from src.services.ConversationService import ConversationService
 from src.services.UploadManagerService import UploadManagerService
 from src.services.AgentService import AgentService
+from src.services.S3Service import S3Service
 from src.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def generate_signed_urls_for_results(results: list[SearchResult], s3_service: S3Service) -> list[SearchResult]:
+    """
+    Generate fresh signed URLs for all thumbnail and file URLs in search results.
+    
+    Args:
+        results: List of SearchResult objects
+        s3_service: S3Service instance for generating signed URLs
+        
+    Returns:
+        List of SearchResult objects with signed URLs
+    """
+    for result in results:
+        # Generate signed URL for thumbnail
+        if result.thumbnail_s3_key:
+            signed_url = await s3_service.get_signed_url(
+                result.thumbnail_s3_key, 
+                result.thumbnail_s3_bucket
+            )
+            if signed_url:
+                result.thumbnail_url = signed_url
+        
+        # Generate signed URL for file
+        if result.file_s3_key:
+            signed_url = await s3_service.get_signed_url(
+                result.file_s3_key,
+                result.file_s3_bucket
+            )
+            if signed_url:
+                result.file_url = signed_url
+    
+    return results
 
 
 @router.post("/")
@@ -370,6 +404,10 @@ async def _handle_direct_search_chat(
         
         results.append(SearchResult(**result_data))
         search_results_for_llm.append(result_data)
+    
+    # Generate signed URLs for all results
+    s3_service = S3Service()
+    results = await generate_signed_urls_for_results(results, s3_service)
     
     # Create streaming response generator
     async def generate_sse():

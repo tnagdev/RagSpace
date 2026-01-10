@@ -2,15 +2,51 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { FileResponseDto } from '@/types/upload.types';
 import { SearchResult, ChatSSEEvent } from '@/types/chat.types';
+import { QueryResult } from '@/types/search.types';
 import { useConversations, useConversation } from '@/hooks/useChat';
 import { chatAPI } from '@/api/chat';
 import ChatInput from './components/ChatInput';
 import MessageList from './components/MessageList';
 import FileAttachments from './components/FileAttachments';
 import FilePickerModal from '../search/components/FilePickerModal';
+import VideoPreview from '../search/components/VideoPreview';
+import ImagePreview from '../search/components/ImagePreview';
 import { IconButton } from '@/components/IconButton';
 import Markdown from '@/components/Markdown';
 import { AlertCircle, MessageSquare, Film, X } from 'lucide-react';
+
+// Helper function to convert SearchResult to QueryResult for preview components
+const convertToQueryResult = (result: SearchResult): QueryResult => {
+    return {
+        file_id: result.file_id,
+        file_name: result.file_name,
+        file_type: result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image',
+        score: result.score,
+        confidence: result.score,
+        text_score: 0,
+        image_score: result.score,
+        start_time: result.start_time,
+        end_time: result.end_time,
+        text: result.text_content,
+        file_details: {
+            id: result.file_id,
+            fileName: result.file_name,
+            fileType: result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image',
+            url: result.file_url,
+            thumbnailUrl: result.thumbnail_url,
+        },
+        scene_details: result.start_time !== undefined ? {
+            sceneNumber: 0,
+            startTime: result.start_time || 0,
+            endTime: result.end_time || 0,
+            startFrame: 0,
+            endFrame: 0,
+            keyframe: 0,
+            duration: (result.end_time || 0) - (result.start_time || 0),
+            thumbnailUrl: result.thumbnail_url,
+        } : undefined,
+    };
+};
 
 const ChatPage: React.FC = () => {
     const navigate = useNavigate();
@@ -309,11 +345,14 @@ const ChatPage: React.FC = () => {
                 {/* Right Panel - Preview (only show when result selected) */}
                 {selectedResult && (
                     <div className="w-1/2 flex flex-col h-full animate-in slide-in-from-right duration-300">
-                        <div className="mb-6 flex-shrink-0 flex items-start justify-between">
+                        {/* Header */}
+                        <div className="flex items-center justify-between mb-6 shrink-0">
                             <div>
-                                <h2 className="text-xl font-semibold text-white mb-1">Preview</h2>
+                                <h1 className="text-2xl font-bold text-white mb-1">Preview</h1>
                                 <p className="text-sm text-text-secondary">
-                                    Click on any result to preview
+                                    {selectedResult.start_time !== undefined 
+                                        ? `Scene at ${Math.floor(selectedResult.start_time)}s`
+                                        : 'Click on any result to preview'}
                                 </p>
                             </div>
                             <IconButton
@@ -325,40 +364,18 @@ const ChatPage: React.FC = () => {
                             />
                         </div>
 
-                        <div className="flex-1 bg-bg-secondary rounded-lg border border-border overflow-hidden min-h-0">
-                            <div className="h-full overflow-y-auto custom-scrollbar">
-                                {selectedResult.file_url ? (
-                                    <div className="p-4">
-                                        <img
-                                            src={selectedResult.file_url}
-                                            alt={selectedResult.file_name}
-                                            className="w-full rounded-lg"
-                                        />
-                                        <div className="mt-4">
-                                            <h3 className="text-lg font-semibold text-white mb-2">
-                                                {selectedResult.file_name}
-                                            </h3>
-                                            {selectedResult.timestamp !== undefined && (
-                                                <p className="text-sm text-text-secondary mb-2">
-                                                    Timestamp: {Math.floor(selectedResult.timestamp)}s
-                                                </p>
-                                            )}
-                                            <p className="text-sm text-text-secondary mb-2">
-                                                Score: {(selectedResult.score * 100).toFixed(1)}%
-                                            </p>
-                                            {selectedResult.text_content && (
-                                                <p className="text-sm text-white mt-4">
-                                                    {selectedResult.text_content}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-text-secondary">
-                                        <p>No preview available</p>
-                                    </div>
-                                )}
-                            </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            {(() => {
+                                const queryResult = convertToQueryResult(selectedResult);
+                                const isVideo = queryResult.file_type === 'video' || 
+                                    selectedResult.file_name?.match(/\.(mp4|webm|mov|avi)$/i);
+                                
+                                if (isVideo) {
+                                    return <VideoPreview result={queryResult} />;
+                                } else {
+                                    return <ImagePreview result={queryResult} />;
+                                }
+                            })()}
                         </div>
                     </div>
                 )}

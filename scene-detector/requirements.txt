@@ -11,7 +11,7 @@ aio-pika
 prisma
 
 # AWS S3
-boto3
+aioboto3
 
 # Scene Detection
 scenedetect[opencv]

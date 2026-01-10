@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from src.config.settings import settings
 from src.rabbitmq.rabbitmq_consumer import rabbitmq_consumer
 from src.services.prisma_service import PrismaService
+from src.services.s3_service import S3Service
 from src.middleware.InterServiceMiddleware import InterServiceMiddleware
 from src.routes.scenes import router as scenes_router
 import src.rabbitmq.handlers
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
         prisma_service = PrismaService()
         await prisma_service.connect()
         logger.info("Connected to Prisma database")
+
+        S3Service()
         
         # Start RabbitMQ consumer
         routing_keys = [

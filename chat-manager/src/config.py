@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # S3 Configuration
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
-    aws_region: str = "us-east-1"
+    aws_region: str = "ap-south-1"
     s3_file_bucket_name: str = "user-uploads"
     s3_thumbnail_bucket_name: str = "thumbnails"
     s3_endpoint_url: Optional[str] = None

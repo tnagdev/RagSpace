@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     rabbitmq_routing_key: str = EventType.UPLOAD_COMPLETED.value
     
     # AWS S3
-    aws_region: str = "us-east-1"
+    aws_region: str = "ap-south-1"
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
-    aws_s3_bucket: Optional[str] = None
+    aws_s3_bucket: str = "user-uploads"  # Default bucket with hyphen
     aws_s3_endpoint: Optional[str] = None  # For MinIO or custom S3
     
     # Scene Detection
