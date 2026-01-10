@@ -1,9 +1,10 @@
 import { SearchResult } from '@/types/chat.types';
-import { User, Bot, Image as ImageIcon } from 'lucide-react';
+import { FileResponseDto } from '@/types/upload.types';
+import { User, Bot, Image as ImageIcon, Paperclip, Film } from 'lucide-react';
 import Markdown from '@/components/Markdown';
 
 interface MessageListProps {
-    messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[] }>;
+    messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>;
     onResultClick?: (result: SearchResult) => void;
 }
 
@@ -45,6 +46,41 @@ const MessageList: React.FC<MessageListProps> = ({
                             : 'bg-bg-tertiary text-white border border-border'
                             }`}
                     >
+                        {/* Show attached files for user messages */}
+                        {message.role === 'user' && message.attachedFiles && message.attachedFiles.length > 0 && (
+                            <div className="mb-2 pb-2 border-b border-white/20">
+                                <div className="flex items-center gap-1 text-xs opacity-80 mb-2">
+                                    <Paperclip size={12} />
+                                    <span>Searching in {message.attachedFiles.length} file{message.attachedFiles.length > 1 ? 's' : ''}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {message.attachedFiles.map((file) => (
+                                        <div
+                                            key={file.id}
+                                            className="flex items-center gap-2 bg-white/10 rounded px-2 py-1"
+                                        >
+                                            {file.thumbnailUrl ? (
+                                                <img
+                                                    src={file.thumbnailUrl}
+                                                    alt={file.originalFilename}
+                                                    className="w-8 h-8 object-cover rounded"
+                                                />
+                                            ) : (
+                                                <div className="w-8 h-8 bg-white/10 rounded flex items-center justify-center">
+                                                    {file.fileType === 'VIDEO' ? (
+                                                        <Film size={14} className="opacity-70" />
+                                                    ) : (
+                                                        <ImageIcon size={14} className="opacity-70" />
+                                                    )}
+                                                </div>
+                                            )}
+                                            <span className="text-xs truncate max-w-25">{file.originalFilename}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="text-sm break-words">
                             {message.role === 'assistant' ? (
                                 <Markdown content={message.content} />

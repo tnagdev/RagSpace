@@ -45,10 +45,7 @@ class FileEmbedderService:
         try:
             payload = {
                 "query": query,
-                "n_results": max_results,
-                "filters": {
-                    "user_id": user_id
-                },
+                "user_id": user_id,
                 "top_k": max_results,
                 "use_dynamic_retrieval": use_dynamic_retrieval,
                 "adaptive_scoring": adaptive_scoring,
@@ -58,11 +55,12 @@ class FileEmbedderService:
                 "text_weight": 0.5
             }
             
-            # Add file_id filter if specified
+            # Add file_ids filter if specified (at top level, not nested in filters)
             if file_ids:
-                payload["filters"]["file_id"] = {"$in": file_ids}
+                payload["file_ids"] = file_ids
+                logger.info(f"Searching with file_ids filter: {file_ids}")
             
-            logger.info(f"Searching file-embedder with query: {query[:50]}...")
+            logger.info(f"Searching file-embedder with query: {query[:50]}... payload: {payload}")
             
             url = f"{self.base_url}{FileEmbedderEndpoints.SEARCH.value}"
             return await self.client.send_request("POST", url, json_data=payload)

@@ -63,8 +63,14 @@ class UploadManagerService:
             params = {"fileIds": ",".join(file_ids)}
             response = await self.client.send_request("GET", url, params=params)
             
-            # Response is expected to be a list or paginated result with data array
-            files_list = response if isinstance(response, list) else response.get("data", [])
+            # Response can be: list, {data: [...]}, or {files: [...]}
+            files_list = []
+            if isinstance(response, list):
+                files_list = response
+            elif isinstance(response, dict):
+                files_list = response.get("files") or response.get("data") or []
+            
+            logger.info(f"get_files_batch got {len(files_list)} files from response")
             
             # Convert list response to dict for easier lookup
             if files_list:

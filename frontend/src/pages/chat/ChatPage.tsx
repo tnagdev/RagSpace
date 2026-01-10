@@ -5,6 +5,7 @@ import { SearchResult, ChatSSEEvent } from '@/types/chat.types';
 import { QueryResult } from '@/types/search.types';
 import { useConversations, useConversation } from '@/hooks/useChat';
 import { chatAPI } from '@/api/chat';
+import { uploadAPI } from '@/api/upload';
 import ChatInput from './components/ChatInput';
 import MessageList from './components/MessageList';
 import FileAttachments from './components/FileAttachments';
@@ -57,7 +58,7 @@ const ChatPage: React.FC = () => {
     const [attachedFiles, setAttachedFiles] = useState<FileResponseDto[]>([]);
     const [selectedResult, setSelectedResult] = useState<SearchResult | undefined>();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-    const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[] }>>([]);
+    const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>>([]);
     const [streamingMessage, setStreamingMessage] = useState<string>('');
     const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -73,13 +74,52 @@ const ChatPage: React.FC = () => {
 
     // Load conversation messages when selected or clear when new chat
     useEffect(() => {
-        if (conversationQuery.data?.messages) {
-            setMessages(conversationQuery.data.messages);
-        } else if (!currentConversationId) {
-            setMessages([]);
-            setAttachedFiles([]);
-            setError(null);
-        }
+        const loadMessagesWithFiles = async () => {
+            if (conversationQuery.data?.messages) {
+                const apiMessages = conversationQuery.data.messages;
+
+                // Collect all unique fileIds from messages that have them
+                const allFileIds = new Set<string>();
+                apiMessages.forEach(msg => {
+                    if (msg.fileIds && msg.fileIds.length > 0) {
+                        msg.fileIds.forEach(id => allFileIds.add(id));
+                    }
+                });
+
+                // Fetch file details if there are any fileIds
+                let fileDetailsMap: Record<string, FileResponseDto> = {};
+                if (allFileIds.size > 0) {
+                    try {
+                        const filesResponse = await uploadAPI.getFiles({
+                            fileIds: Array.from(allFileIds).join(',')
+                        });
+                        if (filesResponse.files) {
+                            filesResponse.files.forEach(file => {
+                                fileDetailsMap[file.id] = file;
+                            });
+                        }
+                    } catch (err) {
+                        console.error('Failed to fetch file details for messages:', err);
+                    }
+                }
+
+                // Map messages with attachedFiles from fileIds
+                const messagesWithFiles = apiMessages.map(msg => ({
+                    role: msg.role,
+                    content: msg.content,
+                    searchResults: msg.searchResults,
+                    attachedFiles: msg.fileIds?.map(id => fileDetailsMap[id]).filter(Boolean) || undefined
+                }));
+
+                setMessages(messagesWithFiles);
+            } else if (!currentConversationId) {
+                setMessages([]);
+                setAttachedFiles([]);
+                setError(null);
+            }
+        };
+
+        loadMessagesWithFiles();
     }, [conversationQuery.data, currentConversationId]);
 
     const handleSendMessage = async (message: string) => {
@@ -90,15 +130,25 @@ const ChatPage: React.FC = () => {
         setStreamingMessage('');
         setStreamingResults([]);
 
-        // Add user message immediately
-        const userMessage = { role: 'user' as const, content: message };
+        // Capture attached files before clearing
+        const currentAttachedFiles = [...attachedFiles];
+
+        // Add user message immediately with attached files
+        const userMessage = {
+            role: 'user' as const,
+            content: message,
+            attachedFiles: currentAttachedFiles.length > 0 ? currentAttachedFiles : undefined
+        };
         setMessages(prev => [...prev, userMessage]);
+
+        // Clear attachments after adding to message
+        setAttachedFiles([]);
 
         // Prepare payload
         const payload = {
             message,
             conversation_id: currentConversationId,
-            file_ids: attachedFiles.length > 0 ? attachedFiles.map(f => f.id) : undefined,
+            file_ids: currentAttachedFiles.length > 0 ? currentAttachedFiles.map(f => f.id) : undefined,
             max_results: 10,
             include_context: true,
         };

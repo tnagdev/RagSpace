@@ -93,7 +93,8 @@ async def chat(body: ChatRequest, request: Request):
         if not conversation_id:
             conversation_id = await conversation_service.create_conversation(
                 user_id=user_id,
-                initial_message=body.message
+                initial_message=body.message,
+                file_ids=body.file_ids
             )
             logger.info(f"Created new conversation: {conversation_id}")
         else:
@@ -102,12 +103,13 @@ async def chat(body: ChatRequest, request: Request):
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
             
-            # Add user message to conversation
+            # Add user message to conversation with file IDs
             await conversation_service.add_message(
                 conversation_id=conversation_id,
                 role="user",
                 content=body.message,
-                user_id=user_id
+                user_id=user_id,
+                file_ids=body.file_ids
             )
         
         # Get conversation history

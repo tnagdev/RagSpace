@@ -168,10 +168,7 @@ class ChromaDatabaseManager:
                     elif not use_dynamic_retrieval and score < 0.0:
                         filtered_count += 1
                         continue
-                
-                if filtered_count > 0:
-                    logger.info(f"Filtered out {filtered_count} results due to threshold={threshold}")
-                        
+                    
                     # Create unique key based on file_id and scene/segment index
                     scene_idx = metadata.get('scene_index', metadata.get('segment_index', 0))
                     key = f"{metadata.get('file_id')}#{scene_idx}"
@@ -194,6 +191,9 @@ class ChromaDatabaseManager:
                         if doc and not result_map[key].get("text"):
                             result_map[key]["text"] = doc
                         result_map[key]["match_count"] += 1
+                
+                if filtered_count > 0:
+                    logger.info(f"Filtered out {filtered_count} results due to threshold={threshold}")
             
             except Exception as e:
                 logger.error(f"Error querying text collection: {e}")

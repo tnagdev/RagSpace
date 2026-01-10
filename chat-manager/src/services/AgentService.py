@@ -45,6 +45,7 @@ You have access to tools that let you search the user's files. Use the search_fi
 - The user asks to find specific content in their videos/images
 - The user describes a scene, object, or moment they're looking for
 - The query requires looking up visual or audio content
+- The user has attached specific files to search within (ALWAYS search when files are attached)
 
 Do NOT use search tools when:
 - The user asks general questions or wants to chat
@@ -56,7 +57,8 @@ When responding:
 - Be concise and helpful
 - Reference specific files and timestamps when available
 - If search results are provided, describe what was found
-- Maintain conversation context and refer back to previous messages"""
+- Maintain conversation context and refer back to previous messages
+- When files are attached, ALWAYS use search_files tool to search within them"""
 
 
 class AgentService:
@@ -126,6 +128,18 @@ class AgentService:
         
         max_iterations = max_iterations or settings.max_agent_iterations
         
+        # Fetch file details if file_ids are provided
+        attached_files = None
+        if file_ids and len(file_ids) > 0:
+            try:
+                files_response = await self.upload_manager.get_files_batch(file_ids)
+                logger.info(f"Files response from upload-manager: {files_response}")
+                if files_response and "files" in files_response:
+                    attached_files = files_response["files"]
+                    logger.info(f"Fetched {len(attached_files)} attached files for context: {[f.get('originalFilename', f.get('id')) for f in attached_files]}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch attached file details: {e}")
+        
         # Check if we need to summarize the conversation
         summary = conversation_summary
         summary_updated = False
@@ -139,7 +153,7 @@ class AgentService:
             logger.info("Conversation summarized for context management")
         
         # Build initial messages for API
-        api_messages = self._build_api_messages(messages, summary)
+        api_messages = self._build_api_messages(messages, summary, attached_files)
         
         all_search_results = []
         tools_used = []
@@ -287,6 +301,19 @@ class AgentService:
         
         max_iterations = max_iterations or settings.max_agent_iterations
         
+        # Fetch file details if file_ids are provided
+        attached_files = None
+        if file_ids and len(file_ids) > 0:
+            logger.info(f"run_streaming called with file_ids: {file_ids}")
+            try:
+                files_response = await self.upload_manager.get_files_batch(file_ids)
+                logger.info(f"run_streaming files_response: {files_response}")
+                if files_response and "files" in files_response:
+                    attached_files = files_response["files"]
+                    logger.info(f"Fetched {len(attached_files)} attached files for context: {[f.get('originalFilename', f.get('id')) for f in attached_files]}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch attached file details: {e}")
+        
         # Check if we need to summarize
         summary = conversation_summary
         summary_updated = False
@@ -298,7 +325,7 @@ class AgentService:
             )
             summary_updated = True
         
-        api_messages = self._build_api_messages(messages, summary)
+        api_messages = self._build_api_messages(messages, summary, attached_files)
         
         all_search_results = []
         tools_used = []
@@ -431,13 +458,21 @@ class AgentService:
     def _build_api_messages(
         self,
         messages: List[ChatMessage],
-        summary: Optional[str] = None
+        summary: Optional[str] = None,
+        attached_files: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build messages list for the API, incorporating summary if present."""
+        """Build messages list for the API, incorporating summary and attached files if present."""
         api_messages = []
         
-        # Build system message with optional summary
+        # Build system message with optional summary and attached files
         system_content = AGENT_SYSTEM_PROMPT
+        
+        if attached_files and len(attached_files) > 0:
+            file_names = [f.get("originalFilename") or f.get("original_filename") or f.get("filename") or f.get("id", "Unknown") for f in attached_files]
+            system_content += f"\n\n### User has attached {len(attached_files)} file(s) to search within:\n"
+            system_content += "\n".join([f"- {name}" for name in file_names])
+            system_content += "\n\nIMPORTANT: The user wants to search ONLY within these attached files. You MUST use the search_files tool to answer their query about these files."
+        
         if summary:
             system_content += f"\n\n### Earlier Conversation Summary:\n{summary}\n\n(Recent messages follow below.)"
         

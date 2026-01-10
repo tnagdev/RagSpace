@@ -22,7 +22,8 @@ class ConversationService:
     def __init__(self):
         self.prisma_service = PrismaService()
     
-    async def create_conversation(self, user_id: str, initial_message: Optional[str] = None) -> str:
+    async def create_conversation(self, user_id: str, initial_message: Optional[str] = None, 
+                                  file_ids: Optional[List[str]] = None) -> str:
         """Create a new conversation"""
         await self.prisma_service.ensure_connected()
         
@@ -40,13 +41,16 @@ class ConversationService:
         
         # Add initial message if provided
         if initial_message:
-            await self.prisma_service.prisma.message.create(
-                data={
-                    "conversationId": conversation_id,
-                    "role": "user",
-                    "content": initial_message
-                }
-            )
+            message_data = {
+                "conversationId": conversation_id,
+                "role": "user",
+                "content": initial_message
+            }
+            # Include file_ids if provided
+            if file_ids:
+                message_data["fileIds"] = file_ids
+            
+            await self.prisma_service.prisma.message.create(data=message_data)
         
         logger.info(f"Created conversation {conversation_id} for user {user_id}")
         return conversation_id

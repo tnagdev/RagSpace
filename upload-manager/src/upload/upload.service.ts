@@ -219,7 +219,13 @@ export class UploadService {
             return file;
         });
 
-        return await Promise.all(filesWithUrls);
+        // Return in same format as getFiles for consistency
+        return {
+            files: await Promise.all(filesWithUrls),
+            total: files.length,
+            page: 1,
+            limit: files.length,
+        };
     }
 
     async getFiles(userId: string, query: GetFilesQueryDto) {
