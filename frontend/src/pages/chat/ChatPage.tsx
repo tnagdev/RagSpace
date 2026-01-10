@@ -350,7 +350,7 @@ const ChatPage: React.FC = () => {
                             <div>
                                 <h1 className="text-2xl font-bold text-white mb-1">Preview</h1>
                                 <p className="text-sm text-text-secondary">
-                                    {selectedResult.start_time !== undefined 
+                                    {selectedResult.start_time !== undefined
                                         ? `Scene at ${Math.floor(selectedResult.start_time)}s`
                                         : 'Click on any result to preview'}
                                 </p>
@@ -367,9 +367,9 @@ const ChatPage: React.FC = () => {
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             {(() => {
                                 const queryResult = convertToQueryResult(selectedResult);
-                                const isVideo = queryResult.file_type === 'video' || 
+                                const isVideo = queryResult.file_type === 'video' ||
                                     selectedResult.file_name?.match(/\.(mp4|webm|mov|avi)$/i);
-                                
+
                                 if (isVideo) {
                                     return <VideoPreview result={queryResult} />;
                                 } else {
