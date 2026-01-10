@@ -33,36 +33,45 @@ export class MetadataService {
     async upsertMetadata(dto: CreateFileMetadataDto) {
         this.logger.log(`Upserting metadata for file: ${dto.fileId}, scene: ${dto.sceneId || 'N/A'}`);
 
-        // Use null for sceneId consistency in unique constraint
         const sceneIdValue = dto.sceneId || null;
 
-        const metadata = await this.prisma.fileMetadata.upsert({
+        // Prisma compound unique constraint doesn't work with null values in upsert
+        // Use findFirst + create/update pattern instead
+        const existing = await this.prisma.fileMetadata.findFirst({
             where: {
-                fileId_sceneId: {
-                    fileId: dto.fileId,
-                    sceneId: sceneIdValue,
-                },
-            },
-            update: {
-                summary: dto.summary,
-                objects: dto.objects || [],
-                setting: dto.setting,
-                style: dto.style,
-                colors: dto.colors || [],
-                rawResponse: dto.rawResponse,
-            },
-            create: {
                 fileId: dto.fileId,
                 sceneId: sceneIdValue,
-                sourceType: dto.sourceType,
-                summary: dto.summary,
-                objects: dto.objects || [],
-                setting: dto.setting,
-                style: dto.style,
-                colors: dto.colors || [],
-                rawResponse: dto.rawResponse,
             },
         });
+
+        let metadata;
+        if (existing) {
+            metadata = await this.prisma.fileMetadata.update({
+                where: { id: existing.id },
+                data: {
+                    summary: dto.summary,
+                    objects: dto.objects || [],
+                    setting: dto.setting,
+                    style: dto.style,
+                    colors: dto.colors || [],
+                    rawResponse: dto.rawResponse,
+                },
+            });
+        } else {
+            metadata = await this.prisma.fileMetadata.create({
+                data: {
+                    fileId: dto.fileId,
+                    sceneId: sceneIdValue,
+                    sourceType: dto.sourceType,
+                    summary: dto.summary,
+                    objects: dto.objects || [],
+                    setting: dto.setting,
+                    style: dto.style,
+                    colors: dto.colors || [],
+                    rawResponse: dto.rawResponse,
+                },
+            });
+        }
 
         this.logger.log(`Metadata upserted: ${metadata.id}`);
         return metadata;
@@ -87,9 +96,28 @@ export class MetadataService {
         });
     }
 
+    async getMetadataByFileIds(fileIds: string[]) {
+        if (!fileIds || fileIds.length === 0) {
+            return [];
+        }
+        return this.prisma.fileMetadata.findMany({
+            where: { fileId: { in: fileIds } },
+            orderBy: { createdAt: 'asc' },
+        });
+    }
+
     async getMetadataBySceneId(sceneId: string) {
         return this.prisma.fileMetadata.findFirst({
             where: { sceneId },
+        });
+    }
+
+    async getMetadataBySceneIds(sceneIds: string[]) {
+        if (!sceneIds || sceneIds.length === 0) {
+            return [];
+        }
+        return this.prisma.fileMetadata.findMany({
+            where: { sceneId: { in: sceneIds } },
         });
     }
 
@@ -98,7 +126,7 @@ export class MetadataService {
             where: {
                 fileId_sceneId: {
                     fileId,
-                    sceneId: sceneId || null,
+                    sceneId: (sceneId || null) as string,
                 },
             },
         });

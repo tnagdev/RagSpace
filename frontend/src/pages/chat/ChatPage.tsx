@@ -9,6 +9,7 @@ import MessageList from './components/MessageList';
 import FileAttachments from './components/FileAttachments';
 import FilePickerModal from '../search/components/FilePickerModal';
 import { IconButton } from '@/components/IconButton';
+import Markdown from '@/components/Markdown';
 import { AlertCircle, MessageSquare, Film, X } from 'lucide-react';
 
 const ChatPage: React.FC = () => {
@@ -22,6 +23,7 @@ const ChatPage: React.FC = () => {
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[] }>>([]);
     const [streamingMessage, setStreamingMessage] = useState<string>('');
+    const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +52,7 @@ const ChatPage: React.FC = () => {
         setError(null);
         setIsStreaming(true);
         setStreamingMessage('');
+        setStreamingResults([]);
 
         // Add user message immediately
         const userMessage = { role: 'user' as const, content: message };
@@ -101,10 +104,20 @@ const ChatPage: React.FC = () => {
                         if (event.type === 'metadata') {
                             conversationId = event.conversation_id;
                             navigate({ to: '/chat', search: { conversation_id: conversationId }, replace: true });
-                            messageSearchResults = event.results;
+                            // Handle results if present (direct_search mode) - show immediately
+                            if (event.results && event.results.length > 0) {
+                                messageSearchResults = event.results;
+                                setStreamingResults(event.results);
+                            }
+                        } else if (event.type === 'results' || event.type === 'tool_result') {
+                            // Handle search results from agentic mode - show immediately
+                            messageSearchResults = [...messageSearchResults, ...event.results];
+                            setStreamingResults(prev => [...prev, ...event.results]);
+                        } else if (event.type === 'tool_start') {
+                            // Tool is being executed - could show loading indicator
+                            console.log('Tool started:', event.tool);
                         } else if (event.type === 'content') {
                             assistantMessage += event.content;
-                            console.log('Streaming chunk:', event.content, 'Total:', assistantMessage);
                             setStreamingMessage(assistantMessage);
                         } else if (event.type === 'done') {
                             conversationId = event.conversation_id;
@@ -116,6 +129,7 @@ const ChatPage: React.FC = () => {
                                 searchResults: messageSearchResults
                             }]);
                             setStreamingMessage('');
+                            setStreamingResults([]);
                         } else if (event.type === 'error') {
                             setError(event.error);
                         }
@@ -180,16 +194,72 @@ const ChatPage: React.FC = () => {
                                         onResultClick={handleResultClick}
                                     />
                                     {/* Show streaming message */}
-                                    {streamingMessage && (
+                                    {(streamingMessage || streamingResults.length > 0) && (
                                         <div className="flex gap-3 justify-start mb-4">
                                             <div className="w-8 h-8 rounded-full bg-accent-primary/20 flex items-center justify-center shrink-0">
                                                 <MessageSquare size={18} className="text-accent-primary" />
                                             </div>
                                             <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
-                                                <div className="text-sm whitespace-pre-wrap break-all">
-                                                    {streamingMessage}
-                                                    <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
-                                                </div>
+                                                {streamingMessage ? (
+                                                    <div className="text-sm break-words">
+                                                        <Markdown content={streamingMessage} />
+                                                        <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-sm text-text-secondary flex items-center gap-2">
+                                                        <span className="inline-block w-2 h-2 bg-accent-primary rounded-full animate-pulse" />
+                                                        Searching...
+                                                    </div>
+                                                )}
+
+                                                {/* Show streaming results */}
+                                                {streamingResults.length > 0 && (
+                                                    <div className="mt-3 pt-3 border-t border-border/50">
+                                                        <div className="text-xs font-semibold text-text-secondary mb-3">
+                                                            Found Results ({streamingResults.length})
+                                                        </div>
+                                                        <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                                                            <div className="grid grid-cols-4 gap-2">
+                                                                {streamingResults.map((result, idx) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => handleResultClick(result)}
+                                                                        className="text-left p-2 rounded bg-bg-secondary hover:bg-bg-tertiary 
+                                                                                 border border-border/50 hover:border-accent-primary/50 
+                                                                                 transition-all duration-200 group max-w-full"
+                                                                    >
+                                                                        <div className="flex items-start gap-2">
+                                                                            {result.thumbnail_url ? (
+                                                                                <img
+                                                                                    src={result.thumbnail_url}
+                                                                                    alt={result.file_name}
+                                                                                    className="w-12 h-12 object-cover rounded shrink-0"
+                                                                                />
+                                                                            ) : (
+                                                                                <div className="w-12 h-12 bg-bg-tertiary rounded flex items-center justify-center shrink-0">
+                                                                                    <Film size={16} className="text-text-secondary" />
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="text-xs font-medium text-white truncate group-hover:text-accent-primary transition-colors">
+                                                                                    {result.file_name}
+                                                                                </div>
+                                                                                {(result.start_time !== undefined || result.timestamp !== undefined) && (
+                                                                                    <div className="text-xs text-text-secondary">
+                                                                                        {Math.floor(result.start_time || result.timestamp || 0)}s
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="text-xs text-text-secondary/70">
+                                                                                    {(result.score * 100).toFixed(1)}%
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}

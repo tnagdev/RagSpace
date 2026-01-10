@@ -20,6 +20,19 @@ class SearchResult(BaseModel):
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     text_content: Optional[str] = None
+    # Metadata fields from LLM-generated descriptions
+    description: Optional[str] = None
+    objects: Optional[List[str]] = None
+    setting: Optional[str] = None
+    style: Optional[str] = None
+    colors: Optional[List[str]] = None
+
+
+class ToolCall(BaseModel):
+    """Represents a tool call made by the agent"""
+    name: str = Field(..., description="Name of the tool called")
+    arguments: dict = Field(default_factory=dict, description="Arguments passed to the tool")
+    result: Optional[dict] = Field(None, description="Result from tool execution")
 
 
 class ChatMessage(BaseModel):
@@ -29,6 +42,7 @@ class ChatMessage(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     searchResults: Optional[List[SearchResult]] = Field(None, description="Search results for this message")
     fileIds: Optional[List[str]] = Field(None, description="File IDs used for this message")
+    toolCalls: Optional[List[ToolCall]] = Field(None, description="Tools called for this response")
 
 
 class ChatRequest(BaseModel):
@@ -38,6 +52,7 @@ class ChatRequest(BaseModel):
     file_ids: Optional[List[str]] = Field(None, description="Filter to specific files")
     max_results: int = Field(5, ge=1, le=20, description="Maximum search results")
     include_context: bool = Field(True, description="Include conversation context")
+    use_agent: bool = Field(True, description="Use agentic mode with tool calling")
 
 
 class ChatResponse(BaseModel):
@@ -47,6 +62,7 @@ class ChatResponse(BaseModel):
     results: List[SearchResult] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     context_used: bool = Field(False, description="Whether conversation context was used")
+    tools_used: List[str] = Field(default_factory=list, description="Tools used in this response")
 
 
 class Conversation(BaseModel):
@@ -57,6 +73,7 @@ class Conversation(BaseModel):
     created_at: datetime
     updated_at: datetime
     title: Optional[str] = None
+    summary: Optional[str] = Field(None, description="Summary of earlier conversation")
 
 
 class ConversationSummary(BaseModel):
@@ -67,3 +84,16 @@ class ConversationSummary(BaseModel):
     message_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class AgentEvent(BaseModel):
+    """SSE event from agent execution"""
+    type: str = Field(..., description="Event type: tool_start, tool_result, content, done, error")
+    tool: Optional[str] = Field(None, description="Tool name for tool events")
+    arguments: Optional[str] = Field(None, description="Tool arguments JSON")
+    results: Optional[List[dict]] = Field(None, description="Search results")
+    result_count: Optional[int] = Field(None, description="Number of results")
+    content: Optional[str] = Field(None, description="Content chunk for streaming")
+    search_results: Optional[List[dict]] = Field(None, description="All search results")
+    tools_used: Optional[List[str]] = Field(None, description="All tools used")
+    error: Optional[str] = Field(None, description="Error message")

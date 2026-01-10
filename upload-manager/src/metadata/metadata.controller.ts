@@ -43,6 +43,18 @@ export class MetadataController {
         return this.metadataService.getMetadataByFileId(fileId);
     }
 
+    @Get('batch/files')
+    async getMetadataByFileIds(@Query('fileIds') fileIds: string) {
+        const ids = fileIds ? fileIds.split(',').map(id => id.trim()).filter(id => id) : [];
+        return this.metadataService.getMetadataByFileIds(ids);
+    }
+
+    @Get('batch/scenes')
+    async getMetadataBySceneIds(@Query('sceneIds') sceneIds: string) {
+        const ids = sceneIds ? sceneIds.split(',').map(id => id.trim()).filter(id => id) : [];
+        return this.metadataService.getMetadataBySceneIds(ids);
+    }
+
     @Get('scene/:sceneId')
     async getMetadataBySceneId(@Param('sceneId') sceneId: string) {
         return this.metadataService.getMetadataBySceneId(sceneId);

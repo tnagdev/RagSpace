@@ -1,5 +1,6 @@
 import { SearchResult } from '@/types/chat.types';
 import { User, Bot, Image as ImageIcon } from 'lucide-react';
+import Markdown from '@/components/Markdown';
 
 interface MessageListProps {
     messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[] }>;
@@ -44,8 +45,12 @@ const MessageList: React.FC<MessageListProps> = ({
                             : 'bg-bg-tertiary text-white border border-border'
                             }`}
                     >
-                        <div className="text-sm whitespace-pre-wrap break-all">
-                            {message.content}
+                        <div className="text-sm break-words">
+                            {message.role === 'assistant' ? (
+                                <Markdown content={message.content} />
+                            ) : (
+                                <span className="whitespace-pre-wrap">{message.content}</span>
+                            )}
                         </div>
 
                         {message.timestamp && (

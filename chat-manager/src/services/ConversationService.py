@@ -92,8 +92,33 @@ class ConversationService:
             messages=messages,
             created_at=conversation.createdAt,
             updated_at=conversation.updatedAt,
-            title=conversation.title
+            title=conversation.title,
+            summary=conversation.summary  # Include summary for infinite chat
         )
+    
+    async def update_summary(self, conversation_id: str, summary: str, user_id: str) -> bool:
+        """Update the conversation summary for infinite chat support"""
+        await self.prisma_service.ensure_connected()
+        
+        # Verify conversation exists and belongs to user
+        conversation = await self.prisma_service.prisma.conversation.find_unique(
+            where={"id": conversation_id}
+        )
+        
+        if not conversation or conversation.userId != user_id:
+            logger.warning(f"Conversation {conversation_id} not found for user {user_id}")
+            return False
+        
+        await self.prisma_service.prisma.conversation.update(
+            where={"id": conversation_id},
+            data={
+                "summary": summary,
+                "updatedAt": datetime.utcnow()
+            }
+        )
+        
+        logger.info(f"Updated summary for conversation {conversation_id}")
+        return True
     
     async def add_message(self, conversation_id: str, role: str, content: str, user_id: str, 
                          search_results: Optional[List[Dict]] = None, file_ids: Optional[List[str]] = None) -> bool:

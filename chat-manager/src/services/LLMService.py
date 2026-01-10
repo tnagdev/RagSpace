@@ -334,7 +334,8 @@ When answering questions:
 - Reference specific videos and scenes when available
 - If search results are provided, use them to give accurate information
 - If no relevant results are found, suggest alternative search strategies
-- Maintain conversation context and refer back to previous messages when relevant"""
+- Maintain conversation context and refer back to previous messages when relevant
+- Use the file descriptions, objects, settings, and other metadata to provide rich context about the files"""
         
         if search_results and len(search_results) > 0:
             context = "\n\n### Current Search Results:\n"
@@ -344,12 +345,31 @@ When answering questions:
                 timestamp = result.get("timestamp")
                 text_content = result.get("text_content", "")
                 
-                context += f"\n{idx}. **{file_name}**"
+                # Include metadata
+                description = result.get("description")
+                objects = result.get("objects")
+                setting = result.get("setting")
+                style = result.get("style")
+                colors = result.get("colors")
+                
+                context += f"\n{idx}. **{file_name}** (relevance: {score:.1%})"
                 if timestamp:
-                    context += f" (at {timestamp:.1f}s)"
-                if text_content:
-                    context += f"\n   Content: {text_content[:200]}"
+                    context += f" at {timestamp:.1f}s"
                 context += "\n"
+                
+                # Add rich metadata context
+                if description:
+                    context += f"   📝 Description: {description}\n"
+                if objects and len(objects) > 0:
+                    context += f"   🏷️ Objects: {', '.join(objects[:10])}\n"
+                if setting:
+                    context += f"   📍 Setting: {setting}\n"
+                if style:
+                    context += f"   🎨 Style: {style}\n"
+                if colors and len(colors) > 0:
+                    context += f"   🎨 Colors: {', '.join(colors[:5])}\n"
+                if text_content:
+                    context += f"   💬 Text/Transcript: {text_content[:200]}\n"
             
             base_message += context
         

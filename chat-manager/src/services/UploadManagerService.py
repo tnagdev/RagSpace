@@ -12,6 +12,10 @@ class UploadManagerEndpoints(Enum):
     GET_FILE_DETAILS = "/upload/{file_id}"
     DELETE_FILE = "/upload/{file_id}"
     LIST_FILES = "/upload"
+    GET_METADATA_BY_FILE = "/metadata/file/{file_id}"
+    GET_METADATA_BY_SCENE = "/metadata/scene/{scene_id}"
+    GET_METADATA_BATCH_FILES = "/metadata/batch/files"
+    GET_METADATA_BATCH_SCENES = "/metadata/batch/scenes"
 
 
 class UploadManagerService:
@@ -86,4 +90,84 @@ class UploadManagerService:
             return await self.client.send_request("GET", url, params=params)
         except Exception as e:
             logger.error(f"Error listing user files: {e}")
+            return None
+
+    async def get_file_metadata(self, file_id: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch metadata for a file from upload-manager service.
+        
+        Args:
+            file_id: The file ID
+            
+        Returns:
+            List of metadata records or None if not found
+        """
+        try:
+            url = f"{self.base_url}{UploadManagerEndpoints.GET_METADATA_BY_FILE.value.format(file_id=file_id)}"
+            logger.info(f"Fetching metadata for file: {file_id}")
+            return await self.client.send_request("GET", url)
+        except Exception as e:
+            logger.error(f"Error fetching metadata for file {file_id}: {e}")
+            return None
+
+    async def get_scene_metadata(self, scene_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch metadata for a specific scene.
+        
+        Args:
+            scene_id: The scene ID
+            
+        Returns:
+            Metadata record or None if not found
+        """
+        try:
+            url = f"{self.base_url}{UploadManagerEndpoints.GET_METADATA_BY_SCENE.value.format(scene_id=scene_id)}"
+            logger.info(f"Fetching metadata for scene: {scene_id}")
+            return await self.client.send_request("GET", url)
+        except Exception as e:
+            logger.error(f"Error fetching metadata for scene {scene_id}: {e}")
+            return None
+
+    async def get_metadata_batch_by_files(self, file_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch metadata for multiple files in a single batch request.
+        
+        Args:
+            file_ids: List of file IDs
+            
+        Returns:
+            List of metadata records or None on failure
+        """
+        if not file_ids:
+            return []
+        
+        try:
+            params = {"fileIds": ",".join(file_ids)}
+            url = f"{self.base_url}{UploadManagerEndpoints.GET_METADATA_BATCH_FILES.value}"
+            logger.info(f"Fetching metadata for {len(file_ids)} files in batch")
+            return await self.client.send_request("GET", url, params=params)
+        except Exception as e:
+            logger.error(f"Error fetching batch metadata for files: {e}")
+            return None
+
+    async def get_metadata_batch_by_scenes(self, scene_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch metadata for multiple scenes in a single batch request.
+        
+        Args:
+            scene_ids: List of scene IDs
+            
+        Returns:
+            List of metadata records or None on failure
+        """
+        if not scene_ids:
+            return []
+        
+        try:
+            params = {"sceneIds": ",".join(scene_ids)}
+            url = f"{self.base_url}{UploadManagerEndpoints.GET_METADATA_BATCH_SCENES.value}"
+            logger.info(f"Fetching metadata for {len(scene_ids)} scenes in batch")
+            return await self.client.send_request("GET", url, params=params)
+        except Exception as e:
+            logger.error(f"Error fetching batch metadata for scenes: {e}")
             return None

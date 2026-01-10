@@ -19,9 +19,20 @@ class Settings(BaseSettings):
     # LLM Configuration (NVIDIA API)
     nvidia_api_key: Optional[str] = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    llm_model: str = "meta/llama-3.2-11b-vision-instruct" #"meta/llama-3.3-70b-instruct"  # Meta's latest Llama model
+    llm_model: str = "meta/llama-3.2-11b-vision-instruct"  # Vision model for multi-modal
     max_tokens: int = 1024
     temperature: float = 0.7
+    
+    # Agent Configuration
+    agent_model: str = "meta/llama-3.3-70b-instruct"  # Tool-calling model for agent
+    max_agent_iterations: int = 5  # Max tool calling loops
+    enable_agentic_mode: bool = True  # Disabled by default - use direct search mode
+    
+    # Summarization Configuration
+    summary_model: str = "meta/llama-3.3-70b-instruct"  # Model for summarization
+    summary_threshold: int = 20  # Summarize when messages exceed this
+    keep_recent_messages: int = 10  # Keep this many recent messages in full
+    summary_max_tokens: int = 500  # Max tokens for summary generation
     
     # Context Window Management
     max_context_tokens: int = 4000  # Reserve space for response

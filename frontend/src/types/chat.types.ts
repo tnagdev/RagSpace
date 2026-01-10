@@ -36,8 +36,9 @@ export interface ChatRequest {
 export interface ChatMetadata {
     type: 'metadata';
     conversation_id: string;
-    results: SearchResult[];
-    context_used: boolean;
+    results?: SearchResult[];
+    context_used?: boolean;
+    mode?: 'agentic' | 'direct_search';
 }
 
 export interface ChatContent {
@@ -45,9 +46,29 @@ export interface ChatContent {
     content: string;
 }
 
+export interface ChatResults {
+    type: 'results';
+    results: SearchResult[];
+}
+
+export interface ChatToolStart {
+    type: 'tool_start';
+    tool: string;
+    arguments: string;
+}
+
+export interface ChatToolResult {
+    type: 'tool_result';
+    tool: string;
+    results: SearchResult[];
+    result_count: number;
+}
+
 export interface ChatDone {
     type: 'done';
     conversation_id: string;
+    tools_used?: string[];
+    result_count?: number;
 }
 
 export interface ChatError {
@@ -55,7 +76,7 @@ export interface ChatError {
     error: string;
 }
 
-export type ChatSSEEvent = ChatMetadata | ChatContent | ChatDone | ChatError;
+export type ChatSSEEvent = ChatMetadata | ChatContent | ChatResults | ChatToolStart | ChatToolResult | ChatDone | ChatError;
 
 export interface ConversationSummary {
     id: string;
