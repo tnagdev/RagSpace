@@ -111,14 +111,14 @@ class ChromaDatabaseManager:
                 - text_weight: float - Weight for text matches (default 0.5)
                 - image_weight: float - Weight for image matches (default 0.5)
                 - top_k: int - Number of results (default 10)
-                - threshold: float - Minimum similarity threshold (default 0.2)
+                - threshold: float - Minimum similarity threshold (default 0.3, Video-RAG recommended)
                 - use_dynamic_retrieval: bool - Use threshold-based retrieval (default True)
-                - adaptive_scoring: bool - Apply video length normalization (default False)
+                - adaptive_scoring: bool - Apply video length normalization (default True)
         
         Returns:
             List of results with scores and metadata
         """
-        # Parse options with defaults
+        # Parse options with defaults (Video-RAG recommended values)
         if options is None:
             options = {}
         text_weight = options.get('text_weight', 0.5)
@@ -127,11 +127,8 @@ class ChromaDatabaseManager:
         threshold = options.get('threshold', 0.2)
         use_dynamic_retrieval = options.get('use_dynamic_retrieval', True)
         adaptive_scoring = options.get('adaptive_scoring', False)
-        
         results = []
-        result_map = {}  # Track results by unique key to merge scores
-        
-        # Build filter from filters dict
+        result_map = {}
         where_filter = filters if filters else None
         
         logger.info(f"Starting query_index with filters: {where_filter}, threshold: {threshold}, use_dynamic: {use_dynamic_retrieval}")
@@ -140,7 +137,6 @@ class ChromaDatabaseManager:
         # Query text embeddings collection (audio transcriptions, OCR text, image text)
         if text_query_vec is not None:
             try:
-                # Use larger retrieval pool for dynamic filtering
                 retrieval_count = top_k * 5 if use_dynamic_retrieval else top_k
                 
                 logger.info(f"Querying text collection with n_results={retrieval_count}, where={where_filter}")
@@ -159,12 +155,10 @@ class ChromaDatabaseManager:
                     text_results["documents"][0]
                 ):
                     score = 1 - distance
-                    
-                    # Dynamic threshold filtering (inspired by Video-RAG's range_search)
                     if use_dynamic_retrieval and threshold > 0 and score < threshold:
                         filtered_count += 1
                         continue
-                    # Standard filtering for non-dynamic retrieval (only filter very low scores)
+                    
                     elif not use_dynamic_retrieval and score < 0.0:
                         filtered_count += 1
                         continue
@@ -211,25 +205,12 @@ class ChromaDatabaseManager:
 
                 logger.info(f"Image query returned {len(image_results['ids'][0])} results")
                 
-                # Adaptive scoring: normalize by video length (inspired by Video-RAG's alpha calculation)
-                num_results = len(image_results['ids'][0])
-                alpha = 1.0
-                if adaptive_scoring and num_results > 0:
-                    # Scale factor based on number of frames (similar to Video-RAG's beta * (len/16))
-                    alpha = 3.0 * (num_results / 16.0)
-                
                 for metadata, distance, doc in zip(
                     image_results["metadatas"][0],
                     image_results["distances"][0],
                     image_results["documents"][0]
                 ):
                     score = 1 - distance
-                    
-                    # Apply adaptive scoring if enabled
-                    if adaptive_scoring:
-                        score = score * alpha / max(1.0, num_results)
-                    
-                    # Dynamic threshold filtering (only filter if threshold > 0)
                     if use_dynamic_retrieval and threshold > 0 and score < threshold:
                         continue
                     elif not use_dynamic_retrieval and score < 0.0:
@@ -261,31 +242,29 @@ class ChromaDatabaseManager:
             except Exception as e:
                 logger.error(f"Error querying image collection: {e}")
         
-        # Convert to list and sort by combined score
+        # Convert to list and normalize scores by modality count before sorting
+        # This prevents videos with both text+image from automatically ranking higher than images
         results = list(result_map.values())
+        for r in results:
+            modality_count = sum([r["text_score"] > 0, r["image_score"] > 0])
+            if modality_count > 0:
+                r["combined_score"] = r["combined_score"] / modality_count
+        
         results.sort(key=lambda x: x["combined_score"], reverse=True)
         
         # Return top_k results with enhanced confidence calculation
         final_results = []
         for r in results[:top_k]:
-            # Calculate confidence based on multiple factors:
-            # 1. How many modalities contributed (text + image)
-            # 2. How many times this result was matched (for multi-query scenarios)
             modality_count = sum([
                 r["text_score"] > 0,
                 r["image_score"] > 0
             ])
             match_count = r.get("match_count", 1)
-            
-            # Boost confidence for multi-modal and multi-match results
-            # Inspired by Video-RAG's multi-signal retrieval approach
             base_confidence = r["combined_score"]
-            modality_boost = 0.2 * (modality_count - 1)  # +20% for each additional modality
-            match_boost = 0.1 * min(match_count - 1, 3)  # +10% per match, capped at 3 matches
-            
+            modality_boost = 0.2 * (modality_count - 1)
+            match_boost = 0.1 * min(match_count - 1, 3)
             r["confidence"] = min(1.0, base_confidence * (1 + modality_boost + match_boost))
             r["score"] = r.pop("combined_score")
-            # Clean up internal tracking fields
             r.pop("match_count", None)
             final_results.append(r)
         
@@ -314,3 +293,76 @@ class ChromaDatabaseManager:
         """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""
         logger.warning("delete_by_video_id is deprecated, use delete_by_file_id instead")
         self.delete_by_file_id(video_id)
+    
+    def get_all_content_for_file(self, file_id: str) -> Dict[str, Any]:
+        """
+        Retrieve ALL embeddings (text + image) for a specific file.
+        Used for video summarization and full content retrieval.
+        
+        Args:
+            file_id: The file ID to get all content for
+            
+        Returns:
+            Dictionary with 'scenes' (visual) and 'segments' (audio) content,
+            sorted chronologically by start_time
+        """
+        scenes = []
+        segments = []
+        
+        # Get all text embeddings (audio transcriptions) for this file
+        try:
+            text_results = self.text_collection.get(
+                where={"file_id": file_id},
+                include=["metadatas", "documents"]
+            )
+            
+            if text_results and text_results["ids"]:
+                for idx, (metadata, doc) in enumerate(zip(
+                    text_results["metadatas"],
+                    text_results["documents"]
+                )):
+                    segment_data = {
+                        **metadata,
+                        "text": doc,
+                        "type": "audio"
+                    }
+                    segments.append(segment_data)
+                
+                logger.info(f"Retrieved {len(segments)} audio segments for file {file_id}")
+        except Exception as e:
+            logger.error(f"Error getting text embeddings for file {file_id}: {e}")
+        
+        # Get all image embeddings (visual scenes) for this file
+        try:
+            image_results = self.image_collection.get(
+                where={"file_id": file_id},
+                include=["metadatas", "documents"]
+            )
+            
+            if image_results and image_results["ids"]:
+                for idx, (metadata, doc) in enumerate(zip(
+                    image_results["metadatas"],
+                    image_results["documents"]
+                )):
+                    scene_data = {
+                        **metadata,
+                        "text": doc if doc else "",
+                        "type": "visual"
+                    }
+                    scenes.append(scene_data)
+                
+                logger.info(f"Retrieved {len(scenes)} visual scenes for file {file_id}")
+        except Exception as e:
+            logger.error(f"Error getting image embeddings for file {file_id}: {e}")
+        
+        # Sort by start_time for chronological order
+        scenes.sort(key=lambda x: x.get("start_time", 0) or 0)
+        segments.sort(key=lambda x: x.get("start_time", 0) or 0)
+        
+        return {
+            "file_id": file_id,
+            "scenes": scenes,
+            "segments": segments,
+            "total_scenes": len(scenes),
+            "total_segments": len(segments)
+        }

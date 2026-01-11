@@ -214,7 +214,7 @@ class EnhancedSearchService:
         user_id: Optional[str] = None,
         file_id: Optional[str] = None,
         top_k: int = 10,
-        threshold: float = 0.4
+        threshold: float = 0.2
     ) -> Dict[str, Any]:
         """
         Basic search (backward compatible with existing API).
@@ -250,7 +250,7 @@ class EnhancedSearchService:
         image_query: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 10,
-        threshold: float = 0.4
+        threshold: float = 0.2
     ) -> Dict[str, Any]:
         """
         Advanced search with multi-query and multimodal support (NEW).
@@ -300,7 +300,7 @@ class EnhancedSearchService:
         question: str,
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 5,
-        threshold: float = 0.45
+        threshold: float = 0.2
     ) -> Dict[str, Any]:
         """
         Question-answering style search (inspired by Video-RAG's QA approach).

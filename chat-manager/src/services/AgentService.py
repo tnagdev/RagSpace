@@ -41,24 +41,47 @@ class AgentResponse:
 AGENT_SYSTEM_PROMPT = """You are a helpful AI assistant for RagSpace, a video and image content search platform. 
 You help users find and understand their uploaded media through conversational search.
 
-You have access to tools that let you search the user's files. Use the search_files tool when:
-- The user asks to find specific content in their videos/images
-- The user describes a scene, object, or moment they're looking for
-- The query requires looking up visual or audio content
-- The user has attached specific files to search within (ALWAYS search when files are attached)
+You have access to tools, but ONLY use them when needed:
 
-Do NOT use search tools when:
-- The user asks general questions or wants to chat
-- The user is asking follow-up questions about results you already showed
-- The question can be answered from the current conversation context
-- The user wants to know about capabilities or how to use the platform
+## When to use NO tools (answer directly):
+- General knowledge questions ("what is 2+2?", "explain machine learning")
+- Casual conversation or greetings
+- Follow-up questions about results already shown
+- Questions that can be answered from conversation context
+- Clarifying questions or requests for explanation
+
+## Tool: search_files
+Use ONLY when the user asks about THEIR uploaded content:
+- "find videos with red cars"
+- "show me images from the beach"
+- "where did I mention machine learning?" (searching their audio/video transcripts)
+- "which video has a sunset scene?"
+- Any query requiring lookup of visual, audio, or text content in their files
+
+## Tool: get_video_content
+Use ONLY when files are ATTACHED and user wants full video analysis:
+- Files are attached AND user asks "summarize this video"
+- Files are attached AND user wants complete scene-by-scene breakdown
+- NOT for finding videos (use search_files) or when no files attached
+
+## Tool: get_file_content  
+Use ONLY when files are ATTACHED and user wants image/audio analysis:
+- Files are attached AND user asks "what is in this image?"
+- Files are attached AND user wants image description or audio transcript
+- NOT for finding images (use search_files) or when no files attached
+
+DECISION RULES:
+1. General questions → Answer directly without tools
+2. Questions about their files/content → Use search_files
+3. Specific attached files → Use get_video_content or get_file_content
+4. When in doubt, answer directly first; only use tools if the query clearly needs their content
 
 When responding:
 - Be concise and helpful
 - Reference specific files and timestamps when available
 - If search results are provided, describe what was found
-- Maintain conversation context and refer back to previous messages
-- When files are attached, ALWAYS use search_files tool to search within them"""
+- For video summaries, synthesize visual and audio content
+- For image descriptions, describe objects, setting, style, and colors"""
 
 
 class AgentService:
@@ -468,10 +491,15 @@ class AgentService:
         system_content = AGENT_SYSTEM_PROMPT
         
         if attached_files and len(attached_files) > 0:
-            file_names = [f.get("originalFilename") or f.get("original_filename") or f.get("filename") or f.get("id", "Unknown") for f in attached_files]
-            system_content += f"\n\n### User has attached {len(attached_files)} file(s) to search within:\n"
-            system_content += "\n".join([f"- {name}" for name in file_names])
-            system_content += "\n\nIMPORTANT: The user wants to search ONLY within these attached files. You MUST use the search_files tool to answer their query about these files."
+            system_content += f"\n\n### User has attached {len(attached_files)} file(s):\n"
+            for f in attached_files:
+                file_name = f.get("originalFilename") or f.get("original_filename") or f.get("filename") or "Unknown"
+                file_id = f.get("id", "Unknown")
+                file_type = f.get("fileType", "Unknown")
+                system_content += f"- {file_name} (ID: {file_id}, Type: {file_type})\n"
+            
+            system_content += "\nIMPORTANT: The user wants to work with these attached files. "
+            system_content += "Use search_files to find specific content, or get_video_content to summarize/narrate entire videos."
         
         if summary:
             system_content += f"\n\n### Earlier Conversation Summary:\n{summary}\n\n(Recent messages follow below.)"
@@ -512,6 +540,10 @@ class AgentService:
         
         if tool_name == "search_files":
             return await self._execute_search(tool_call.id, arguments, file_ids)
+        elif tool_name == "get_video_content":
+            return await self._execute_get_video_content(tool_call.id, arguments, file_ids)
+        elif tool_name == "get_file_content":
+            return await self._execute_get_file_content(tool_call.id, arguments, file_ids)
         elif tool_name == "get_conversation_summary":
             return await self._execute_get_summary(tool_call.id)
         else:
@@ -631,6 +663,306 @@ class AgentService:
                 "message": "The conversation summary is already included in your context above."
             }
         )
+    
+    async def _execute_get_video_content(
+        self,
+        tool_call_id: str,
+        arguments: Dict[str, Any],
+        file_ids: Optional[List[str]] = None
+    ) -> ToolResult:
+        """
+        Execute the get_video_content tool for video summarization/narration.
+        Retrieves ALL content for one or more videos in chronological order.
+        """
+        # Support both single file_id and array of file_ids
+        requested_file_ids = arguments.get("file_ids") or []
+        if arguments.get("file_id"):
+            requested_file_ids = [arguments.get("file_id")]
+        
+        # If no file_ids provided but we have attached files, use all of them
+        if not requested_file_ids and file_ids and len(file_ids) > 0:
+            requested_file_ids = file_ids
+            logger.info(f"No file_ids provided, using all attached files: {requested_file_ids}")
+        
+        # Reject if no files attached - should use search_files instead
+        if not requested_file_ids:
+            logger.warning("get_video_content called with no file_ids and no attachments - should use search_files")
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_video_content",
+                result={
+                    "error": "No files are attached to analyze. To find videos, use search_files tool instead.",
+                    "found": False,
+                    "suggestion": "Use search_files to find videos matching your query, then attach specific files to get their full content."
+                }
+            )
+        
+        try:
+            # Process all videos
+            all_results = []
+            for fid in requested_file_ids:
+                # Validate file_id format (should be UUID-like, not a filename)
+                if " " in fid or "." in fid:
+                    logger.warning(f"Invalid file_id format detected: '{fid}' - looks like a filename, not an ID")
+                    all_results.append({
+                        "file_id": fid,
+                        "found": False,
+                        "error": f"Invalid file_id: '{fid}' appears to be a filename. Please use the actual file ID."
+                    })
+                    continue
+                
+                logger.info(f"Fetching video content for file_id: {fid}")
+                content_response = await self.file_embedder.get_video_content(
+                    file_id=fid,
+                    include_metadata=True
+                )
+                
+                if content_response:
+                    formatted = self._format_video_content_for_llm(content_response)
+                    all_results.append(formatted)
+                else:
+                    all_results.append({
+                        "file_id": fid,
+                        "found": False,
+                        "error": f"Could not retrieve content for video: {fid}"
+                    })
+            
+            # Combine results
+            if len(all_results) == 1:
+                combined_result = all_results[0]
+            else:
+                combined_result = {
+                    "found": any(r.get("found", False) for r in all_results),
+                    "total_files": len(all_results),
+                    "files": all_results,
+                    "instructions": (
+                        "Multiple videos have been analyzed. Each file's content is provided above. "
+                        "Describe or summarize each video based on its content_timeline and metadata."
+                    )
+                }
+            
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_video_content",
+                result=combined_result,
+                search_results=None
+            )
+            
+        except Exception as e:
+            logger.error(f"Get video content error: {e}", exc_info=True)
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_video_content",
+                result={"error": str(e), "found": False}
+            )
+    
+    def _format_video_content_for_llm(
+        self,
+        content: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Format video content for LLM consumption (summarization/narration)."""
+        if not content:
+            return {
+                "found": False,
+                "message": "No content found for this video."
+            }
+        
+        file_name = content.get("file_name", "Unknown video")
+        total_duration = content.get("total_duration")
+        total_scenes = content.get("total_scenes", 0)
+        total_segments = content.get("total_segments", 0)
+        summary_context = content.get("summary_context", "")
+        
+        # Build a rich context for the LLM
+        formatted = {
+            "found": True,
+            "file_name": file_name,
+            "file_id": content.get("file_id"),
+            "duration_seconds": total_duration,
+            "duration_formatted": f"{total_duration/60:.1f} minutes" if total_duration else None,
+            "total_scenes": total_scenes,
+            "total_audio_segments": total_segments,
+            "content_timeline": summary_context,
+            "instructions": (
+                "Use the content_timeline above to summarize or narrate the video. "
+                "The timeline shows all visual scenes and audio transcriptions in chronological order. "
+                "[Visual] entries describe what is seen on screen. "
+                "[Audio] entries contain spoken words or sounds. "
+                "Combine both to create a comprehensive summary or narration."
+            )
+        }
+        
+        # Also include structured content for detailed access
+        content_items = content.get("content", [])
+        if content_items:
+            formatted["detailed_content"] = []
+            for item in content_items[:50]:  # Limit to prevent token overflow
+                detail = {
+                    "type": item.get("type"),
+                    "time_range": f"{item.get('start_time', 0):.1f}s - {item.get('end_time', 0):.1f}s" if item.get("start_time") else None,
+                }
+                if item.get("description"):
+                    detail["description"] = item.get("description")
+                if item.get("text"):
+                    detail["transcript"] = item.get("text")[:300]  # Truncate long transcripts
+                formatted["detailed_content"].append(detail)
+        
+        return formatted
+    
+    async def _execute_get_file_content(
+        self,
+        tool_call_id: str,
+        arguments: Dict[str, Any],
+        file_ids: Optional[List[str]] = None
+    ) -> ToolResult:
+        """
+        Execute the get_file_content tool for image/audio file analysis.
+        Retrieves content and metadata for one or more non-video files.
+        """
+        # Support both single file_id and array of file_ids
+        requested_file_ids = arguments.get("file_ids") or []
+        if arguments.get("file_id"):
+            requested_file_ids = [arguments.get("file_id")]
+        
+        # If no file_ids provided but we have attached files, use all of them
+        if not requested_file_ids and file_ids and len(file_ids) > 0:
+            requested_file_ids = file_ids
+            logger.info(f"No file_ids provided, using all attached files: {requested_file_ids}")
+        
+        # Reject if no files attached - should use search_files instead
+        if not requested_file_ids:
+            logger.warning("get_file_content called with no file_ids and no attachments - should use search_files")
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_file_content",
+                result={
+                    "error": "No files are attached to analyze. To find images or files, use search_files tool instead.",
+                    "found": False,
+                    "suggestion": "Use search_files to find images/files matching your query, then attach specific files to get their detailed content."
+                }
+            )
+        
+        try:
+            # Process all files
+            all_results = []
+            for fid in requested_file_ids:
+                # Validate file_id format (should be UUID-like, not a filename)
+                if " " in fid or "." in fid:
+                    logger.warning(f"Invalid file_id format detected: '{fid}' - looks like a filename, not an ID")
+                    all_results.append({
+                        "file_id": fid,
+                        "found": False,
+                        "error": f"Invalid file_id: '{fid}' appears to be a filename. Please use the actual file ID."
+                    })
+                    continue
+                
+                logger.info(f"Fetching content for file_id: {fid}")
+                content_response = await self.file_embedder.get_file_content(
+                    file_id=fid,
+                    include_metadata=True
+                )
+                
+                if content_response:
+                    formatted = self._format_file_content_for_llm(content_response)
+                    all_results.append(formatted)
+                else:
+                    all_results.append({
+                        "file_id": fid,
+                        "found": False,
+                        "error": f"Could not retrieve content for file: {fid}"
+                    })
+            
+            # Combine results
+            if len(all_results) == 1:
+                combined_result = all_results[0]
+            else:
+                combined_result = {
+                    "found": any(r.get("found", False) for r in all_results),
+                    "total_files": len(all_results),
+                    "files": all_results,
+                    "instructions": (
+                        "Multiple files have been analyzed. Each file's content and metadata is provided above. "
+                        "Describe each file based on its content_summary, description, objects, setting, and other metadata."
+                    )
+                }
+            
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_file_content",
+                result=combined_result,
+                search_results=None
+            )
+            
+        except Exception as e:
+            logger.error(f"Get file content error: {e}", exc_info=True)
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                name="get_file_content",
+                result={"error": str(e), "found": False}
+            )
+    
+    def _format_file_content_for_llm(
+        self,
+        content: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Format file content for LLM consumption (image/audio analysis)."""
+        if not content:
+            return {
+                "found": False,
+                "message": "No content found for this file."
+            }
+        
+        file_name = content.get("file_name", "Unknown file")
+        file_type = content.get("file_type", "Unknown")
+        summary_context = content.get("summary_context", "")
+        
+        # Build a rich context for the LLM
+        formatted = {
+            "found": True,
+            "file_name": file_name,
+            "file_id": content.get("file_id"),
+            "file_type": file_type,
+            "file_url": content.get("file_url"),
+            "thumbnail_url": content.get("thumbnail_url"),
+            "content_summary": summary_context,
+        }
+        
+        # Add metadata fields if present
+        if content.get("description"):
+            formatted["description"] = content["description"]
+        
+        if content.get("objects"):
+            formatted["objects"] = content["objects"]
+        
+        if content.get("setting"):
+            formatted["setting"] = content["setting"]
+        
+        if content.get("style"):
+            formatted["style"] = content["style"]
+        
+        if content.get("colors"):
+            formatted["colors"] = content["colors"]
+        
+        if content.get("transcript"):
+            formatted["transcript"] = content["transcript"]
+        
+        # Add instructions based on file type
+        if file_type == "IMAGE":
+            formatted["instructions"] = (
+                "Use the content_summary and metadata above to describe or analyze this image. "
+                "The description, objects, setting, style, and colors provide details about what is in the image."
+            )
+        elif file_type == "AUDIO":
+            formatted["instructions"] = (
+                "Use the transcript above to understand the audio content. "
+                "The transcript contains the spoken words or sounds from the audio file."
+            )
+        else:
+            formatted["instructions"] = (
+                "Use the content_summary above to describe this file."
+            )
+        
+        return formatted
     
     def _format_search_results_for_llm(
         self,

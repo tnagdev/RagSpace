@@ -49,6 +49,7 @@ export interface QueryRequest {
     top_k?: number;
     text_weight?: number;
     image_weight?: number;
+    threshold?: number; // Video-RAG similarity threshold (default: 0.3)
     use_dynamic_retrieval?: boolean;
     adaptive_scoring?: boolean;
     enable_query_expansion?: boolean;

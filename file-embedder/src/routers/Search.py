@@ -1,6 +1,8 @@
 import logging
 import json
 from fastapi import APIRouter, HTTPException, Request
+from typing import List, Optional
+from pydantic import BaseModel
 from src.models.query import QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails
 from src.db.chroma_db import ChromaDatabaseManager
 from src.services.UploadManagerService import UploadManagerService
@@ -89,22 +91,17 @@ async def query_embeddings(
         image_embedder = ImageEmbedderService()
         chroma_db = ChromaDatabaseManager()
         
-        # Use Contriever for better retrieval (if use_enhanced flag is set)
-        use_contriever = getattr(body, 'use_enhanced', False)
+        use_contriever = body.use_enhanced
         if use_contriever:
-            logger.warning("Using Contriever model - ensure stored embeddings were also created with Contriever!")
+            logger.info("Using Contriever model for enhanced text retrieval")
         
-        # Query enhancement: expand and filter if enabled
         queries_to_search = [body.query]
-        if getattr(body, 'enable_query_expansion', False):
-            # Expand query into multiple variants
+        if body.enable_query_expansion:
             expanded = expand_query(body.query, max_keywords=5)
             queries_to_search = expanded if expanded and len(expanded) > 0 else [body.query]
             logger.info(f"Expanded query '{body.query}' to {len(queries_to_search)} variants: {queries_to_search}")
         
-        # Generate embeddings with optional multi-query averaging
         if len(queries_to_search) > 1:
-            # Multi-query averaging for richer semantics
             text_embeddings = []
             for q in queries_to_search:
                 emb = text_embedder.embed_text(q, use_contriever=use_contriever)
@@ -170,9 +167,9 @@ async def query_embeddings(
             "top_k": body.top_k,
             "text_weight": body.text_weight,
             "image_weight": body.image_weight,
-            "threshold": getattr(body, 'threshold', 0.0),  # Default: no threshold filtering (was 0.2)
-            "use_dynamic_retrieval": getattr(body, 'use_dynamic_retrieval', False),  # Disabled by default
-            "adaptive_scoring": getattr(body, 'adaptive_scoring', False)
+            "threshold": body.threshold,
+            "use_dynamic_retrieval": body.use_dynamic_retrieval,
+            "adaptive_scoring": body.adaptive_scoring
         }
         
         logger.info(f"Query: '{body.query}', Expanded queries: {queries_to_search}, Options: {options}")
@@ -197,8 +194,8 @@ async def query_embeddings(
                     'text_matches': 0,
                     'image_matches': 0,
                     'multimodal_matches': 0,
-                    'query_expansion_enabled': getattr(body, 'enable_query_expansion', False),
-                    'expanded_queries': queries_to_search if getattr(body, 'enable_query_expansion', False) else None,
+                    'query_expansion_enabled': body.enable_query_expansion,
+                    'expanded_queries': queries_to_search if body.enable_query_expansion else None,
                     'error': 'No embeddings in database'
                 }
             )
@@ -401,7 +398,7 @@ async def query_embeddings(
             ))
         
         # Calculate retrieval statistics
-        query_expansion_enabled = getattr(body, 'enable_query_expansion', False)
+        query_expansion_enabled = body.enable_query_expansion
         stats = {
             'total_results': len(query_results),
             'avg_score': sum(r.score for r in query_results) / len(query_results) if query_results else 0.0,
@@ -462,31 +459,31 @@ async def advanced_search(
         if not user_id and hasattr(request.state, 'user'):
             user_id = request.state.user.get("id") if request.state.user else None
         
-        # Build filters
-        filters = {}
+        # Build filters - ChromaDB requires $and for multiple conditions
+        filter_conditions = []
+        
         if body.file_ids:
             if len(body.file_ids) == 1:
-                filters['file_id'] = body.file_ids[0]
+                filter_conditions.append({"file_id": body.file_ids[0]})
             else:
                 # ChromaDB supports $or for multiple file IDs
-                filters = {"$or": [{"file_id": fid} for fid in body.file_ids]}
+                filter_conditions.append({"$or": [{"file_id": fid} for fid in body.file_ids]})
         
         if body.file_type:
-            if filters and "$or" in filters:
-                # Need to combine with AND
-                filters = {"$and": [filters, {"file_type": body.file_type}]}
-            else:
-                filters['file_type'] = body.file_type
+            filter_conditions.append({"file_type": body.file_type})
         
         if user_id:
-            if filters and ("$or" in filters or "$and" in filters):
-                # Complex filter already exists
-                if "$and" in filters:
-                    filters["$and"].append({"user_id": user_id})
-                else:
-                    filters = {"$and": [filters, {"user_id": user_id}]}
-            else:
-                filters['user_id'] = user_id
+            filter_conditions.append({"user_id": user_id})
+        
+        # Combine conditions with $and if multiple
+        if len(filter_conditions) == 0:
+            filters = None
+        elif len(filter_conditions) == 1:
+            filters = filter_conditions[0]
+        else:
+            filters = {"$and": filter_conditions}
+        
+        logger.info(f"Advanced search filters: {filters}")
         
         # Query enhancement: expand into related queries
         queries = [body.query]
@@ -711,4 +708,356 @@ async def advanced_search(
         
     except Exception as e:
         logger.error(f"Error in advanced search: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class VideoContentRequest(BaseModel):
+    """Request model for getting full video content."""
+    file_id: str
+    include_metadata: bool = True
+
+
+class VideoContentSegment(BaseModel):
+    """A segment of video content (scene or audio segment)."""
+    type: str  # "visual" or "audio"
+    scene_id: Optional[str] = None
+    scene_index: Optional[int] = None
+    segment_index: Optional[int] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    duration: Optional[float] = None
+    text: Optional[str] = None
+    # Metadata fields
+    description: Optional[str] = None
+    objects: Optional[List[str]] = None
+    setting: Optional[str] = None
+    style: Optional[str] = None
+    colors: Optional[List[str]] = None
+    thumbnail_url: Optional[str] = None
+
+
+class VideoContentResponse(BaseModel):
+    """Response model for full video content."""
+    file_id: str
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    total_duration: Optional[float] = None
+    total_scenes: int = 0
+    total_segments: int = 0
+    content: List[VideoContentSegment] = []
+    summary_context: str = ""  # Formatted for LLM consumption
+
+
+@router.post("/content/video")
+async def get_video_content(
+    body: VideoContentRequest,
+    request: Request,
+):
+    """
+    Get ALL content for a video file, ordered chronologically.
+    
+    This endpoint retrieves all scenes and audio segments for a video,
+    combining visual and audio information. Designed for:
+    - Video summarization
+    - Full video narration
+    - Story reconstruction
+    - Content overview
+    
+    Args:
+        body: Request with file_id
+        request: FastAPI request object
+    
+    Returns:
+        Complete video content with scenes, transcripts, and metadata
+    """
+    try:
+        chroma_db = ChromaDatabaseManager()
+        upload_manager = UploadManagerService(user=request.state.user, session=request.state.session)
+        scene_detector = SceneDetectionService(user=request.state.user, session=request.state.session)
+        
+        # Get file details
+        file_details = await upload_manager.get_file_details(body.file_id)
+        if not file_details:
+            raise HTTPException(status_code=404, detail=f"File not found: {body.file_id}")
+        
+        # Get all content from ChromaDB
+        content_data = chroma_db.get_all_content_for_file(body.file_id)
+        
+        # Get scene details with thumbnails from scene-detector
+        scenes_by_file = await scene_detector.get_scenes_batch([body.file_id])
+        scenes_cache = {}
+        if scenes_by_file and body.file_id in scenes_by_file:
+            scenes_cache = {s["sceneNumber"]: s for s in scenes_by_file[body.file_id]}
+        
+        # Get metadata if requested - index by both scene_id and scene_number for flexible lookup
+        metadata_by_scene_id = {}
+        metadata_by_scene_number = {}
+        if body.include_metadata:
+            try:
+                metadata_list = await upload_manager.get_metadata_by_file(body.file_id)
+                logger.info(f"Fetched {len(metadata_list) if metadata_list else 0} metadata records for file {body.file_id}")
+                if metadata_list:
+                    for m in metadata_list:
+                        scene_id = m.get("sceneId")
+                        if scene_id:
+                            metadata_by_scene_id[scene_id] = m
+                            # Also try to find the scene number for this scene_id
+                            for scene_num, scene_info in scenes_cache.items():
+                                if scene_info.get("id") == scene_id:
+                                    metadata_by_scene_number[scene_num] = m
+                                    break
+            except Exception as e:
+                logger.warning(f"Failed to fetch metadata: {e}")
+        
+        # Combine visual scenes and audio segments chronologically
+        all_content = []
+        
+        # Process visual scenes
+        for scene in content_data.get("scenes", []):
+            scene_idx = scene.get("scene_index")
+            scene_info = scenes_cache.get(scene_idx, {})
+            scene_id = scene_info.get("id")
+            
+            # Try to get metadata by scene_id first, then by scene_number
+            metadata = metadata_by_scene_id.get(scene_id, {}) or metadata_by_scene_number.get(scene_idx, {})
+            
+            segment = VideoContentSegment(
+                type="visual",
+                scene_id=scene_id,
+                scene_index=scene_idx,
+                start_time=scene.get("start_time") or scene_info.get("startTime"),
+                end_time=scene.get("end_time") or scene_info.get("endTime"),
+                duration=scene_info.get("duration"),
+                text=scene.get("text", ""),
+                description=metadata.get("summary") or metadata.get("description"),
+                objects=metadata.get("objects"),
+                setting=metadata.get("setting"),
+                style=metadata.get("style"),
+                colors=metadata.get("colors"),
+                thumbnail_url=scene_info.get("thumbnailS3Url")
+            )
+            all_content.append(segment)
+        
+        # Process audio segments
+        for segment in content_data.get("segments", []):
+            seg = VideoContentSegment(
+                type="audio",
+                segment_index=segment.get("segment_index"),
+                start_time=segment.get("start_time"),
+                end_time=segment.get("end_time"),
+                duration=(segment.get("end_time") or 0) - (segment.get("start_time") or 0),
+                text=segment.get("text", "")
+            )
+            all_content.append(seg)
+        
+        # Sort all content by start_time for chronological order
+        all_content.sort(key=lambda x: x.start_time or 0)
+        
+        # Calculate total duration
+        total_duration = None
+        if all_content:
+            max_end_time = max(
+                (c.end_time for c in all_content if c.end_time),
+                default=None
+            )
+            total_duration = max_end_time
+        
+        # Build summary context for LLM
+        summary_parts = []
+        summary_parts.append(f"Video: {file_details.get('filename', 'Unknown')}")
+        if total_duration:
+            summary_parts.append(f"Duration: {total_duration:.1f} seconds ({total_duration/60:.1f} minutes)")
+        summary_parts.append(f"Scenes: {content_data.get('total_scenes', 0)}")
+        summary_parts.append(f"Audio segments: {content_data.get('total_segments', 0)}")
+        summary_parts.append("\n--- Content Timeline ---\n")
+        
+        for idx, content in enumerate(all_content, 1):
+            time_str = f"[{content.start_time:.1f}s - {content.end_time:.1f}s]" if content.start_time and content.end_time else ""
+            
+            if content.type == "visual":
+                visual_parts = []
+                if content.description:
+                    visual_parts.append(content.description)
+                if content.objects:
+                    visual_parts.append(f"Objects: {', '.join(content.objects)}")
+                if content.setting:
+                    visual_parts.append(f"Setting: {content.setting}")
+                
+                if visual_parts:
+                    summary_parts.append(f"{idx}. {time_str} [Visual] {' | '.join(visual_parts)}")
+                elif content.text:
+                    summary_parts.append(f"{idx}. {time_str} [Visual] {content.text[:200]}")
+                else:
+                    summary_parts.append(f"{idx}. {time_str} [Visual] Scene {content.scene_index}")
+            elif content.type == "audio" and content.text:
+                text_preview = content.text[:300] + "..." if len(content.text) > 300 else content.text
+                summary_parts.append(f"{idx}. {time_str} [Audio] \"{text_preview}\"")
+            elif content.text:
+                text_preview = content.text[:200] + "..." if len(content.text) > 200 else content.text
+                summary_parts.append(f"{idx}. {time_str} [{content.type}] {text_preview}")
+        
+        summary_context = "\n".join(summary_parts)
+        
+        return VideoContentResponse(
+            file_id=body.file_id,
+            file_name=file_details.get("filename"),
+            file_type=file_details.get("fileType"),
+            total_duration=total_duration,
+            total_scenes=content_data.get("total_scenes", 0),
+            total_segments=content_data.get("total_segments", 0),
+            content=all_content,
+            summary_context=summary_context
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting video content: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FileContentRequest(BaseModel):
+    """Request model for getting file content (images, audio, or any file type)."""
+    file_id: str
+    include_metadata: bool = True
+
+
+class FileContentResponse(BaseModel):
+    """Response model for file content."""
+    file_id: str
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    # Metadata fields
+    description: Optional[str] = None
+    objects: Optional[List[str]] = None
+    setting: Optional[str] = None
+    style: Optional[str] = None
+    colors: Optional[List[str]] = None
+    # For audio files
+    transcript: Optional[str] = None
+    # Summary context for LLM
+    summary_context: str = ""
+
+
+@router.post("/content/file")
+async def get_file_content(
+    body: FileContentRequest,
+    request: Request,
+):
+    """
+    Get content and metadata for any file type (image, audio, or video).
+    
+    For images: Returns metadata (description, objects, setting, colors, style)
+    For audio: Returns transcript and metadata
+    For videos: Redirects to get_video_content for full scene-by-scene breakdown
+    
+    This endpoint is designed for:
+    - Image description and analysis
+    - Audio transcription retrieval
+    - Quick file content overview
+    
+    Args:
+        body: Request with file_id
+        request: FastAPI request object
+    
+    Returns:
+        File content with metadata and summary context
+    """
+    try:
+        chroma_db = ChromaDatabaseManager()
+        upload_manager = UploadManagerService(user=request.state.user, session=request.state.session)
+        
+        # Get file details
+        file_details = await upload_manager.get_file_details(body.file_id)
+        if not file_details:
+            raise HTTPException(status_code=404, detail=f"File not found: {body.file_id}")
+        
+        file_type = file_details.get("fileType", "").upper()
+        file_name = file_details.get("filename", "Unknown")
+        
+        # Get metadata
+        metadata = {}
+        if body.include_metadata:
+            try:
+                metadata_list = await upload_manager.get_metadata_by_file(body.file_id)
+                if metadata_list and len(metadata_list) > 0:
+                    # For non-video files, there's typically one metadata record
+                    metadata = metadata_list[0] if isinstance(metadata_list, list) else metadata_list
+                    logger.info(f"Fetched metadata for file {body.file_id}: {list(metadata.keys())}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch metadata for file {body.file_id}: {e}")
+        
+        # Get embeddings data from ChromaDB
+        content_data = chroma_db.get_all_content_for_file(body.file_id)
+        
+        # Extract transcript from audio segments
+        transcript = None
+        if content_data.get("segments"):
+            transcript_parts = []
+            for seg in sorted(content_data["segments"], key=lambda x: x.get("start_time", 0) or 0):
+                if seg.get("text"):
+                    transcript_parts.append(seg["text"])
+            if transcript_parts:
+                transcript = " ".join(transcript_parts)
+        
+        # Build summary context for LLM based on file type
+        summary_parts = []
+        summary_parts.append(f"File: {file_name}")
+        summary_parts.append(f"Type: {file_type}")
+        
+        if metadata.get("summary") or metadata.get("description"):
+            summary_parts.append(f"\nDescription: {metadata.get('summary') or metadata.get('description')}")
+        
+        if metadata.get("objects"):
+            objects = metadata["objects"]
+            if isinstance(objects, list):
+                summary_parts.append(f"Objects detected: {', '.join(objects)}")
+            else:
+                summary_parts.append(f"Objects detected: {objects}")
+        
+        if metadata.get("setting"):
+            summary_parts.append(f"Setting: {metadata['setting']}")
+        
+        if metadata.get("style"):
+            summary_parts.append(f"Style: {metadata['style']}")
+        
+        if metadata.get("colors"):
+            colors = metadata["colors"]
+            if isinstance(colors, list):
+                summary_parts.append(f"Colors: {', '.join(colors)}")
+            else:
+                summary_parts.append(f"Colors: {colors}")
+        
+        if transcript:
+            summary_parts.append(f"\nTranscript:\n\"{transcript}\"")
+        
+        # If it's a video, suggest using get_video_content for more detail
+        if file_type == "VIDEO":
+            summary_parts.append("\n[Note: For scene-by-scene breakdown, use the get_video_content tool]")
+        
+        summary_context = "\n".join(summary_parts)
+        
+        return FileContentResponse(
+            file_id=body.file_id,
+            file_name=file_name,
+            file_type=file_type,
+            mime_type=file_details.get("mimeType"),
+            file_url=file_details.get("s3Url"),
+            thumbnail_url=file_details.get("thumbnailUrl") or file_details.get("thumbnailS3Url"),
+            description=metadata.get("summary") or metadata.get("description"),
+            objects=metadata.get("objects") if isinstance(metadata.get("objects"), list) else None,
+            setting=metadata.get("setting"),
+            style=metadata.get("style"),
+            colors=metadata.get("colors") if isinstance(metadata.get("colors"), list) else None,
+            transcript=transcript,
+            summary_context=summary_context
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting file content: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

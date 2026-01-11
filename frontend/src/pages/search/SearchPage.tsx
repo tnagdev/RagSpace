@@ -22,13 +22,6 @@ const SearchPage: React.FC = () => {
         searchMutation.mutate({
             query,
             file_ids: fileIds.length > 0 ? fileIds : undefined,
-            top_k: 20,
-            text_weight: 0.5,
-            image_weight: 0.5,
-            use_dynamic_retrieval: true,
-            adaptive_scoring: true,
-            enable_query_expansion: true,
-            use_enhanced: true,
         });
     };
 

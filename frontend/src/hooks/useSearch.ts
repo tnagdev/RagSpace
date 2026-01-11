@@ -8,12 +8,25 @@ export const searchKeys = {
     query: (params: QueryRequest) => [...searchKeys.queries(), params] as const,
 };
 
+
+const DEFAULT_SEARCH_OPTIONS: Partial<QueryRequest> = {
+    top_k: 20,
+    text_weight: 0.5,
+    image_weight: 0.5,
+    threshold: 0.2,
+    use_dynamic_retrieval: true,
+    adaptive_scoring: true,
+    enable_query_expansion: true,
+    use_enhanced: true,
+};
+
 export const useSearch = (
     options?: Omit<UseMutationOptions<QueryResponse, Error, QueryRequest>, 'mutationFn' | 'mutationKey'>
 ) => {
     return useMutation({
         mutationFn: async (params: QueryRequest) => {
-            return await searchAPI.search(params);
+            const mergedParams = { ...DEFAULT_SEARCH_OPTIONS, ...params };
+            return await searchAPI.search(mergedParams);
         },
         mutationKey: searchKeys.queries(),
         ...options,

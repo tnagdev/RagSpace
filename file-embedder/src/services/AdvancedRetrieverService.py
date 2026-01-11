@@ -38,12 +38,12 @@ class AdvancedRetrieverService:
         queries: Union[str, List[str]],
         image_query: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
-        threshold: float = 0.4,
+        threshold: float = 0.2,
         top_k: int = 10,
         use_contriever: bool = True,
         text_weight: float = 0.5,
         image_weight: float = 0.5,
-        adaptive_scoring: bool = False
+        adaptive_scoring: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Retrieve documents using multiple query averaging.
@@ -129,7 +129,7 @@ class AdvancedRetrieverService:
         query: str,
         context_queries: Optional[List[str]] = None,
         filters: Optional[Dict[str, Any]] = None,
-        threshold: float = 0.4,
+        threshold: float = 0.2,
         top_k: int = 10,
         context_weight: float = 0.3
     ) -> List[Dict[str, Any]]:
@@ -206,7 +206,7 @@ class AdvancedRetrieverService:
         text_queries: Optional[Union[str, List[str]]] = None,
         image_query: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
-        threshold: float = 0.35,
+        threshold: float = 0.2,
         top_k: int = 10,
         auto_weight: bool = True,
         text_weight: float = 0.5,
