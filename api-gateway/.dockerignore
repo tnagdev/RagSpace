@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# Prisma generated
+.prisma/
+
+# Tests
+test/
+*.spec.ts
+*.test.ts
+
+# Documentation
+README.md
+*.md
+
+# Git
+.git/
+.gitignore

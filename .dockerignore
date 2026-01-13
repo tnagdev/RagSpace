@@ -1,0 +1,63 @@
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/venv/
+**/env/
+
+# Build outputs
+**/dist/
+**/build/
+**/.vite/
+
+# Test and coverage
+**/coverage/
+**/test/
+**/*.spec.ts
+**/*.test.ts
+
+# Documentation
+README.md
+*.md
+!DOCKER_GUIDE.md
+
+# Docker
+**/Dockerfile
+**/.dockerignore
+docker-compose*.yml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/prisma/migrations/
+
+# Data directories
+**/chroma_data/
