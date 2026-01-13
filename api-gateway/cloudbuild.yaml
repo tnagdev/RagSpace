@@ -19,6 +19,17 @@ steps:
       - '--all-tags'
       - 'gcr.io/${PROJECT_ID}/ragspace/api-gateway'
 
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-cloud-run'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'api-gateway'
+      - '--image=gcr.io/${PROJECT_ID}/ragspace/api-gateway:${COMMIT_SHA}'
+      - '--region=asia-south1'
+      - '--platform=managed'
+
 options:
   logging: CLOUD_LOGGING_ONLY
 
