@@ -129,13 +129,10 @@ export class UploadService {
     }
 
     async updateFile(id: string, data: Partial<any>) {
-        // Extract thumbnailPath from metadata if present
         const updateData = { ...data };
         if (data.metadata && data.metadata.thumbnailPath) {
             updateData.thumbnailPath = data.metadata.thumbnailPath;
-            // Remove thumbnailPath from metadata to avoid duplication
             const { thumbnailPath, ...restMetadata } = data.metadata;
-            // Only update metadata if there are other fields
             if (Object.keys(restMetadata).length > 0) {
                 updateData.metadata = restMetadata;
             } else {
@@ -376,7 +373,7 @@ export class UploadService {
         fileName: string,
         fileSize: number,
         mimeType: string,
-        chunkSize: number,
+        chunkSize: number = 5 * 1024 * 1024,
         user: AuthUser,
     ) {
         try {

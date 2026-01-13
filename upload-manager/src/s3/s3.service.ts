@@ -109,7 +109,6 @@ export class S3Service {
             await upload.done();
 
             const url = await this.getSignedUrl(key);
-
             this.logger.log(`File uploaded successfully: ${key}`);
 
             return {
@@ -196,22 +195,19 @@ export class S3Service {
         }
     }
 
-    /**
-     * Initialize multipart upload and generate presigned URLs for each part
-     */
+
     async initMultipartUpload(
         fileName: string,
         fileSize: number,
         mimeType: string,
         userId: string,
-        chunkSize: number = 5 * 1024 * 1024, // 5MB default
+        chunkSize: number = 5 * 1024 * 1024,
     ): Promise<MultipartUploadInitResult> {
         try {
             const fileExtension = path.extname(fileName);
             const generatedFileName = `${uuidv4()}${fileExtension}`;
             const key = `uploads/${userId}/${new Date().getFullYear()}/${new Date().getMonth() + 1}/${generatedFileName}`;
 
-            // Create multipart upload
             const createCommand = new CreateMultipartUploadCommand({
                 Bucket: this.bucket,
                 Key: key,
@@ -229,10 +225,8 @@ export class S3Service {
                 throw new Error('Failed to initialize multipart upload');
             }
 
-            // Calculate number of parts
             const numParts = Math.ceil(fileSize / chunkSize);
 
-            // Generate presigned URLs for each part
             const presignedUrls: string[] = [];
             for (let partNumber = 1; partNumber <= numParts; partNumber++) {
                 const uploadPartCommand = new UploadPartCommand({
@@ -245,7 +239,7 @@ export class S3Service {
                 const presignedUrl = await getSignedUrl(
                     this.s3Client,
                     uploadPartCommand,
-                    { expiresIn: 3600 }, // 1 hour
+                    { expiresIn: 3600 },
                 );
                 presignedUrls.push(presignedUrl);
             }
@@ -266,9 +260,7 @@ export class S3Service {
         }
     }
 
-    /**
-     * Complete multipart upload
-     */
+
     async completeMultipartUpload(
         key: string,
         uploadId: string,
@@ -293,8 +285,7 @@ export class S3Service {
 
             this.logger.log(`Multipart upload completed: ${key}`);
 
-            // Calculate total size from parts (approximation)
-            const size = parts.length * 5 * 1024 * 1024; // Rough estimate
+            const size = parts.length * 5 * 1024 * 1024;
 
             return {
                 key,
@@ -322,10 +313,9 @@ export class S3Service {
             await this.s3Client.send(abortCommand);
             this.logger.log(`Multipart upload aborted: ${uploadId}`);
         } catch (error) {
-            // If the upload doesn't exist (already completed or never existed), that's fine
             if (error.name === 'NoSuchUpload' || error.Code === 'S3Error') {
                 this.logger.warn(`Multipart upload ${uploadId} does not exist (may have been completed or aborted already)`);
-                return; // Gracefully handle this case
+                return;
             }
             this.logger.error('Error aborting multipart upload', error);
             throw error;

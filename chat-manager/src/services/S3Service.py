@@ -18,9 +18,9 @@ class S3Service:
             aws_secret_access_key=settings.aws_secret_access_key,
             region_name=settings.aws_region
         )
-        self.default_bucket = settings.s3_file_bucket_name
-        self.url_expiration = settings.s3_url_expiration  # seconds
-        self.endpoint_url = settings.s3_endpoint_url  # For MinIO/local S3
+        self.default_bucket = settings.aws_s3_bucket
+        self.url_expiration = settings.s3_url_expiration
+        self.endpoint_url = settings.s3_endpoint_url
     
     async def get_signed_url(self, s3_key: str, bucket: Optional[str] = None) -> Optional[str]:
         """

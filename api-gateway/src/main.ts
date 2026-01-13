@@ -6,8 +6,6 @@ const logger = new Logger('API-Gateway');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-
-  // Enable CORS with proper configuration for credentials
   app.enableCors({
     origin: [process.env.CORS_ORIGIN || 'http://localhost:3000'],
     credentials: true,

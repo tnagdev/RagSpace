@@ -9,8 +9,6 @@ import {
     UseInterceptors,
     UploadedFile,
     BadRequestException,
-    ParseFilePipe,
-    MaxFileSizeValidator,
     Logger,
     Put,
     Body,
@@ -30,27 +28,20 @@ import { CompleteMultipartUploadDto } from './dto/complete-multipart.dto';
 @UseGuards(JwtAuthGuard)
 export class UploadController {
     private readonly logger = new Logger(UploadController.name);
-    private readonly maxFileSize: number;
+    private readonly maxFileSize!: number;
 
     constructor(
         private readonly uploadService: UploadService,
         private readonly configService: ConfigService,
     ) {
         this.maxFileSize =
-            this.configService.get<number>('upload.maxFileSize') || 524288000;
+            this.configService.get<number>('upload.maxFileSize') as number;
     }
 
     @Post()
     @UseInterceptors(FileInterceptor('file'))
     async uploadFile(
-        @UploadedFile(
-            new ParseFilePipe({
-                validators: [
-                    new MaxFileSizeValidator({ maxSize: 524288000 }), // 500MB
-                ],
-                fileIsRequired: true,
-            }),
-        )
+        @UploadedFile()
         file: Express.Multer.File,
         @CurrentUser() user: AuthUser,
         @CurrentSession() session: AuthSession,
@@ -59,9 +50,16 @@ export class UploadController {
             throw new BadRequestException('No file uploaded');
         }
 
+        if (file.size > this.maxFileSize) {
+            throw new BadRequestException(
+                `File size exceeds maximum allowed size of ${this.maxFileSize} bytes`,
+            );
+        }
+
         this.logger.log(
             `File upload request from user: ${user.id}, file: ${file.originalname}`,
         );
+
         return this.uploadService.uploadFile(file, user, session);
     }
 
@@ -119,7 +117,7 @@ export class UploadController {
             dto.fileName,
             dto.fileSize,
             dto.mimeType,
-            dto.chunkSize || 5 * 1024 * 1024, // Default 5MB
+            dto.chunkSize,
             user,
         );
     }

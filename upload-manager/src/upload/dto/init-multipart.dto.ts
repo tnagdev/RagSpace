@@ -14,6 +14,6 @@ export class InitMultipartUploadDto {
     mimeType: string;
 
     @IsNumber()
-    @Min(5242880) // Minimum 5MB
+    @Min(5242880)
     chunkSize?: number;
 }

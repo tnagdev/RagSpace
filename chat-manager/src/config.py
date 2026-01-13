@@ -47,8 +47,7 @@ class Settings(BaseSettings):
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_region: str = "ap-south-1"
-    s3_file_bucket_name: str = "user-uploads"
-    s3_thumbnail_bucket_name: str = "thumbnails"
+    aws_s3_bucket: str = "user-uploads"
     s3_endpoint_url: Optional[str] = None
     s3_url_expiration: int = 3600
     

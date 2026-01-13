@@ -37,21 +37,28 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     private channelWrapper: ChannelWrapper;
     private exchange: string;
     private queue: string;
+    private url: string;
 
-    constructor(private configService: ConfigService) {
-        this.exchange =
-            this.configService.get<string>('rabbitmq.exchange') || 'file.events';
-        this.queue =
-            this.configService.get<string>('rabbitmq.queue') || 'file.upload.queue';
-    }
+    constructor(private configService: ConfigService) { }
 
     async onModuleInit() {
         try {
-            const url =
-                this.configService.get<string>('rabbitmq.url') ||
-                'amqp://guest:guest@localhost:5672';
+            this.exchange =
+                this.configService.get<string>('rabbitmq.exchange') as string;
 
-            this.connection = amqp.connect([url], {
+            this.queue =
+                this.configService.get<string>('rabbitmq.queue') as string;
+
+            this.url =
+                this.configService.get<string>('rabbitmq.url') as string;
+
+            if (!this.queue || !this.exchange || !this.url) {
+                throw new Error(
+                    'RabbitMQ configuration is missing. Please check RABBITMQ_URL, RABBITMQ_EXCHANGE, and RABBITMQ_QUEUE environment variables.',
+                );
+            }
+
+            this.connection = amqp.connect([this.url], {
                 heartbeatIntervalInSeconds: 30,
                 reconnectTimeInSeconds: 10,
             });

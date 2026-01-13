@@ -34,9 +34,6 @@ export class MetadataService {
         this.logger.log(`Upserting metadata for file: ${dto.fileId}, scene: ${dto.sceneId || 'N/A'}`);
 
         const sceneIdValue = dto.sceneId || null;
-
-        // Prisma compound unique constraint doesn't work with null values in upsert
-        // Use findFirst + create/update pattern instead
         const existing = await this.prisma.fileMetadata.findFirst({
             where: {
                 fileId: dto.fileId,
