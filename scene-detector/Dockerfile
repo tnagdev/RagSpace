@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1001 appuser && \
-    useradd -r -u 1001 -g appuser appuser
+    useradd -r -u 1001 -g appuser -m -d /home/appuser appuser
 
 WORKDIR /app
 
