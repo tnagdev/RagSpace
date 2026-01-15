@@ -2,44 +2,39 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
 COPY prisma.config.* ./
 COPY src/prisma ./src/prisma/
 
-# Install dependencies
 RUN npm ci
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
-# Generate Prisma Client
-RUN npx prisma generate --schema ./src/prisma/schema.prisma
-
-# Copy source code
 COPY . .
-
-# Build application
 RUN npm run build
 
-# Production stage
 FROM node:20-alpine
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY prisma.config.* ./
-COPY src/prisma ./src/prisma/
+COPY --chown=nodejs:nodejs package*.json ./
+COPY --chown=nodejs:nodejs prisma.config.* ./
+COPY --chown=nodejs:nodejs src/prisma ./src/prisma/
 
-# Install production dependencies only
-RUN npm ci --only=production
+RUN npm ci --omit=dev
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
-# Generate Prisma Client
-RUN npx prisma generate --schema ./src/prisma/schema.prisma
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+COPY --chown=nodejs:nodejs docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
-# Copy built application from builder
-COPY --from=builder /app/dist ./dist
+USER nodejs
 
-# Expose port
 EXPOSE 3002
 
-# Start application
-CMD ["node", "dist/main"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3002/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+CMD ["./docker-entrypoint.sh"]
