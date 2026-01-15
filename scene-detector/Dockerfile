@@ -10,7 +10,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy prisma schema and generate client at build time
+COPY prisma ./prisma
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" python -m prisma generate --schema ./prisma/schema.prisma
 
 FROM python:3.11-slim
 
@@ -24,14 +28,17 @@ RUN groupadd -g 1001 appuser && \
 
 WORKDIR /app
 
-COPY --from=builder /root/.local /home/appuser/.local
+# Copy Python packages and Prisma generated client from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/prisma ./prisma
+
 COPY --chown=appuser:appuser . .
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh
 
 USER appuser
 
-ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PYTHONPATH=/app
 ENV PORT=8080
 
