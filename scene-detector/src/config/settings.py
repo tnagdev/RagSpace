@@ -8,14 +8,14 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # Application
-    port: int = 3003
-    mode: str = "development"
+    port: int = 8080
+    mode: str = "production"
 
     # Services
     upload_manager_url: str = "http://localhost:3002"
 
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/file_embedder"
+    database_url: str
     direct_url: Optional[str] = None  # Direct connection URL for Prisma migrations
     
     # RabbitMQ
@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        env_file_encoding = 'utf-8'
 
 
 settings = Settings()

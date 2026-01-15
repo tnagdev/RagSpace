@@ -109,6 +109,58 @@ Detailed health check with database and RabbitMQ status
 }
 ```
 
+## Cloud Deployment
+
+### Google Cloud Run Deployment
+
+The service is configured for automatic deployment to Google Cloud Run via Cloud Build triggers.
+
+**Prerequisites:**
+- Google Cloud Project: `ragspace-480709`
+- Cloud SQL PostgreSQL instance: `rag-postgress`
+- Secrets configured in Secret Manager:
+  - `DATABASE_PASSWORD`
+  - `RABBITMQ_URL`
+  - `CLOUD_SQL_CONNECTION`
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+
+**Deployment Process:**
+1. Create a git tag with pattern `scene-detector-*`:
+   ```bash
+   git tag scene-detector-v1.0.0
+   git push origin scene-detector-v1.0.0
+   ```
+
+2. Cloud Build automatically:
+   - Builds Docker image
+   - Pushes to Container Registry (`gcr.io/ragspace-480709/ragspace/scene-detector`)
+   - Deploys to Cloud Run in `asia-south1` region
+
+**Cloud Build Trigger Configuration:**
+- **Trigger Type**: Tag push
+- **Tag Pattern**: `^scene-detector-.*$`
+- **Build Config**: `scene-detector/cloudbuild.yaml`
+- **Region**: asia-south1
+
+**Environment Variables (Cloud Run):**
+- `PORT=8080` (set automatically by Cloud Run)
+- `DATABASE_URL=postgresql://user:pass@localhost/db?host=/cloudsql/INSTANCE`
+- `MODE=production`
+- `RABBITMQ_URL` (from Secret Manager)
+- `AWS_REGION=ap-south-1`
+- `AWS_S3_BUCKET=rag-user-uploads`
+- `AWS_ACCESS_KEY_ID` (from Secret Manager)
+- `AWS_SECRET_ACCESS_KEY` (from Secret Manager)
+
+**Resource Configuration:**
+- Memory: 2Gi
+- CPU: 2
+- Timeout: 300s (5 minutes)
+- Max Instances: 10
+- Min Instances: 0
+- Port: 8080
+
 ## RabbitMQ Events
 
 ### Consumed Events

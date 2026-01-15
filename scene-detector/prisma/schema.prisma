@@ -7,7 +7,7 @@ generator client {
 datasource db {
     provider = "postgresql"
     schemas  = ["scene_detector"]
-    url      = env("DIRECT_URL")
+    url      = env("DATABASE_URL")
 }
 
 model Scene {
