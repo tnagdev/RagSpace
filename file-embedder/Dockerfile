@@ -11,6 +11,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN python -c "import whisper; whisper.load_model('base')" && \
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-base-en-v1.5')" && \
+    python -c "from transformers import AutoModel, AutoTokenizer; AutoTokenizer.from_pretrained('facebook/contriever'); AutoModel.from_pretrained('facebook/contriever')" && \
+    python -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')"
+
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
@@ -27,8 +32,13 @@ WORKDIR /app
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-RUN mkdir -p /app/chroma_data && \
-    chown -R appuser:appuser /app/chroma_data
+
+# Copy pre-downloaded models from builder stage
+COPY --from=builder /root/.cache/huggingface /home/appuser/.cache/huggingface
+
+RUN mkdir -p /app/chroma_data /home/appuser/.cache && \
+    chown -R appuser:appuser /app/chroma_data && \
+    chown -R appuser:appuser /home/appuser/.cache
 
 COPY --chown=appuser:appuser . .
 COPY docker-entrypoint.sh ./
@@ -39,6 +49,8 @@ USER appuser
 ENV PYTHONPATH=/app
 ENV PORT=8080
 ENV TESSERACT_CMD=/usr/bin/tesseract
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV TORCH_HOME=/home/appuser/.cache/torch
 
 EXPOSE 8080
 
