@@ -26,6 +26,10 @@ class TextEmbedderService:
             text_model_name: Name of the SentenceTransformer model
             use_contriever: Whether to load Contriever model for retrieval
         """
+        # Skip if already initialized (prevents duplicate model loading in inheritance)
+        if hasattr(self, 'text_model') and self.text_model is not None:
+            return
+            
         logger.info(f"Loading text embedding model: {text_model_name}")
         self.text_model = SentenceTransformer(text_model_name)
         

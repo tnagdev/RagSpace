@@ -25,6 +25,10 @@ class ImageEmbedderService(TextEmbedderService):
             image_model_name: Name of the CLIP model
             device: Device to run model on ('cuda' or 'cpu')
         """
+        # Skip if already initialized (prevents duplicate model loading in inheritance)
+        if hasattr(self, 'model') and self.model is not None:
+            return
+            
         self.device = "cuda" if cuda.is_available() else "cpu"
         logger.info(f"Loading CLIP model: {image_model_name} on {self.device}")
 

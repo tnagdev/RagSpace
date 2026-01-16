@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 import logging
 from src.decorators.singleton import singleton
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,11 +13,15 @@ logger = logging.getLogger(__name__)
 class ChromaDatabaseManager:
     """Manages ChromaDB collections for video and audio embeddings."""
     
-    def __init__(self, persist_directory: str = "./chroma_data"):
-        logger.info(f"Initializing ChromaDB at {persist_directory}")
-        # Use PersistentClient for data persistence across restarts
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
+    def __init__(self):
+        if hasattr(self, 'client') and self.client is not None:
+            return
+            
+        # Use HttpClient for remote ChromaDB server
+        logger.info(f"Connecting to ChromaDB at {settings.chroma_host}:{settings.chroma_port}")
+        self.client = chromadb.HttpClient(
+            host=settings.chroma_host,
+            port=settings.chroma_port,
             settings=chromadb.Settings(
                 anonymized_telemetry=False,
                 allow_reset=False

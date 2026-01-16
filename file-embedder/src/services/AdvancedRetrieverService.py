@@ -29,6 +29,10 @@ class AdvancedRetrieverService:
         text_embedder: TextEmbedderService = None,
         image_embedder: ImageEmbedderService = None
     ):
+        # Skip if already initialized
+        if hasattr(self, 'db') and self.db is not None:
+            return
+            
         self.db = chroma_db or ChromaDatabaseManager()
         self.text_embedder = text_embedder or TextEmbedderService()
         self.image_embedder = image_embedder or ImageEmbedderService()

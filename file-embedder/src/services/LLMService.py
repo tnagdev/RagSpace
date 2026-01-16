@@ -39,6 +39,10 @@ class LLMService:
     """Service for handling LLM interactions with NVIDIA API via OpenAI SDK"""
     
     def __init__(self):
+        # Skip if already initialized
+        if hasattr(self, 'model') and self.model is not None:
+            return
+            
         if not settings.nvidia_api_key:
             logger.warning("NVIDIA API key not configured")
             self.client = None

@@ -18,12 +18,22 @@ class S3ClientService:
     
     def __init__(
         self,
-        endpoint: str,
-        access_key: str,
-        secret_key: str,
-        bucket_name: str
+        endpoint: str = None,
+        access_key: str = None,
+        secret_key: str = None,
+        bucket_name: str = None
     ):
-        self.endpoint = endpoint.rstrip('/')
+        # Skip if already initialized
+        if hasattr(self, 's3_client') and self.s3_client is not None:
+            return
+            
+        # Use provided values or fall back to settings
+        endpoint = endpoint or settings.aws_s3_endpoint
+        access_key = access_key or settings.aws_access_key_id
+        secret_key = secret_key or settings.aws_secret_access_key
+        bucket_name = bucket_name or settings.aws_s3_bucket
+        
+        self.endpoint = endpoint.rstrip('/') if endpoint else ''
         self.access_key = access_key
         self.secret_key = secret_key
         self.bucket_name = bucket_name

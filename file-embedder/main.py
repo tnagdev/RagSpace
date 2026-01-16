@@ -39,53 +39,64 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI application.
     Handles startup and shutdown events.
     """
-    # Startup
-    logger.info("Starting file-embedder service...")
-    logger.info(f"ChromaDB path: {settings.chroma_db_path}")
-    logger.info(f"Temp directory: {settings.temp_dir}")
-    
-    # Initialize singletons
-    chroma_db = ChromaDatabaseManager()
-    LLMService()
-    AudioEmbedderService()
-    VideoEmbedderService()
-    ImageEmbedderService()
-    AdvancedRetrieverService()
-    S3ClientService(
-        endpoint=settings.aws_s3_endpoint,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
-        bucket_name=settings.aws_s3_bucket
-    )
+    consumer_started = False
     
     try:
+        # Startup
+        logger.info("Starting file-embedder service...")
+        logger.info(f"Temp directory: {settings.temp_dir}")
+        
+        # Initialize singletons in correct order
+        # Order matters: base services first, then services that depend on them
+        logger.info("Initializing services...")
+        
+        # 1. Core infrastructure (no dependencies)
+        chroma_db = ChromaDatabaseManager()
+        S3ClientService()  # Now uses settings defaults
+        LLMService()
+        
+        # 2. VideoEmbedderService initializes the full embedding hierarchy
+        #    (includes TextEmbedderService, AudioEmbedderService, ImageEmbedderService)
+        VideoEmbedderService()
+        
+        # 3. Services that depend on embedders
+        AdvancedRetrieverService()
+        
+        logger.info("✓ Services initialized")
+        
+        logger.info("Initializing ChromaDB collections...")
         chroma_db.get_text_collection()
         chroma_db.get_image_collection()
-        logger.info("ChromaDB collections initialized successfully")
+        logger.info("✓ ChromaDB collections ready")
+        
+        try:
+            logger.info("Starting RabbitMQ consumer...")
+            routing_keys = [
+                FileEventType.UPLOAD_COMPLETED,
+                FileEventType.PROCESSING_COMPLETED,
+                FileEventType.FILE_DELETED
+            ]
+            await rabbitmq_consumer.start(routing_keys=routing_keys)
+            consumer_started = True
+            logger.info("✓ RabbitMQ consumer started")
+        except Exception as e:
+            logger.warning(f"Failed to start RabbitMQ consumer (will continue): {e}")
+        
+        logger.info("=== File Embedder Service READY ===")
     except Exception as e:
-        logger.error(f"Failed to initialize ChromaDB collections: {e}")
-        raise
-    
-    try:
-        routing_keys = [
-            FileEventType.UPLOAD_COMPLETED,
-            FileEventType.PROCESSING_COMPLETED,
-            FileEventType.FILE_DELETED
-        ]
-        await rabbitmq_consumer.start(routing_keys=routing_keys)
-        logger.info("RabbitMQ consumer started and bound to events")
-    except Exception as e:
-        logger.error(f"Failed to start RabbitMQ consumer: {e}")
+        logger.error(f"FATAL: Error during startup: {e}", exc_info=True)
         raise
     
     yield
     
+    # Shutdown
     logger.info("Shutting down file-embedder service...")
-    try:
-        await rabbitmq_consumer.stop()
-        logger.info("RabbitMQ consumer stopped")
-    except Exception as e:
-        logger.error(f"Error stopping RabbitMQ consumer: {e}")
+    if consumer_started:
+        try:
+            await rabbitmq_consumer.stop()
+            logger.info("RabbitMQ consumer stopped")
+        except Exception as e:
+            logger.error(f"Error stopping RabbitMQ consumer: {e}")
 
 
 
@@ -130,9 +141,12 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.getenv("PORT", settings.service_port))
+    logger.info(f"Starting uvicorn on 0.0.0.0:{port}")
+    logger.info(f"Mode: {settings.mode}")
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=settings.service_port,
-        reload=settings.mode == "development"
+        port=port,
+        log_level="info"
     )

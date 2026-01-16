@@ -1,0 +1,50 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# ChromaDB data (handled via volumes)
+chroma_data/
+
+# Documentation
+README.md
+*.md
+ADDITIONAL_TOOLS.md
+INTEGRATION_SUMMARY.md
+QUICK_START_IMPROVEMENTS.md
+VIDEO_RAG_IMPROVEMENTS.md
+
+# Git
+.git/
+.gitignore
+
+# Docker compose (service has its own)
+docker-compose.yml
+
+# Test files
+test/
+tests/
+*_test.py
+test_*.py

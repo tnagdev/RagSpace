@@ -23,6 +23,10 @@ class AudioEmbedderService(TextEmbedderService):
             text_model_name: Name of the SentenceTransformer model
             device: Device to run models on ('cuda' or 'cpu')
         """
+        # Skip if already initialized (prevents duplicate model loading in inheritance)
+        if hasattr(self, 'transcription_model') and self.transcription_model is not None:
+            return
+            
         self.device = "cuda" if cuda.is_available() else "cpu"
         logger.info(f"Loading Whisper model on {self.device}...")
 

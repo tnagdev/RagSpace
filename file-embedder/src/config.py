@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     # ChromaDB Configuration
     chroma_host: str = "localhost"
     chroma_port: int = 8000
-    chroma_db_path: str = "./chroma_data"
 
     # Tesseract Configuration
     tesseract_cmd: Optional[str] = None
@@ -29,7 +28,7 @@ class Settings(BaseSettings):
     
     # Service Configuration
     service_name: str = "file-embedder"
-    service_port: int = 8003
+    service_port: int = 8080
     log_level: str = "INFO"
     
     # External Service URLs

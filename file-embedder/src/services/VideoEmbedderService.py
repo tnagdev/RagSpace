@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService):
     """Handles visual embedding generation using CLIP."""
     
+    _video_embedder_initialized = False
+    
     def __init__(
             self, 
             image_model_name: str = "ViT-B-32", 
@@ -37,6 +39,11 @@ class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService):
             model_name: Name of the CLIP model
             device: Device to run model on ('cuda' or 'cpu')
         """
+        # Skip if already initialized (prevents duplicate model loading)
+        if self._video_embedder_initialized:
+            return
+        self._video_embedder_initialized = True
+        
         super().__init__(
             image_model_name=image_model_name,
             text_model_name=text_model_name,
