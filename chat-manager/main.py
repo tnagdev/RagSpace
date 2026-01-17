@@ -26,7 +26,6 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("Starting chat-manager service...")
-    logger.info(f"Service port: {settings.service_port}")
     logger.info(f"File embedder URL: {settings.file_embedder_url}")
     
     # Connect to Prisma database
@@ -63,15 +62,17 @@ async def health_check():
     return {
         "status": "healthy",
         "service": settings.service_name,
-        "port": settings.service_port
+        "port": settings.port
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+    import os
+    port = int(os.getenv("PORT", settings.port))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=settings.service_port,
+        port=port,
         reload=settings.mode == "development"
     )

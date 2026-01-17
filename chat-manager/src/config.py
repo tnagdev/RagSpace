@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     
     # Service Configuration
     service_name: str = "chat-manager"
-    service_port: int = 3005
+    port: int = 8080
     log_level: str = "INFO"
     mode: str = "production"
     

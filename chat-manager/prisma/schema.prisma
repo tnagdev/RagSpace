@@ -7,14 +7,14 @@ generator client {
 datasource db {
     provider = "postgresql"
     schemas  = ["chat_manager"]
-    url      = env("DIRECT_URL")
+    url      = env("DATABASE_URL")
 }
 
 model Conversation {
     id        String    @id @default(uuid())
     userId    String
     title     String?
-    summary   String?   @db.Text // Summarized earlier conversation for infinite chat
+    summary   String?   @db.Text
     createdAt DateTime  @default(now())
     updatedAt DateTime  @updatedAt
     messages  Message[]
@@ -28,11 +28,11 @@ model Message {
     id             String       @id @default(uuid())
     conversationId String
     conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-    role           String // 'user' or 'assistant'
+    role           String
     content        String       @db.Text
     timestamp      DateTime     @default(now())
-    searchResults  Json? // Store search results metadata
-    fileIds        String[] // Array of file IDs used in search
+    searchResults  Json?
+    fileIds        String[]
 
     @@index([conversationId])
     @@index([timestamp])
