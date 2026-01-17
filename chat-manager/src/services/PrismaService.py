@@ -18,7 +18,7 @@ class PrismaService:
     async def connect(self):
         """Connect to the database"""
         if self.prisma is None:
-            self.prisma = Prisma(datasource={"url": settings.direct_url})
+            self.prisma = Prisma(datasource={"url": settings.database_url})
             await self.prisma.connect()
             logger.info("Prisma connected to database")    
     

@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "postgresql://postgres:postgres@localhost:5432/chat_manager"
-    direct_url: Optional[str] = None  # Direct connection URL for Prisma migrations
     
     # LLM Configuration (NVIDIA API)
     nvidia_api_key: Optional[str] = None

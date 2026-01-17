@@ -12,10 +12,13 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 
 FROM python:3.11-slim
 
-# Install runtime dependencies for Prisma (needs Node.js libs)
+# Install runtime dependencies for Prisma + Node.js
 RUN apt-get update && apt-get install -y \
     libatomic1 \
     openssl \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1001 appuser && \
