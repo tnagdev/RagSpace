@@ -52,7 +52,6 @@ tmp/
 Thumbs.db
 
 # Model cache
-models/
 .cache/
 
 # Test coverage
