@@ -16,19 +16,16 @@ RUN addgroup -g 1001 -S nginx-user && \
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-COPY <<EOF /docker-entrypoint.d/40-envsubst-on-templates.sh
-#!/bin/sh
-set -e
-
-export API_GATEWAY_URL=\${VITE_API_URL:-http://localhost:3000}
-
-# envsubst only these specific variables to avoid touching nginx variables
-envsubst '\$API_GATEWAY_URL' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
-
-cat /etc/nginx/conf.d/default.conf
-EOF
-
-RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
+RUN printf '#!/bin/sh\n\
+set -e\n\
+\n\
+export API_GATEWAY_URL=${VITE_API_URL:-http://localhost:3000}\n\
+\n\
+# envsubst only these specific variables to avoid touching nginx variables\n\
+envsubst '"'"'$API_GATEWAY_URL'"'"' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf\n\
+\n\
+cat /etc/nginx/conf.d/default.conf\n' > /docker-entrypoint.d/40-envsubst-on-templates.sh && \
+    chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
 
 EXPOSE 80
 
