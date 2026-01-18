@@ -2,7 +2,7 @@ import { Formik, Form } from 'formik';
 import { FormInput, FormCheckbox } from '../../components/form';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { IoMailOutline, IoLockClosedOutline, IoLogoGoogle, IoLogoGithub } from 'react-icons/io5';
-import { loginSchema } from '../../lib/validationSchemas';
+import { loginSchema } from '@/lib/validationSchemas';
 import { useLogin } from '@/hooks/auth';
 import Button from '@/components/Button';
 
