@@ -59,9 +59,9 @@ const authConfig = {
         },
     },
     advanced: {
-        useSecureCookies: false,
+        useSecureCookies: true,
         crossSubDomainCookies: {
-            enabled: true,
+            enabled: false,
         },
         disableCSRFCheck: true,
         disableOriginCheck: true,
