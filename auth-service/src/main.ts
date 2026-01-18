@@ -10,8 +10,12 @@ const logger = new Logger('AuthService');
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000', 'http://localhost:8000', 'http://localhost:8080'];
+
   app.enableCors({
-    origin: [process.env.CORS_ORIGIN || 'http://localhost:3000', 'http://localhost:8000'],
+    origin: allowedOrigins,
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'x-user', 'x-session'],
     exposedHeaders: ['Set-Cookie'],
