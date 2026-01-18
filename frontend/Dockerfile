@@ -19,10 +19,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 RUN echo '#!/bin/sh' > /docker-entrypoint.sh && \
     echo 'if [ -n "$VITE_API_URL" ]; then' >> /docker-entrypoint.sh && \
-    echo '  echo "window.ENV = { VITE_API_URL: \"$VITE_API_URL\" };" > /usr/share/nginx/html/env-config.js' >> /docker-entrypoint.sh && \
-    echo '  sed -i "s|<head>|<head><script src=\"/env-config.js\"></script>|" /usr/share/nginx/html/index.html' >> /docker-entrypoint.sh && \
-    echo 'fi' >> /docker-entrypoint.sh && \
-    echo 'if [ -n "$VITE_API_URL" ]; then' >> /docker-entrypoint.sh && \
     echo '  envsubst "\$VITE_API_URL" < /etc/nginx/conf.d/default.conf > /etc/nginx/conf.d/default.conf.tmp' >> /docker-entrypoint.sh && \
     echo '  mv /etc/nginx/conf.d/default.conf.tmp /etc/nginx/conf.d/default.conf' >> /docker-entrypoint.sh && \
     echo 'fi' >> /docker-entrypoint.sh && \
