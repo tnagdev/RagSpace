@@ -9,10 +9,7 @@ declare global {
     }
 }
 
-export const API_BASE_URL =
-    (typeof window !== 'undefined' && window.ENV?.VITE_API_URL) ||
-    import.meta.env.VITE_API_URL ||
-    "http://localhost:3000";
+export const API_BASE_URL = "";
 
 const publicAxios = axios.create({
     baseURL: API_BASE_URL,
