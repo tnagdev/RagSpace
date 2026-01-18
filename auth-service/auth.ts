@@ -23,6 +23,7 @@ const trustedOrigins = process.env.TRUSTED_ORIGINS
     : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:8080"];
 
 const authConfig = {
+    baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:8001',
     trustedOrigins,
     database: prismaAdapter(prisma, {
         provider: "postgresql",
