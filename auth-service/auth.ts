@@ -18,8 +18,12 @@ const prisma = new PrismaClient({
     log: ['error', 'warn'],
 });
 
+const trustedOrigins = process.env.TRUSTED_ORIGINS
+    ? process.env.TRUSTED_ORIGINS.split(',').map(origin => origin.trim())
+    : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:8080"];
+
 const authConfig = {
-    trustedOrigins: ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000"],
+    trustedOrigins,
     database: prismaAdapter(prisma, {
         provider: "postgresql",
     }),

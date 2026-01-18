@@ -6,8 +6,13 @@ const logger = new Logger('API-Gateway');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  
+  const allowedOrigins = process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000', 'http://localhost:8080'];
+  
   app.enableCors({
-    origin: [process.env.CORS_ORIGIN || 'http://localhost:3000'],
+    origin: allowedOrigins,
     credentials: true,
     exposedHeaders: ['Set-Cookie'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],

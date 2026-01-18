@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output (will be copied)
+# dist/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# Tests
+*.spec.ts
+*.spec.tsx
+*.test.ts
+*.test.tsx
+
+# Documentation
+README.md
+*.md
+
+# Git
+.git/
+.gitignore
+
+# Vite
+.vite/
+
+# ESLint
+.eslintcache
+eslint.config.js
