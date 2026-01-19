@@ -113,6 +113,12 @@ class RabbitMQConsumer:
             logger.info("✓ Channel re-established successfully")
         except Exception as e:
             logger.error(f"Error during reconnection: {e}", exc_info=True)
+            # Schedule a retry after delay
+            await asyncio.sleep(5)
+            try:
+                await self._on_reconnect(connection)
+            except Exception as retry_error:
+                logger.error(f"Reconnection retry failed: {retry_error}")
     
     def register_handler(self, event_type: str, handler: Callable = None):
         """Register a handler for an event type. Can be used as a decorator."""
@@ -139,31 +145,46 @@ class RabbitMQConsumer:
     
     async def process_message(self, message: aio_pika.IncomingMessage):
         """Process incoming message with error handling and retry logic."""
-        async with message.process(requeue=False):
-            try:
-                body = json.loads(message.body.decode())
-                event_type = body.get("type")
+        try:
+            # Check if channel is valid before processing
+            if not self.channel or self.channel.is_closed:
+                logger.warning("Channel is closed, rejecting message without processing")
+                await message.reject(requeue=True)
+                return
+            
+            async with message.process(requeue=False):
+                try:
+                    body = json.loads(message.body.decode())
+                    event_type = body.get("type")
 
-                handler = self.handlers.get(event_type)
-                if handler:
-                    try:
-                        # Parse the event into the appropriate Pydantic model
-                        event_model = self._parse_event(event_type, body)
-                        await handler(event_model)
-                        logger.info(f"✓ Successfully processed event: {event_type}")
-                    except ValidationError as e:
-                        logger.error(f"Invalid event data for {event_type}: {e}")
-                        # Don't requeue invalid messages
-                    except Exception as e:
-                        logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
-                        # Message will be rejected and moved to DLQ if configured
-                else:
-                    logger.warning(f"No handler registered for event: {event_type}")
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to decode message: {e}")
-            except Exception as e:
-                logger.error(f"Error processing message: {e}", exc_info=True)
+                    handler = self.handlers.get(event_type)
+                    if handler:
+                        try:
+                            # Parse the event into the appropriate Pydantic model
+                            event_model = self._parse_event(event_type, body)
+                            await handler(event_model)
+                            logger.info(f"✓ Successfully processed event: {event_type}")
+                        except ValidationError as e:
+                            logger.error(f"Invalid event data for {event_type}: {e}")
+                            # Don't requeue invalid messages
+                        except Exception as e:
+                            logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
+                            # Message will be rejected and moved to DLQ if configured
+                    else:
+                        logger.warning(f"No handler registered for event: {event_type}")
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode message: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
+        except Exception as e:
+            # Handle context manager errors (like ChannelInvalidStateError)
+            logger.error(f"Error in message processing context: {e}", exc_info=True)
+            try:
+                if not self.channel or not self.channel.is_closed:
+                    await message.reject(requeue=True)
+            except Exception as reject_error:
+                logger.error(f"Failed to reject message: {reject_error}")
     
     def _parse_event(self, event_type: str, body: Dict[str, Any]):
         """Parse raw event data into appropriate Pydantic model."""

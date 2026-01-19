@@ -1,5 +1,6 @@
 import logging
 import json
+import asyncio
 from typing import Callable, Dict, Any
 import aio_pika
 from pydantic_core import ValidationError
@@ -25,29 +26,81 @@ class RabbitMQConsumer:
         self.handlers: Dict[str, Callable] = {}
 
     async def connect(self):
-        """Establish connection to RabbitMQ and setup exchange/queue."""
+        """Establish connection to RabbitMQ and setup exchange/queue with retry logic."""
+        max_retries = 5
+        retry_delay = 5
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Connecting to RabbitMQ (attempt {attempt + 1}/{max_retries}): {self.rabbitmq_url}")
+                
+                # Use connect_robust with reconnection parameters
+                self.connection = await aio_pika.connect_robust(
+                    self.rabbitmq_url,
+                    reconnect_interval=5,
+                    fail_fast=False
+                )
+                
+                # Register connection close callback
+                self.connection.reconnect_callbacks.add(self._on_reconnect)
+                
+                self.channel = await self.connection.channel()
+                await self.channel.set_qos(prefetch_count=1)
+
+                self.exchange = await self.channel.declare_exchange(
+                    self.exchange_name,
+                    aio_pika.ExchangeType.TOPIC,
+                    durable=True
+                )
+
+                self.queue = await self.channel.declare_queue(
+                    self.queue_name,
+                    durable=True
+                )
+                
+                logger.info(f"✓ Connected to RabbitMQ and declared queue: {self.queue_name}")
+                return
+                
+            except Exception as e:
+                logger.error(f"Failed to connect to RabbitMQ (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error("Max retries reached. Giving up.")
+                    raise
+    
+    async def _on_reconnect(self, connection):
+        """Callback when connection is restored."""
         try:
-            logger.info(f"Connecting to RabbitMQ: {self.rabbitmq_url}")
-            self.connection = await aio_pika.connect_robust(self.rabbitmq_url)
+            logger.info("Connection restored, re-establishing channel...")
+            # Give the connection a moment to stabilize
+            await asyncio.sleep(1)
+            
             self.channel = await self.connection.channel()
             await self.channel.set_qos(prefetch_count=1)
-
+            
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name,
                 aio_pika.ExchangeType.TOPIC,
                 durable=True
             )
-
+            
             self.queue = await self.channel.declare_queue(
                 self.queue_name,
                 durable=True
             )
             
-            logger.info(f"Connected to RabbitMQ and declared queue: {self.queue_name}")
-            
+            logger.info("✓ Channel re-established successfully")
         except Exception as e:
-            logger.error(f"Failed to connect to RabbitMQ: {e}")
-            raise
+            logger.error(f"Error during reconnection: {e}", exc_info=True)
+            # Schedule a retry after delay
+            await asyncio.sleep(5)
+            try:
+                await self._on_reconnect(connection)
+            except Exception as retry_error:
+                logger.error(f"Reconnection retry failed: {retry_error}")
     
     def register_handler(self, event_type: str, handler: Callable = None):
         """Register a handler for an event type. Can be used as a decorator."""
@@ -74,29 +127,47 @@ class RabbitMQConsumer:
 
 
     async def process_message(self, message: aio_pika.IncomingMessage):
-        async with message.process():
-            try:
-                body = json.loads(message.body.decode())
-                event_type = body.get("type")
+        """Process incoming message with error handling and retry logic."""
+        try:
+            # Check if channel is valid before processing
+            if not self.channel or self.channel.is_closed:
+                logger.warning("Channel is closed, rejecting message without processing")
+                await message.reject(requeue=True)
+                return
+            
+            async with message.process(requeue=False):
+                try:
+                    body = json.loads(message.body.decode())
+                    event_type = body.get("type")
 
-                handler = self.handlers.get(event_type)
-                if handler:
-                    try:
-                        # Parse the event into the appropriate Pydantic model
-                        event_model = self._parse_event(event_type, body)
-                        await handler(event_model)
-                        logger.info(f"Successfully processed event: {event_type}")
-                    except ValidationError as e:
-                        logger.error(f"Invalid event data for {event_type}: {e}")
-                    except Exception as e:
-                        logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
-                else:
-                    logger.warning(f"No handler registered for event: {event_type}")
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to decode message: {e}")
-            except Exception as e:
-                logger.error(f"Error processing message: {e}", exc_info=True)
+                    handler = self.handlers.get(event_type)
+                    if handler:
+                        try:
+                            # Parse the event into the appropriate Pydantic model
+                            event_model = self._parse_event(event_type, body)
+                            await handler(event_model)
+                            logger.info(f"✓ Successfully processed event: {event_type}")
+                        except ValidationError as e:
+                            logger.error(f"Invalid event data for {event_type}: {e}")
+                            # Don't requeue invalid messages
+                        except Exception as e:
+                            logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
+                            # Message will be rejected and moved to DLQ if configured
+                    else:
+                        logger.warning(f"No handler registered for event: {event_type}")
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode message: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
+        except Exception as e:
+            # Handle context manager errors (like ChannelInvalidStateError)
+            logger.error(f"Error in message processing context: {e}", exc_info=True)
+            try:
+                if not self.channel or not self.channel.is_closed:
+                    await message.reject(requeue=True)
+            except Exception as reject_error:
+                logger.error(f"Failed to reject message: {reject_error}")
 
     
 
