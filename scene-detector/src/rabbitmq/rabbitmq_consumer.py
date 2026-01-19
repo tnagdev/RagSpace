@@ -45,7 +45,7 @@ class RabbitMQConsumer:
                 self.connection.reconnect_callbacks.add(self._on_reconnect)
                 
                 self.channel = await self.connection.channel()
-                await self.channel.set_qos(prefetch_count=1)
+                await self.channel.set_qos(prefetch_count=10)  # Allow processing multiple messages concurrently
 
                 self.exchange = await self.channel.declare_exchange(
                     self.exchange_name,
@@ -79,7 +79,7 @@ class RabbitMQConsumer:
             await asyncio.sleep(1)
             
             self.channel = await self.connection.channel()
-            await self.channel.set_qos(prefetch_count=1)
+            await self.channel.set_qos(prefetch_count=10)  # Allow processing multiple messages
             
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name,
@@ -92,7 +92,10 @@ class RabbitMQConsumer:
                 durable=True
             )
             
-            logger.info("✓ Channel re-established successfully")
+            # CRITICAL: Restart consumer after reconnection
+            await self.queue.consume(self.process_message)
+            
+            logger.info("✓ Channel re-established and consumer restarted")
         except Exception as e:
             logger.error(f"Error during reconnection: {e}", exc_info=True)
             # Schedule a retry after delay
@@ -128,41 +131,62 @@ class RabbitMQConsumer:
 
     async def process_message(self, message: aio_pika.IncomingMessage):
         """Process incoming message with error handling and retry logic."""
+        message_id = message.message_id or "unknown"
+        
         try:
             # Check if channel is valid before processing
             if not self.channel or self.channel.is_closed:
-                logger.warning("Channel is closed, rejecting message without processing")
+                logger.warning(f"Channel is closed, rejecting message {message_id}")
                 await message.reject(requeue=True)
                 return
             
-            async with message.process(requeue=False):
-                try:
-                    body = json.loads(message.body.decode())
-                    event_type = body.get("type")
+            # Use manual acknowledgment with timeout protection
+            try:
+                body = json.loads(message.body.decode())
+                event_type = body.get("type")
+                logger.debug(f"Processing message {message_id} of type {event_type}")
 
-                    handler = self.handlers.get(event_type)
-                    if handler:
-                        try:
-                            # Parse the event into the appropriate Pydantic model
-                            event_model = self._parse_event(event_type, body)
-                            await handler(event_model)
-                            logger.info(f"✓ Successfully processed event: {event_type}")
-                        except ValidationError as e:
-                            logger.error(f"Invalid event data for {event_type}: {e}")
-                            # Don't requeue invalid messages
-                        except Exception as e:
-                            logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
-                            # Message will be rejected and moved to DLQ if configured
-                    else:
-                        logger.warning(f"No handler registered for event: {event_type}")
+                handler = self.handlers.get(event_type)
+                if handler:
+                    try:
+                        # Parse and process with timeout
+                        event_model = self._parse_event(event_type, body)
                         
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to decode message: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
+                        # Add 5 minute timeout to prevent infinite hangs
+                        await asyncio.wait_for(
+                            handler(event_model),
+                            timeout=300.0
+                        )
+                        
+                        await message.ack()
+                        logger.info(f"✓ Successfully processed event: {event_type}")
+                        
+                    except asyncio.TimeoutError:
+                        logger.error(f"Handler timeout for {event_type} (message {message_id})")
+                        await message.reject(requeue=False)  # Don't requeue timeout failures
+                        
+                    except ValidationError as e:
+                        logger.error(f"Invalid event data for {event_type}: {e}")
+                        await message.reject(requeue=False)  # Don't requeue invalid messages
+                        
+                    except Exception as e:
+                        logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
+                        await message.reject(requeue=False)  # Don't requeue handler errors
+                else:
+                    logger.warning(f"No handler registered for event: {event_type}")
+                    await message.ack()  # Acknowledge to remove from queue
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode message {message_id}: {e}")
+                await message.reject(requeue=False)
+                
+            except Exception as e:
+                logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                await message.reject(requeue=False)
+                
         except Exception as e:
-            # Handle context manager errors (like ChannelInvalidStateError)
-            logger.error(f"Error in message processing context: {e}", exc_info=True)
+            # Handle catastrophic errors
+            logger.error(f"Critical error processing message {message_id}: {e}", exc_info=True)
             try:
                 if not self.channel or not self.channel.is_closed:
                     await message.reject(requeue=True)
