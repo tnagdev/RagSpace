@@ -115,12 +115,22 @@ class ImageEmbedderService(TextEmbedderService):
                 logger.error(f"Failed to read image from {image_path}")
                 return ""
             
+            # Resize large images to speed up OCR (max 2000px on longest side)
+            height, width = image.shape[:2]
+            max_dimension = max(height, width)
+            if max_dimension > 2000:
+                scale = 2000 / max_dimension
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height} for OCR")
+            
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             text = pytesseract.image_to_string(gray)
             return text.strip()
         except ValidationError as e:
             logger.error(f"Validation error during text extraction: {e}")
-            return None
+            return ""
         except Exception as e:
             logger.error(f"Error extracting text from image {image_path}: {e}")
-            return None
+            return ""

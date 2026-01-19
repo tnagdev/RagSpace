@@ -64,25 +64,43 @@ async def process_image(event: UploadCompletedEventModel):
         image_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=image_path)
         
-        # Run blocking operations in executor to prevent blocking event loop
+        # Run blocking operations in executor with individual timeouts
         loop = asyncio.get_event_loop()
-        embedding = await loop.run_in_executor(
-            None, 
-            image_embedder.embed_image, 
-            image_path
-        )
-        text = await loop.run_in_executor(
-            None,
-            image_embedder.extract_text,
-            image_path
-        )
+        
+        logger.info(f"Starting image embedding for {file_id}...")
+        try:
+            embedding = await asyncio.wait_for(
+                loop.run_in_executor(None, image_embedder.embed_image, image_path),
+                timeout=120.0  # 2 minute timeout for embedding
+            )
+            logger.info(f"Image embedding completed for {file_id}")
+        except asyncio.TimeoutError:
+            logger.error(f"Image embedding timeout for {file_id}")
+            embedding = None
+        
+        logger.info(f"Starting OCR text extraction for {file_id}...")
+        try:
+            text = await asyncio.wait_for(
+                loop.run_in_executor(None, image_embedder.extract_text, image_path),
+                timeout=180.0  # 3 minute timeout for OCR
+            )
+            logger.info(f"OCR completed for {file_id}, extracted {len(text) if text else 0} characters")
+        except asyncio.TimeoutError:
+            logger.error(f"OCR timeout for {file_id}")
+            text = None
+        
         text_embedding = None
         if text:
-            text_embedding = await loop.run_in_executor(
-                None,
-                image_embedder.embed_text,
-                text
-            )
+            logger.info(f"Starting text embedding for {file_id}...")
+            try:
+                text_embedding = await asyncio.wait_for(
+                    loop.run_in_executor(None, image_embedder.embed_text, text),
+                    timeout=60.0  # 1 minute timeout for text embedding
+                )
+                logger.info(f"Text embedding completed for {file_id}")
+            except asyncio.TimeoutError:
+                logger.error(f"Text embedding timeout for {file_id}")
+                text_embedding = None
 
         # Generate image description using LLM and store metadata
         try:
