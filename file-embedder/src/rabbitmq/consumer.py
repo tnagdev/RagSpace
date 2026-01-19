@@ -93,11 +93,18 @@ class RabbitMQConsumer:
         """Callback when connection is restored."""
         try:
             logger.info("Connection restored, re-establishing channel...")
-            # Give the connection a moment to stabilize
-            await asyncio.sleep(1)
+            # Wait for connection to be fully established
+            await asyncio.sleep(2)
             
-            self.channel = await self.connection.channel()
-            await self.channel.set_qos(prefetch_count=10)  # Allow processing multiple messages
+            # Check if connection is actually open
+            if connection.is_closed:
+                logger.warning("Connection still closed, waiting for reconnection...")
+                return
+            
+            # Use the new connection object passed to callback
+            self.connection = connection
+            self.channel = await connection.channel()
+            await self.channel.set_qos(prefetch_count=10)
             
             self.exchange = await self.channel.declare_exchange(
                 self.exchange_name,
@@ -110,17 +117,13 @@ class RabbitMQConsumer:
                 durable=True
             )
             
+            # CRITICAL: Restart consumer after reconnection
             await self.queue.consume(self.process_message)
             
             logger.info("✓ Channel re-established and consumer restarted")
         except Exception as e:
             logger.error(f"Error during reconnection: {e}", exc_info=True)
-            # Schedule a retry after delay
-            await asyncio.sleep(5)
-            try:
-                await self._on_reconnect(connection)
-            except Exception as retry_error:
-                logger.error(f"Reconnection retry failed: {retry_error}")
+            # Don't recursively retry - let connect_robust handle reconnection
     
     def register_handler(self, event_type: str, handler: Callable = None):
         """Register a handler for an event type. Can be used as a decorator."""

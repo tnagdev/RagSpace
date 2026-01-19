@@ -2,6 +2,8 @@ import logging
 import os
 import tempfile
 import shutil
+import asyncio
+from functools import partial
 from src.config import settings
 from src.utils.file_utils import extract_audio
 from src.db.chroma_db import ChromaDatabaseManager
@@ -61,9 +63,26 @@ async def process_image(event: UploadCompletedEventModel):
 
         image_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=image_path)
-        embedding = image_embedder.embed_image(image_path)
-        text = image_embedder.extract_text(image_path)
-        text_embedding = image_embedder.embed_text(text) if text else None
+        
+        # Run blocking operations in executor to prevent blocking event loop
+        loop = asyncio.get_event_loop()
+        embedding = await loop.run_in_executor(
+            None, 
+            image_embedder.embed_image, 
+            image_path
+        )
+        text = await loop.run_in_executor(
+            None,
+            image_embedder.extract_text,
+            image_path
+        )
+        text_embedding = None
+        if text:
+            text_embedding = await loop.run_in_executor(
+                None,
+                image_embedder.embed_text,
+                text
+            )
 
         # Generate image description using LLM and store metadata
         try:
@@ -144,13 +163,24 @@ async def process_audio(event: UploadCompletedEventModel):
         audio_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=audio_path)
 
-        transcription = audio_embedder.transcribe_audio(audio_path)
+        # Run blocking transcription in executor
+        loop = asyncio.get_event_loop()
+        transcription = await loop.run_in_executor(
+            None,
+            audio_embedder.transcribe_audio,
+            audio_path
+        )
             
         logger.info("Generating audio embeddings...")
         audio_items = []
         for i, segment in enumerate(transcription["segments"]):
             text = segment["text"]
-            embedding = audio_embedder.embed_text(text)
+            # Run embedding in executor
+            embedding = await loop.run_in_executor(
+                None,
+                audio_embedder.embed_text,
+                text
+            )
             audio_items.append({
                 "chunk_id": f"{file_id}#audio#{i}",
                 "segment_index": i,
@@ -200,14 +230,30 @@ async def process_video(event: UploadCompletedEventModel):
         raw_file_name = os.path.splitext(original_name)[0].lower()
         audio_path = os.path.join(temp_dir, raw_file_name + '_audio.wav')
 
-        extract_audio(video_path, audio_path)
-        transcription = audio_embedder.transcribe_audio(audio_path)
+        # Run blocking operations in executor
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            extract_audio,
+            video_path,
+            audio_path
+        )
+        transcription = await loop.run_in_executor(
+            None,
+            audio_embedder.transcribe_audio,
+            audio_path
+        )
         
         logger.info("Generating audio embeddings...")
         audio_items = []
         for i, segment in enumerate(transcription["segments"]):
             text = segment["text"]
-            embedding = audio_embedder.embed_text(text)
+            # Run embedding in executor
+            embedding = await loop.run_in_executor(
+                None,
+                audio_embedder.embed_text,
+                text
+            )
             audio_items.append({
                 "chunk_id": f"{file_id}#audio#{i}",
                 "segment_index": i,
