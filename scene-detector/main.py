@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from src.config.settings import settings
 from src.rabbitmq.rabbitmq_consumer import rabbitmq_consumer
+from src.rabbitmq.rabbitmq_producer import RabbitMQProducer
 from src.services.prisma_service import PrismaService
 from src.services.s3_service import S3Service
 from src.middleware.InterServiceMiddleware import InterServiceMiddleware
@@ -10,7 +11,6 @@ from src.routes.scenes import router as scenes_router
 import src.rabbitmq.handlers
 from src.models.enums import EventType
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -20,37 +20,61 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager - handles startup and shutdown"""
+    """Application lifespan manager - handles startup and shutdown."""
     
+    prisma_service = None
+    rabbitmq_producer = None
+
     try:
-        # Connect to Prisma
+        logger.info("Starting Scene Detector Service...")
         prisma_service = PrismaService()
         await prisma_service.connect()
-        logger.info("Connected to Prisma database")
-
-        S3Service()
+        logger.info("✓ Database connected")
         
-        # Start RabbitMQ consumer
+        S3Service()
+        logger.info("✓ S3 service initialized")
+        
+        rabbitmq_producer = RabbitMQProducer()
+        await rabbitmq_producer.connect()
+        logger.info("✓ RabbitMQ producer connected")
+        
         routing_keys = [
             EventType.UPLOAD_COMPLETED,
             EventType.FILE_DELETED
         ]
         await rabbitmq_consumer.start(routing_keys=routing_keys)
-        logger.info("RabbitMQ consumer started")
+        logger.info("✓ RabbitMQ consumer started")
+        
+        logger.info("✓ Scene Detector Service ready")
         yield
         
+    except Exception as e:
+        logger.error(f"Failed to start service: {e}", exc_info=True)
+        raise
+        
     finally:
-        # Shutdown
         logger.info("Shutting down Scene Detector Service...")
-        
-        # Stop RabbitMQ consumer
-        if hasattr(rabbitmq_consumer, 'stop'):
+        try:
             await rabbitmq_consumer.stop()
-            logger.info("RabbitMQ consumer stopped")
+            logger.info("✓ RabbitMQ consumer stopped")
+        except Exception as e:
+            logger.error(f"Error stopping consumer: {e}")
         
-        # Disconnect from Prisma
-        await prisma_service.disconnect()
-        logger.info("Disconnected from Prisma database")
+        try:
+            if rabbitmq_producer:
+                await rabbitmq_producer.disconnect()
+                logger.info("✓ RabbitMQ producer disconnected")
+        except Exception as e:
+            logger.error(f"Error disconnecting producer: {e}")
+        
+        try:
+            if prisma_service:
+                await prisma_service.disconnect()
+                logger.info("✓ Database disconnected")
+        except Exception as e:
+            logger.error(f"Error disconnecting database: {e}")
+        
+        logger.info("✓ Scene Detector Service shutdown complete")
 
 
 app = FastAPI(
@@ -76,30 +100,49 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint with detailed status"""
-    try:
-        prisma_service = PrismaService()
-        await prisma_service.prisma.execute_raw("SELECT 1")
-        prisma_status = "connected"
-    except Exception as e:
-        logger.error(f"Prisma health check failed: {e}")
-        prisma_status = "disconnected"
-    
-    return {
+    """Comprehensive health check endpoint."""
+    health_status = {
         "service": "scene-detector",
         "status": "running",
-        "database": prisma_status,
-        "rabbitmq": "connected" if hasattr(app.state, 'consumer') else "disconnected"
+        "version": "1.0.0",
+        "database": "unknown",
+        "rabbitmq": "unknown"
     }
+    
+    
+    try:
+        prisma_service = PrismaService()
+        if prisma_service.prisma:
+            await prisma_service.prisma.execute_raw("SELECT 1")
+            health_status["database"] = "connected"
+        else:
+            health_status["database"] = "not_initialized"
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        health_status["database"] = "disconnected"
+    
+    try:
+        if rabbitmq_consumer._is_consuming:
+            health_status["rabbitmq"] = "connected"
+        else:
+            health_status["rabbitmq"] = "disconnected"
+    except Exception as e:
+        logger.error(f"RabbitMQ health check failed: {e}")
+        health_status["rabbitmq"] = "error"
+    
+    return health_status
 
 
 if __name__ == "__main__":
     import uvicorn
-    import os
-    port = int(os.getenv("PORT", settings.port))
+    
+    port = settings.port
+    logger.info(f"Starting Scene Detector Service on port {port}")
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=port,
-        reload=settings.mode == "development"
+        reload=settings.mode == "development",
+        log_level="info"
     )

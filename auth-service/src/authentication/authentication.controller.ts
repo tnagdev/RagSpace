@@ -171,4 +171,16 @@ export class AuthenticationController {
             return res.status(401).json({ error: 'Invalid or expired session' });
         }
     }
+
+
+    @Public()
+    @Get('/health')
+    getHealth(@Res() res: Response) {
+        return res.status(200).json({
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            env: process.env.NODE_ENV || 'development',
+            port: Number(process.env.PORT) || 8001,
+        });
+    }
 }

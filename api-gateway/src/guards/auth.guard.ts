@@ -15,7 +15,12 @@ import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 @Injectable()
 export class AuthGuard implements CanActivate {
     private readonly logger = new Logger(AuthGuard.name);
-    private publicRoutes: string[] = ['/api/auth/signup', '/api/auth/signin', '/api/auth/google'];
+    private publicRoutes: string[] = [
+        '/api/auth/signup',
+        '/api/auth/signin',
+        '/api/auth/google',
+        '/api/auth/health',
+    ];
 
     constructor(
         private readonly httpService: HttpService,
@@ -30,11 +35,9 @@ export class AuthGuard implements CanActivate {
 
         if (isPublic) return true;
 
-        this.logger.log(context.switchToHttp().getRequest<Request>().path);
         if (this.publicRoutes.includes(context.switchToHttp().getRequest<Request>().path)) {
             return true;
         }
-
 
         const request = context.switchToHttp().getRequest<Request>();
         try {
@@ -53,7 +56,7 @@ export class AuthGuard implements CanActivate {
             );
             const sessionData = response.data;
             if (!sessionData || !sessionData.user || !sessionData.session) {
-                this.logger.debug('Invalid session response structure');
+                this.logger.error('Invalid session response structure');
                 throw new UnauthorizedException('No authentication provided');
             }
             request['user'] = sessionData.user;
@@ -65,7 +68,7 @@ export class AuthGuard implements CanActivate {
             }
 
             if (error?.response?.status === 401) {
-                this.logger.debug('Session validation returned 401');
+                this.logger.error('Session validation returned 401');
                 throw new UnauthorizedException('Invalid or expired session');
             }
 

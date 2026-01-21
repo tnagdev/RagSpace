@@ -18,7 +18,6 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 export class MetadataController {
     private readonly logger = new Logger(MetadataController.name);
-
     constructor(private readonly metadataService: MetadataService) { }
 
     @Post()

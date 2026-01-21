@@ -1,4 +1,5 @@
 """Configuration management for the chat-manager service."""
+import os
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -13,7 +14,7 @@ class Settings(BaseSettings):
     mode: str = "production"
     
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/chat_manager"
+    database_url: str
     
     # LLM Configuration (NVIDIA API)
     nvidia_api_key: Optional[str] = None
@@ -38,9 +39,9 @@ class Settings(BaseSettings):
     max_messages_in_context: int = 20  # Maximum messages to keep in context
     
     # External Service URLs
-    file_embedder_url: str = "http://localhost:8003"
-    upload_manager_url: str = "http://localhost:3002"
-    scene_detector_url: str = "http://localhost:3003"
+    file_embedder_url: str
+    upload_manager_url: str
+    scene_detector_url: str
     
     # S3 Configuration
     aws_access_key_id: Optional[str] = None
@@ -55,7 +56,7 @@ class Settings(BaseSettings):
     context_window_size: int = 5
     
     class Config:
-        env_file = ".env"
+        env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"
         case_sensitive = False
 
 

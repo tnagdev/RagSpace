@@ -1,6 +1,6 @@
+import os
 from pydantic_settings import BaseSettings
 from typing import Optional
-
 from src.common.enums import EventType
 
 
@@ -16,7 +16,6 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str
-    direct_url: Optional[str] = None  # Direct connection URL for Prisma migrations
     
     # RabbitMQ
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672"
@@ -28,12 +27,12 @@ class Settings(BaseSettings):
     aws_region: str = "ap-south-1"
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
-    aws_s3_bucket: str = "user-uploads"  # Default bucket with hyphen
-    aws_s3_endpoint: Optional[str] = None  # For MinIO or custom S3
+    aws_s3_bucket: str = "user-uploads"
+    aws_s3_endpoint: Optional[str] = None
     
     # Scene Detection
-    scene_detection_threshold: float = 27.0  # Default threshold for scene detection
-    scene_detection_min_scene_length: int = 15  # Minimum scene length in frames
+    scene_detection_threshold: float = 27.0
+    scene_detection_min_scene_length: int = 15
     thumbnail_width: int = 256
     thumbnail_height: int = 256
     thumbnail_quality: int = 70
@@ -43,7 +42,7 @@ class Settings(BaseSettings):
     max_concurrent_jobs: int = 2
     
     class Config:
-        env_file = ".env"
+        env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"
         case_sensitive = False
         env_file_encoding = 'utf-8'
 

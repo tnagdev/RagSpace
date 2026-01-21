@@ -17,7 +17,7 @@ import { RATE_LIMIT_CONFIG } from './config/rate-limit.config';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: `${process.env.NODE_ENV ? `.env.${process.env.NODE_ENV}` : '.env'}`,
     }),
     HttpModule.register({
       timeout: 5000,

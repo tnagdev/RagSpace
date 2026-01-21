@@ -216,7 +216,6 @@ export class UploadService {
             return file;
         });
 
-        // Return in same format as getFiles for consistency
         return {
             files: await Promise.all(filesWithUrls),
             total: files.length,
@@ -307,8 +306,6 @@ export class UploadService {
 
     async deleteFile(id: string, user: AuthUser) {
         const file = await this.getFileById(id, user.id);
-
-        // Publish deletion event to notify other services (file-embedder) to clean up
         try {
             await this.rabbitmqService.publishEvent({
                 type: FileEventType.FILE_DELETED,

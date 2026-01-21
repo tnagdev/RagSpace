@@ -7,7 +7,6 @@ def singleton(cls):
     
     class SingletonWrapper(cls):
         def __new__(cls_inner, *args, **kwargs):
-            # Use cls_inner (the actual wrapper class) as key, not cls
             if cls_inner not in instances:
                 instance = super(SingletonWrapper, cls_inner).__new__(cls_inner)
                 instances[cls_inner] = instance

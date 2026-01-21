@@ -18,7 +18,6 @@ export class JwtAuthGuard implements CanActivate {
         const sessionHeader = request.headers['x-session'] as string;
         const serviceHeader = request.headers['x-service'] as string;
 
-        // Allow inter-service communication with x-service and x-user headers
         if (serviceHeader && userHeader) {
             try {
                 const user = JSON.parse(userHeader);
@@ -42,7 +41,6 @@ export class JwtAuthGuard implements CanActivate {
             }
         }
 
-        // Standard API Gateway authentication
         if (userHeader && sessionHeader) {
             try {
                 const user = JSON.parse(userHeader);

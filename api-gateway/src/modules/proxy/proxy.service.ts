@@ -53,11 +53,8 @@ export class ProxyService {
         const sanitizedHeaders = this.sanitizeHeaders(headers);
         let requestData = body;
 
-        // Handle file uploads with multipart/form-data
         if (files && Object.keys(files).length > 0) {
             const formData = new FormData();
-
-            // Add files
             for (const fieldName in files) {
                 const fileArray = Array.isArray(files[fieldName]) ? files[fieldName] : [files[fieldName]];
                 fileArray.forEach((file: any) => {
@@ -67,14 +64,11 @@ export class ProxyService {
                     });
                 });
             }
-
-            // Add other form fields
             if (body) {
                 for (const key in body) {
                     formData.append(key, body[key]);
                 }
             }
-
             requestData = formData;
             Object.assign(sanitizedHeaders, formData.getHeaders());
         } else if (headers['content-type'] && headers['content-type'].includes('multipart/form-data')) {
@@ -93,7 +87,7 @@ export class ProxyService {
             timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            validateStatus: () => true, // Accept all status codes as valid
+            validateStatus: () => true,
             responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
         };
 
@@ -104,7 +98,6 @@ export class ProxyService {
         });
 
         try {
-            // For SSE streams, return immediately without waiting for completion
             if (config.responseType === 'stream') {
                 const response = await firstValueFrom(
                     this.httpService.request(config).pipe(
@@ -137,15 +130,13 @@ export class ProxyService {
                     ),
                 );
 
-                // Return the stream directly for SSE
                 return {
                     status: response.status,
                     headers: response.headers,
-                    data: response.data, // This is the readable stream
+                    data: response.data,
                 };
             }
 
-            // For regular requests, wait for completion
             const response = await firstValueFrom(
                 this.httpService.request(config).pipe(
                     catchError((error: AxiosError) => {

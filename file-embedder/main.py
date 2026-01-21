@@ -35,34 +35,27 @@ pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Lifespan context manager for FastAPI application.
-    Handles startup and shutdown events.
-    """
+    """Application lifespan manager - handles startup and shutdown."""
+    
+    # Startup: Initialize all services
     consumer_started = False
     
     try:
-        # Startup
-        logger.info("Starting file-embedder service...")
+        logger.info("=== Starting File Embedder Service ===")
         logger.info(f"Temp directory: {settings.temp_dir}")
+        os.makedirs(settings.temp_dir, exist_ok=True)
         
-        # Initialize singletons in correct order
-        # Order matters: base services first, then services that depend on them
         logger.info("Initializing services...")
-        
-        # 1. Core infrastructure (no dependencies)
         chroma_db = ChromaDatabaseManager()
-        S3ClientService()  # Now uses settings defaults
+        S3ClientService()
         LLMService()
+        logger.info("✓ Core services initialized")
         
-        # 2. VideoEmbedderService initializes the full embedding hierarchy
-        #    (includes TextEmbedderService, AudioEmbedderService, ImageEmbedderService)
         VideoEmbedderService()
-        
-        # 3. Services that depend on embedders
+        logger.info("✓ Embedding services initialized")
+
         AdvancedRetrieverService()
-        
-        logger.info("✓ Services initialized")
+        logger.info("✓ Retriever service initialized")
         
         logger.info("Initializing ChromaDB collections...")
         chroma_db.get_text_collection()
@@ -80,23 +73,25 @@ async def lifespan(app: FastAPI):
             consumer_started = True
             logger.info("✓ RabbitMQ consumer started")
         except Exception as e:
-            logger.warning(f"Failed to start RabbitMQ consumer (will continue): {e}")
+            logger.warning(f"Failed to start RabbitMQ consumer (continuing without it): {e}")
         
         logger.info("=== File Embedder Service READY ===")
+        
     except Exception as e:
-        logger.error(f"FATAL: Error during startup: {e}", exc_info=True)
+        logger.error(f"FATAL: Startup failed: {e}", exc_info=True)
         raise
     
     yield
     
-    # Shutdown
-    logger.info("Shutting down file-embedder service...")
+    logger.info("=== Shutting down File Embedder Service ===")
     if consumer_started:
         try:
             await rabbitmq_consumer.stop()
-            logger.info("RabbitMQ consumer stopped")
+            logger.info("✓ RabbitMQ consumer stopped")
         except Exception as e:
             logger.error(f"Error stopping RabbitMQ consumer: {e}")
+    
+    logger.info("✓ Shutdown complete")
 
 
 
@@ -122,18 +117,18 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Comprehensive health check endpoint."""
     try:
         chroma_db = ChromaDatabaseManager()
         chroma_db.get_text_collection()
-        chroma_db.get_image_collection() 
+        chroma_db.get_image_collection()
+        
         return {
+            "service": "file-embedder",
             "status": "healthy",
-            "chroma_db": "connected"
+            "chroma_db": "connected",
+            "rabbitmq": "connected" if rabbitmq_consumer._is_consuming else "disconnected"
         }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail=str(e))
@@ -141,12 +136,15 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", settings.service_port))
-    logger.info(f"Starting uvicorn on 0.0.0.0:{port}")
+    
+    port = settings.port
+    logger.info(f"Starting File Embedder Service on port {port}")
     logger.info(f"Mode: {settings.mode}")
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=port,
+        reload=settings.mode == "development",
         log_level="info"
     )
