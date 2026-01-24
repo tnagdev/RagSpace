@@ -58,11 +58,19 @@ echo ""
 echo "======================================"
 echo "Docker installation complete!"
 echo "======================================"
-docker --version
-docker compose version
+sudo docker --version
+sudo docker compose version
 
 echo ""
-echo "⚠️  IMPORTANT: Log out and log back in for group changes to take effect"
-echo "    Or run: newgrp docker"
+echo "⚠️  CRITICAL: You MUST restart your SSH session for changes to take effect"
 echo ""
-echo "Test with: docker run hello-world"
+echo "Run these commands now:"
+echo "  exit                    # Close current SSH session"
+echo "  ssh user@your-vm-ip    # Reconnect"
+echo "  docker --version       # Test without sudo"
+echo ""
+echo "If 'docker' command not found after reconnect, run:"
+echo "  source ~/.bashrc       # Reload shell config"
+echo "  newgrp docker          # Or activate docker group"
+echo ""
+echo "Test installation with: docker run hello-world"
