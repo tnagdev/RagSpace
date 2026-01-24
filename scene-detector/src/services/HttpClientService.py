@@ -36,13 +36,12 @@ class HttpClient:
             logger.info(f"Sending {method} request to: {url}")
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 headers = headers or {}
-                # Convert Pydantic models to dict if needed
                 user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
                 session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
                 headers['x-user'] = json.dumps(user_data)
                 headers['x-session'] = json.dumps(session_data)
                 headers['x-service'] = 'scene-detector'
-                response = await client.request(method, url, headers=headers or {}, params=params or {}, json=json_data or {})
+                response = await client.request(method, url, headers=headers, params=params, json=json_data)
                 response.raise_for_status()
                 return response.json()
                 
