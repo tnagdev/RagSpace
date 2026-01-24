@@ -33,6 +33,10 @@ class S3Service:
         
         logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
     
+    def _is_gcs_endpoint(self) -> bool:
+        """Check if using Google Cloud Storage endpoint."""
+        return bool(self.endpoint_url and 'storage.googleapis.com' in self.endpoint_url)
+    
     @asynccontextmanager
     async def _get_client(self):
         """Context manager for S3 client with automatic cleanup."""
@@ -139,8 +143,8 @@ class S3Service:
                 'ContentType': content_type
             }
             
-            # Only add metadata if not using GCS endpoint
-            if not self.endpoint_url or 'storage.googleapis.com' not in self.endpoint_url:
+            # Only add metadata if not using GCS endpoint (GCS doesn't support AWS Metadata)
+            if not self._is_gcs_endpoint():
                 upload_metadata = metadata or {}
                 upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
                 put_args['Metadata'] = upload_metadata
@@ -189,19 +193,22 @@ class S3Service:
         try:
             logger.info(f"Uploading {len(data):,} bytes to: s3://{upload_bucket}/{s3_key}")
             
-            # Prepare metadata
-            upload_metadata = metadata or {}
-            upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
+            put_args = {
+                'Bucket': upload_bucket,
+                'Key': s3_key,
+                'Body': data,
+                'ContentType': content_type
+            }
+            
+            # Only add metadata if not using GCS endpoint (GCS doesn't support AWS Metadata)
+            if not self._is_gcs_endpoint():
+                upload_metadata = metadata or {}
+                upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
+                put_args['Metadata'] = upload_metadata
             
             # Upload to S3
             async with self._get_client() as s3_client:
-                await s3_client.put_object(
-                    Bucket=upload_bucket,
-                    Key=s3_key,
-                    Body=data,
-                    ContentType=content_type,
-                    Metadata=upload_metadata
-                )
+                await s3_client.put_object(**put_args)
             
             # Build URL
             url = self._build_s3_url(upload_bucket, s3_key)
