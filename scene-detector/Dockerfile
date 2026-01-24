@@ -31,6 +31,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Give appuser write permissions to site-packages for Prisma client generation
 RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
 
+# Create temp directory with proper permissions
+RUN mkdir -p /tmp/scene-detector && \
+    chown -R appuser:appuser /tmp/scene-detector && \
+    chmod -R 755 /tmp/scene-detector
+
 COPY --chown=appuser:appuser . .
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh

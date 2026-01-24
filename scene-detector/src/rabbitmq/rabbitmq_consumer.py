@@ -161,6 +161,7 @@ class RabbitMQConsumer:
             return body
         
         return model_class(**body)
+    
     async def start_consuming(self) -> None:
         """Start consuming messages from the queue."""
         if not self.queue:

@@ -28,9 +28,11 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-RUN mkdir -p /app/chroma_data /home/appuser/.cache /home/appuser/.cache/huggingface /home/appuser/.cache/torch && \
+RUN mkdir -p /app/chroma_data /home/appuser/.cache /home/appuser/.cache/huggingface /home/appuser/.cache/torch /tmp/file-embedder && \
     chown -R appuser:appuser /app/chroma_data && \
-    chown -R appuser:appuser /home/appuser/.cache
+    chown -R appuser:appuser /home/appuser/.cache && \
+    chown -R appuser:appuser /tmp/file-embedder && \
+    chmod -R 755 /tmp/file-embedder
 
 COPY --chown=appuser:appuser . .
 COPY docker-entrypoint.sh ./
