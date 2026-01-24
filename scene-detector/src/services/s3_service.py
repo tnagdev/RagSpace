@@ -26,12 +26,14 @@ class S3Service:
             region_name=self.region
         )
         
+        # GCS requires virtual-hosted style for S3 API compatibility
         self.client_config = Config(
             signature_version='s3v4',
-            s3={'addressing_style': 'path'}
+            s3={'addressing_style': 'virtual' if self._is_gcs_endpoint() else 'path'}
         )
         
-        logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
+        is_gcs = bool(self.endpoint_url and 'storage.googleapis.com' in self.endpoint_url)
+        logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region}, endpoint: {self.endpoint_url}, is_gcs: {is_gcs})")
     
     def _is_gcs_endpoint(self) -> bool:
         """Check if using Google Cloud Storage endpoint."""
@@ -139,12 +141,12 @@ class S3Service:
             put_args = {
                 'Bucket': upload_bucket,
                 'Key': s3_key,
-                'Body': file_data,
-                'ContentType': content_type
+                'Body': file_data
             }
             
-            # Only add metadata if not using GCS endpoint (GCS doesn't support AWS Metadata)
+            # GCS S3-compatibility is limited - only add extra params for real S3
             if not self._is_gcs_endpoint():
+                put_args['ContentType'] = content_type
                 upload_metadata = metadata or {}
                 upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
                 put_args['Metadata'] = upload_metadata
@@ -196,12 +198,12 @@ class S3Service:
             put_args = {
                 'Bucket': upload_bucket,
                 'Key': s3_key,
-                'Body': data,
-                'ContentType': content_type
+                'Body': data
             }
             
-            # Only add metadata if not using GCS endpoint (GCS doesn't support AWS Metadata)
+            # GCS S3-compatibility is limited - only add extra params for real S3
             if not self._is_gcs_endpoint():
+                put_args['ContentType'] = content_type
                 upload_metadata = metadata or {}
                 upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
                 put_args['Metadata'] = upload_metadata
