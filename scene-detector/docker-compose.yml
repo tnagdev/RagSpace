@@ -1,28 +1,27 @@
 version: "3.9"
 services:
-  file-embedder:
-    image: file-embedder:latest
-    container_name: file-embedder
+  scene-detector:
+    image: scene-detector:latest
+    container_name: scene-detector
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "80:8080"
     volumes:
-      - model-cache:/home/appuser/.cache
-      - chroma-data:/app/chroma_data
+      - temp-data:/tmp/scene-detector
+      - prisma-data:/app/prisma
     env_file:
       - .env
     environment:
-      HF_HOME: /home/appuser/.cache/huggingface
-      TORCH_HOME: /home/appuser/.cache/torch
       PYTHONPATH: /app
+      TEMP_DIR: /tmp/scene-detector
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: "2.0"
-          memory: 10g
+          memory: 4g
 
     healthcheck:
       test:
@@ -34,11 +33,11 @@ services:
         ]
       interval: 30s
       timeout: 3s
-      start_period: 120s
+      start_period: 60s
       retries: 3
 
 volumes:
-  model-cache:
-    name: file-embedder-model-cache
-  chroma-data:
-    name: file-embedder-chroma-data
+  temp-data:
+    name: scene-detector-temp-data
+  prisma-data:
+    name: scene-detector-prisma-data
