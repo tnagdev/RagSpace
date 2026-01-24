@@ -12,7 +12,7 @@ services:
       - model-cache:/home/appuser/.cache
       - chroma-data:/app/chroma_data
     env_file:
-      - .env.development
+      - .env
     environment:
       HF_HOME: /home/appuser/.cache/huggingface
       TORCH_HOME: /home/appuser/.cache/torch
