@@ -132,17 +132,21 @@ class S3Service:
             with open(local_path, 'rb') as f:
                 file_data = f.read()
             
-            upload_metadata = metadata or {}
-            upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
+            put_args = {
+                'Bucket': upload_bucket,
+                'Key': s3_key,
+                'Body': file_data,
+                'ContentType': content_type
+            }
+            
+            # Only add metadata if not using GCS endpoint
+            if not self.endpoint_url or 'storage.googleapis.com' not in self.endpoint_url:
+                upload_metadata = metadata or {}
+                upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
+                put_args['Metadata'] = upload_metadata
             
             async with self._get_client() as s3_client:
-                await s3_client.put_object(
-                    Bucket=upload_bucket,
-                    Key=s3_key,
-                    Body=file_data,
-                    ContentType=content_type,
-                    Metadata=upload_metadata
-                )
+                await s3_client.put_object(**put_args)
             
             url = self._build_s3_url(upload_bucket, s3_key)
             file_size = len(file_data)
