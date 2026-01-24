@@ -28,10 +28,8 @@ class S3Service:
         
         self.client_config = Config(
             signature_version='s3v4',
-            s3={
-                'addressing_style': 'path',
-                'payload_signing_enabled': False
-            }
+            s3={'addressing_style': 'path'},
+            request_checksum_calculation='when_required'
         )
         
         logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
