@@ -26,18 +26,12 @@ class S3Service:
             region_name=self.region
         )
         
-        # GCS requires virtual-hosted style for S3 API compatibility
         self.client_config = Config(
             signature_version='s3v4',
-            s3={'addressing_style': 'virtual' if self._is_gcs_endpoint() else 'path'}
+            s3={'addressing_style': 'path'}
         )
         
-        is_gcs = bool(self.endpoint_url and 'storage.googleapis.com' in self.endpoint_url)
-        logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region}, endpoint: {self.endpoint_url}, is_gcs: {is_gcs})")
-    
-    def _is_gcs_endpoint(self) -> bool:
-        """Check if using Google Cloud Storage endpoint."""
-        return bool(self.endpoint_url and 'storage.googleapis.com' in self.endpoint_url)
+        logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
     
     @asynccontextmanager
     async def _get_client(self):
@@ -138,21 +132,17 @@ class S3Service:
             with open(local_path, 'rb') as f:
                 file_data = f.read()
             
-            put_args = {
-                'Bucket': upload_bucket,
-                'Key': s3_key,
-                'Body': file_data
-            }
-            
-            # GCS S3-compatibility is limited - only add extra params for real S3
-            if not self._is_gcs_endpoint():
-                put_args['ContentType'] = content_type
-                upload_metadata = metadata or {}
-                upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
-                put_args['Metadata'] = upload_metadata
+            upload_metadata = metadata or {}
+            upload_metadata.setdefault('uploadedby', 'scene-detector-service')
             
             async with self._get_client() as s3_client:
-                await s3_client.put_object(**put_args)
+                await s3_client.put_object(
+                    Bucket=upload_bucket,
+                    Key=s3_key,
+                    Body=file_data,
+                    ContentType=content_type,
+                    Metadata=upload_metadata
+                )
             
             url = self._build_s3_url(upload_bucket, s3_key)
             file_size = len(file_data)
@@ -195,22 +185,19 @@ class S3Service:
         try:
             logger.info(f"Uploading {len(data):,} bytes to: s3://{upload_bucket}/{s3_key}")
             
-            put_args = {
-                'Bucket': upload_bucket,
-                'Key': s3_key,
-                'Body': data
-            }
-            
-            # GCS S3-compatibility is limited - only add extra params for real S3
-            if not self._is_gcs_endpoint():
-                put_args['ContentType'] = content_type
-                upload_metadata = metadata or {}
-                upload_metadata.setdefault('uploadedBy', 'scene-detector-service')
-                put_args['Metadata'] = upload_metadata
+            # Prepare metadata
+            upload_metadata = metadata or {}
+            upload_metadata.setdefault('uploadedby', 'scene-detector-service')
             
             # Upload to S3
             async with self._get_client() as s3_client:
-                await s3_client.put_object(**put_args)
+                await s3_client.put_object(
+                    Bucket=upload_bucket,
+                    Key=s3_key,
+                    Body=data,
+                    ContentType=content_type,
+                    Metadata=upload_metadata
+                )
             
             # Build URL
             url = self._build_s3_url(upload_bucket, s3_key)
