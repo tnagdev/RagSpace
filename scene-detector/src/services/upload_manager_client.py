@@ -58,10 +58,10 @@ class UploadManagerClient:
             logger.error(f"Unexpected error updating file {file_id}: {e}")
             raise
 
-    async def get_file(self, file_id: str, request_context: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+    async def get_file(self, file_id: str) -> Optional[Dict[str, Any]]:
         try:
             url = f"{self.base_url}{UploadManagerEndpoints.GET_FILE_DETAILS.value.format(file_id=file_id)}"
-            response = await self.client.send_request('GET', url, headers=request_context)
+            response = await self.client.send_request('GET', url)
             return response
         except Exception as e:
             logger.error(f"Unexpected error getting file {file_id}: {e}")
