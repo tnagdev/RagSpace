@@ -42,6 +42,6 @@ ENV PORT=8080
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\", \"8080\")}/health').read()" || exit 1
+  CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://localhost/health').read()" || exit 1
 
 CMD ["./docker-entrypoint.sh"]
