@@ -1,7 +1,5 @@
-import { privateAxios } from './apiClient';
+import { privateAxios, API_BASE_URL } from './apiClient';
 import type { ConversationSummary, Conversation, ChatRequest } from '@/types/chat.types';
-
-const API_BASE_URL = privateAxios.defaults.baseURL || 'http://localhost:3000';
 
 export const chatAPI = {
     // Get all conversations
