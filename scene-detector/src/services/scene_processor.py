@@ -90,10 +90,17 @@ class SceneProcessor:
                 thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/files/{file_id}.jpg"
 
                 bucket = file_record.get('s3Bucket', 'user-uploads')
-                thumbnail_url = await self.s3_service.upload_file(
+                await self.s3_service.upload_file(
                     thumbnail_local_path,
                     thumbnail_s3_key,
                     content_type='image/jpeg',
+                    bucket=bucket
+                )
+                
+                # Generate presigned URL for private bucket access
+                thumbnail_url = await self.s3_service.get_signed_url(
+                    thumbnail_s3_key,
+                    expiration=3600,  # 1 hour
                     bucket=bucket
                 )
                 
@@ -163,10 +170,16 @@ class SceneProcessor:
                         f"{file_id}/scene_{scene_number:04d}.jpg"
                     )
 
-                    thumbnail_url = await self.s3_service.upload_file(
+                    await self.s3_service.upload_file(
                         thumbnail_path,
                         thumbnail_s3_key,
                         content_type='image/jpeg',
+                        bucket=scene_bucket
+                    )
+                    
+                    thumbnail_url = await self.s3_service.get_signed_url(
+                        thumbnail_s3_key,
+                        expiration=3600,  # 1 hour
                         bucket=scene_bucket
                     )
 

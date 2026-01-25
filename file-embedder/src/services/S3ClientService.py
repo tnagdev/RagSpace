@@ -36,7 +36,8 @@ class S3ClientService:
         config = Config(
             region_name=self.region,
             signature_version='s3v4',
-            retries={'max_attempts': 3, 'mode': 'standard'}
+            retries={'max_attempts': 3, 'mode': 'standard'},
+            request_checksum_calculation='when_required'
         )
         
         client_kwargs = {
