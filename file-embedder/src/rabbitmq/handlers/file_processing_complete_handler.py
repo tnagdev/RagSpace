@@ -62,7 +62,7 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
                     return None, None
 
                 thumbnail_path = os.path.join(temp_dir, f"scene_{i}.jpg")
-                await s3_client.download(s3_key=thumbnail_s3_key, local_path=thumbnail_path)
+                await s3_client.download(None, s3_key=thumbnail_s3_key, local_path=thumbnail_path)
 
                 # Generate visual embedding (CLIP)
                 visual_embedding = video_embedder.embed_image(thumbnail_path)
