@@ -33,9 +33,6 @@ README.md
 .git/
 .gitignore
 
-# Prisma migrations (will be handled separately)
-prisma/migrations/
-
 # Test files
 test/
 tests/
