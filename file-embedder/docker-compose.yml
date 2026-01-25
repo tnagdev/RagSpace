@@ -18,6 +18,12 @@ services:
       TORCH_HOME: /home/appuser/.cache/torch
       PYTHONPATH: /app
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 10g
+
     healthcheck:
       test:
         [
