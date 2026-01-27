@@ -45,8 +45,7 @@ app = FastAPI(
     title="Chat Manager Service",
     description="Conversational search interface for video content",
     version="1.0.0",
-    lifespan=lifespan,
-    redirect_slashes=False
+    lifespan=lifespan
 )
 
 # Add inter-service authentication middleware
