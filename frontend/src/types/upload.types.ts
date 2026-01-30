@@ -67,6 +67,7 @@ export interface GetFilesQueryDto {
     limit?: number;
     uploadStatus?: UploadStatus;
     processingStatus?: ProcessingStatus;
+    processingStage?: ProcessingStage;
     fileIds?: string;
 }
 

@@ -225,7 +225,7 @@ export class UploadService {
     }
 
     async getFiles(userId: string, query: GetFilesQueryDto) {
-        const { page = 1, limit: _limit = 20, uploadStatus, processingStatus } = query;
+        const { page = 1, limit: _limit = 20, uploadStatus, processingStatus, processingStage } = query;
         const limit = parseInt(_limit as any, 10);
         const skip = (page - 1) * limit;
 
@@ -237,6 +237,10 @@ export class UploadService {
 
         if (processingStatus) {
             where.processingStatus = processingStatus;
+        }
+
+        if (processingStage) {
+            where.processingStage = processingStage;
         }
 
         const [files, total] = await Promise.all([

@@ -27,16 +27,16 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         },
         ref
     ) => {
-        const baseStyles = 'inline-flex items-center justify-center gap-2 font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2';
+        const baseStyles = 'inline-flex items-center justify-center gap-2 font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none';
 
         const variants = {
-            primary: 'bg-gradient-to-r from-[var(--gradient-primary-start)] to-[var(--gradient-primary-end)] hover:from-[var(--color-accent-primary-hover)] hover:to-[var(--gradient-primary-end)] text-white shadow-lg focus:ring-[var(--color-accent-primary)]',
-            secondary: 'bg-bg-input hover:bg-bg-hover text-text-primary border border-[var(--color-border-input)] focus:ring-[var(--color-accent-primary)]',
-            outline: 'bg-transparent border-2 border-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)] hover:text-white text-[var(--color-accent-primary)] focus:ring-[var(--color-accent-primary)]',
-            ghost: 'bg-transparent hover:bg-[var(--color-sidebar-hover)] text-text-primary focus:ring-[var(--color-accent-primary)]',
-            danger: 'bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/90 text-white shadow-lg focus:ring-[var(--color-danger)]',
-            success: 'bg-[var(--color-success)] hover:bg-[var(--color-success)]/90 text-white shadow-lg focus:ring-[var(--color-success)]',
-            social: 'bg-bg-secondary border border-[var(--color-sidebar-border)] hover:bg-bg-tertiary hover:border-[var(--color-accent-primary)] text-text-primary focus:ring-[var(--color-accent-primary)]',
+            primary: 'bg-gradient-to-r from-[var(--gradient-primary-start)] to-[var(--gradient-primary-end)] hover:from-[var(--color-accent-primary-hover)] hover:to-[var(--gradient-primary-end)] text-white shadow-lg',
+            secondary: 'bg-bg-input hover:bg-bg-hover text-text-primary border border-[var(--color-border-input)]',
+            outline: 'bg-transparent border-2 border-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)] hover:text-white text-[var(--color-accent-primary)]',
+            ghost: 'bg-transparent hover:bg-[var(--color-sidebar-hover)] text-text-primary',
+            danger: 'bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/90 text-white shadow-lg',
+            success: 'bg-[var(--color-success)] hover:bg-[var(--color-success)]/90 text-white shadow-lg',
+            social: 'bg-bg-secondary border border-[var(--color-sidebar-border)] hover:bg-bg-tertiary hover:border-[var(--color-accent-primary)] text-text-primary',
         };
 
         const sizes = {

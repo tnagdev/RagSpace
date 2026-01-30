@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsEnum, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { UploadStatus, ProcessingStatus } from '@prisma/client';
+import { UploadStatus, ProcessingStatus, ProcessingStage } from '@prisma/client';
 
 export class GetFilesQueryDto {
     @IsOptional()
@@ -23,6 +23,10 @@ export class GetFilesQueryDto {
     @IsOptional()
     @IsEnum(ProcessingStatus)
     processingStatus?: ProcessingStatus;
+
+    @IsOptional()
+    @IsEnum(ProcessingStage)
+    processingStage?: ProcessingStage;
 
     @IsOptional()
     @IsString()
