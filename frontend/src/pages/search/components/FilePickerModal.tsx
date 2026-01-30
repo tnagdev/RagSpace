@@ -59,6 +59,11 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
             color: 'text-blue-400',
             bgGradient: 'from-blue-500/10 to-blue-600/5'
         },
+        YOUTUBE_VIDEO: {
+            icon: FileVideo,
+            color: 'text-red-400',
+            bgGradient: 'from-red-500/10 to-red-600/5'
+        },
         IMAGE: {
             icon: FileImage,
             color: 'text-green-400',

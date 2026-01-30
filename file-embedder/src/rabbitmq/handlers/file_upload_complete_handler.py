@@ -15,6 +15,7 @@ from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
 from src.services.VideoEmbedderService import VideoEmbedderService
 from src.services.UploadManagerService import UploadManagerService
+from src.services.YouTubeDownloaderService import YouTubeDownloaderService
 
 
 
@@ -28,7 +29,7 @@ async def handle_upload_completed(event: UploadCompletedEventModel):
         logger.info(f"Processing upload completed event for {file_type} file: {event.fileId}")
 
         match file_type:
-            case FileType.VIDEO:
+            case FileType.VIDEO | FileType.YOUTUBE_VIDEO:
                 await process_video(event)
             case FileType.AUDIO:
                 await process_audio(event)
@@ -55,6 +56,11 @@ async def process_image(event: UploadCompletedEventModel):
         s3_key = file_data.s3Key
         s3_url = file_data.s3Url
         original_name = file_data.fileName
+        youtube_url = file_data.youtubeUrl if hasattr(file_data, 'youtubeUrl') else None
+
+        if youtube_url:
+            logger.info(f"Skipping image processing for YouTube video: {youtube_url}")
+            return
 
         # Create directory structure and temp directory
         dir_path = os.path.join(settings.temp_dir, file_id, 'image')
@@ -95,14 +101,13 @@ async def process_image(event: UploadCompletedEventModel):
             try:
                 text_embedding = await asyncio.wait_for(
                     loop.run_in_executor(None, image_embedder.embed_text, text),
-                    timeout=60.0  # 1 minute timeout for text embedding
+                    timeout=60.0
                 )
                 logger.info(f"Text embedding completed for {file_id}")
             except asyncio.TimeoutError:
                 logger.error(f"Text embedding timeout for {file_id}")
                 text_embedding = None
 
-        # Generate image description using LLM and store metadata
         try:
             description = await image_embedder.generate_image_description(image_path)
             if description:
@@ -177,6 +182,11 @@ async def process_audio(event: UploadCompletedEventModel):
         s3_key = file_data.s3Key
         s3_url = file_data.s3Url
         original_name = file_data.fileName
+        youtube_url = file_data.youtubeUrl if hasattr(file_data, 'youtubeUrl') else None
+
+        if youtube_url:
+            logger.info(f"Skipping audio-only processing for YouTube video: {youtube_url}")
+            return
 
         audio_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=audio_path)
@@ -229,6 +239,7 @@ async def process_video(event: UploadCompletedEventModel):
     try:
         s3_client = S3ClientService()
         audio_embedder = AudioEmbedderService()
+        youtube_downloader = YouTubeDownloaderService()
         chroma_db = ChromaDatabaseManager()
         
         file_id = event.fileId
@@ -241,9 +252,24 @@ async def process_video(event: UploadCompletedEventModel):
         s3_key = file_data.s3Key
         s3_url = file_data.s3Url
         original_name = file_data.fileName
+        youtube_url = file_data.youtubeUrl if hasattr(file_data, 'youtubeUrl') else None
 
         video_path = os.path.join(temp_dir, file_data.fileName)
-        await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=video_path)
+        
+        if youtube_url:
+            logger.info(f"Downloading YouTube video: {youtube_url}")
+            try:
+                download_result = await youtube_downloader.download_video(
+                    youtube_url,
+                    video_path,
+                    quality='worst[ext=mp4]'
+                )
+                logger.info(f"✓ YouTube video downloaded: {download_result['title']}")
+            except Exception as e:
+                logger.error(f"Failed to download YouTube video: {e}")
+                raise
+        else:
+            await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=video_path)
 
         raw_file_name = os.path.splitext(original_name)[0].lower()
         audio_path = os.path.join(temp_dir, raw_file_name + '_audio.wav')

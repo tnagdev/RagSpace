@@ -1,5 +1,5 @@
 import { type FC, useState } from 'react';
-import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, Eye } from 'lucide-react';
+import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, Eye, Youtube } from 'lucide-react';
 import moment from 'moment';
 import type { FileResponseDto, FileType } from '@/types/upload.types';
 import Button from '@/components/Button';
@@ -14,6 +14,7 @@ const fileTypeConfig: Record<FileType, {
     color: string;
 }> = {
     VIDEO: { icon: FileVideo, color: 'text-blue-400' },
+    YOUTUBE_VIDEO: { icon: Youtube, color: 'text-red-400' },
     IMAGE: { icon: FileImage, color: 'text-green-400' },
     AUDIO: { icon: FileAudio, color: 'text-purple-400' },
     DOCUMENT: { icon: FileText, color: 'text-orange-400' },
@@ -26,6 +27,17 @@ const formatFileSize = (bytes: number): string => {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+};
+
+const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(secs).padStart(2, '0')}`;
 };
 
 export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
@@ -102,8 +114,9 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                     {/* Type Badge */}
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-xs text-text-muted uppercase">Type</span>
-                        <span className={`text-xs font-semibold ${fileConfig.color}`}>
-                            {file.fileType}
+                        <span className={`inline-flex items-center gap-1 text-xs font-semibold ${fileConfig.color}`}>
+                            <IconComponent className="w-3 h-3" />
+                            {file.fileType === 'YOUTUBE_VIDEO' ? 'YouTube' : file.fileType}
                         </span>
                     </div>
 
@@ -114,6 +127,16 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                             {formatFileSize(file.fileSize)}
                         </span>
                     </div>
+
+                    {/* Duration for video files */}
+                    {(file.fileType === 'VIDEO' || file.fileType === 'YOUTUBE_VIDEO') && (file.metadata as any)?.duration && (
+                        <div className="flex flex-col items-center gap-1">
+                            <span className="text-xs text-text-muted uppercase">Duration</span>
+                            <span className="text-xs font-medium text-text-secondary">
+                                {formatDuration((file.metadata as any).duration)}
+                            </span>
+                        </div>
+                    )}
 
                     {/* Date */}
                     <div className="flex flex-col items-center gap-1">

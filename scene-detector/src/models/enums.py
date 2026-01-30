@@ -8,6 +8,7 @@ class FileType(str, Enum):
     IMAGE = "IMAGE"
     AUDIO = "AUDIO"
     DOCUMENT = "DOCUMENT"
+    YOUTUBE_VIDEO = "YOUTUBE_VIDEO"
     OTHER = "OTHER"
 
 

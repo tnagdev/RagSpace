@@ -160,6 +160,21 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
         if not visual_items and not text_items:
             logger.warning(f"No embeddings to store for file: {file_id}")
 
+        try:
+            # Use the upload_manager HTTP client to update the file
+            url = f"{upload_manager.upload_manager_url}/upload/{file_id}"
+            await upload_manager.client.send_request(
+                "PUT",
+                url,
+                json={
+                    "processingStatus": "COMPLETED",
+                    "processingStage": "COMPLETED",
+                }
+            )
+            logger.info(f"Updated file {file_id} status to COMPLETED")
+        except Exception as e:
+            logger.error(f"Failed to update file status to COMPLETED: {e}")
+
     except Exception as e:
         logger.error(f"Error processing scene detection completed event: {e}", exc_info=True)
     finally:

@@ -235,7 +235,7 @@ class SceneDetectionService:
             if file_type_lower == 'image':
                 self._generate_image_thumbnail(file_path, output_path)
                 
-            elif file_type_lower == 'video':
+            elif file_type_lower in ['video', 'youtube_video']:
                 self._generate_video_thumbnail(file_path, output_path)
                 
             else:

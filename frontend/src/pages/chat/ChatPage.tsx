@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { FileResponseDto } from '@/types/upload.types';
+import { FileResponseDto, FileType } from '@/types/upload.types';
 import { SearchResult, ChatSSEEvent } from '@/types/chat.types';
 import { QueryResult } from '@/types/search.types';
 import { useConversations, useConversation } from '@/hooks/useChat';
@@ -12,6 +12,7 @@ import FileAttachments from './components/FileAttachments';
 import FilePickerModal from '../search/components/FilePickerModal';
 import VideoPreview from '../search/components/VideoPreview';
 import ImagePreview from '../search/components/ImagePreview';
+import YouTubePlayer from '../search/components/YouTubePlayer';
 import { IconButton } from '@/components/IconButton';
 import Markdown from '@/components/Markdown';
 import { AlertCircle, MessageSquare, Film, X } from 'lucide-react';
@@ -35,6 +36,7 @@ const convertToQueryResult = (result: SearchResult): QueryResult => {
             fileType: result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image',
             url: result.file_url,
             thumbnailUrl: result.thumbnail_url,
+            youtubeUrl: result.youtube_url,
         },
         scene_details: result.start_time !== undefined ? {
             sceneNumber: 0,
@@ -417,10 +419,14 @@ const ChatPage: React.FC = () => {
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             {(() => {
                                 const queryResult = convertToQueryResult(selectedResult);
+                                const isYouTubeVideo = selectedResult.file_type === FileType.YOUTUBE_VIDEO || selectedResult.file_type === 'YOUTUBE_VIDEO';
+                                const youtubeUrl = selectedResult.youtube_url;
                                 const isVideo = queryResult.file_type === 'video' ||
                                     selectedResult.file_name?.match(/\.(mp4|webm|mov|avi)$/i);
 
-                                if (isVideo) {
+                                if (isYouTubeVideo && youtubeUrl) {
+                                    return <YouTubePlayer result={queryResult} youtubeUrl={youtubeUrl} />;
+                                } else if (isVideo) {
                                     return <VideoPreview result={queryResult} />;
                                 } else {
                                     return <ImagePreview result={queryResult} />;

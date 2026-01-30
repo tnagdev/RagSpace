@@ -7,6 +7,7 @@ import FileAttachments from './components/FileAttachments';
 import SearchResults from './components/SearchResults';
 import VideoPreview from './components/VideoPreview';
 import ImagePreview from './components/ImagePreview';
+import YouTubePlayer from './components/YouTubePlayer';
 import FilePickerModal from './components/FilePickerModal';
 import { AlertCircle, Search, Film } from 'lucide-react';
 
@@ -37,8 +38,10 @@ const SearchPage: React.FC = () => {
         setSelectedResult(result);
     };
 
+    const isYouTubeVideo = selectedResult?.file_type === FileType.YOUTUBE_VIDEO || selectedResult?.file_type === 'YOUTUBE_VIDEO';
     const isVideo = selectedResult?.file_type === FileType.VIDEO || selectedResult?.file_type === 'VIDEO';
     const isImage = selectedResult?.file_type === FileType.IMAGE || selectedResult?.file_type === 'IMAGE';
+    const youtubeUrl = selectedResult?.file_details?.youtubeUrl;
 
     return (
         <div className="h-full flex flex-col">
@@ -118,9 +121,10 @@ const SearchPage: React.FC = () => {
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                     {selectedResult ? (
                         <div>
-                            {isVideo && <VideoPreview result={selectedResult} />}
+                            {isYouTubeVideo && youtubeUrl && <YouTubePlayer result={selectedResult} youtubeUrl={youtubeUrl} />}
+                            {!isYouTubeVideo && isVideo && <VideoPreview result={selectedResult} />}
                             {isImage && <ImagePreview result={selectedResult} />}
-                            {!isVideo && !isImage && (
+                            {!isYouTubeVideo && !isVideo && !isImage && (
                                 <div className="flex items-center justify-center h-64">
                                     <div className="text-center">
                                         <AlertCircle size={48} className="mx-auto mb-3 text-text-muted opacity-50" />

@@ -11,6 +11,7 @@ from src.models.events import UploadCompletedEventModel, UpdateFileStatusParams
 from src.services.s3_service import S3Service
 from src.services.prisma_service import PrismaService
 from src.services.scene_detection_service import SceneDetectionService
+from src.services.youtube_downloader_service import YouTubeDownloaderService
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class SceneProcessor:
         self.upload_manager_client = UploadManagerClient(user, session)
         self.s3_service = S3Service()
         self.scene_detection_service = SceneDetectionService()
+        self.youtube_downloader = YouTubeDownloaderService()
         self.prisma_service = PrismaService()
         os.makedirs(self.temp_dir, exist_ok=True)
     
@@ -67,11 +69,59 @@ class SceneProcessor:
             filename = os.path.basename(file_record['s3Key'])
             file_path = os.path.join(work_dir, filename)
 
-            await self.s3_service.download_file(
-                file_record['s3Key'], 
-                file_path,
-                bucket=file_record.get('s3Bucket', 'user-uploads')
-            )
+            # Check if this is a YouTube video
+            youtube_url = file_record.get('youtubeUrl')
+            if youtube_url:
+                logger.info(f"Downloading YouTube video: {youtube_url}")
+                try:
+                    download_result = await self.youtube_downloader.download_video(
+                        youtube_url,
+                        file_path,
+                        quality='worst[ext=mp4]'
+                    )
+                    
+                    youtube_metadata = file_record.get('metadata', {})
+                    youtube_metadata.update({
+                        'actualFileSize': download_result['file_size'],
+                        'downloadedAt': datetime.utcnow().isoformat(),
+                        'downloadedTitle': download_result.get('title'),
+                        'downloadedDuration': download_result.get('duration'),
+                        'description': download_result.get('description', ''),
+                    })
+                    
+                    video_title = download_result.get('title', file_record.get('filename', 'video'))
+                    safe_filename = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in video_title)
+                    safe_filename = safe_filename[:100]
+                    if download_result.get('duration'):
+                        youtube_metadata['duration'] = int(download_result.get('duration', 0))
+                    
+                    await self.upload_manager_client.update_file_status(
+                        file_id,
+                        UpdateFileStatusParams(
+                            filename=f"{safe_filename}.mp4",
+                            originalFilename=video_title,
+                            fileSize=download_result['file_size'],
+                            metadata=youtube_metadata
+                        )
+                    )
+                    
+                    logger.info(f"✓ YouTube video downloaded: {download_result['title']}")
+                except Exception as e:
+                    logger.error(f"Failed to download YouTube video: {e}")
+                    await self.upload_manager_client.update_file_status(
+                        file_id,
+                        UpdateFileStatusParams(
+                            processingStatus=ProcessingStatus.FAILED.value,
+                            errorMessage=f"YouTube download failed: {str(e)}"
+                        )
+                    )
+                    raise
+            else:
+                await self.s3_service.download_file(
+                    file_record['s3Key'], 
+                    file_path,
+                    bucket=file_record.get('s3Bucket', 'user-uploads')
+                )
 
             # Generate and upload file thumbnail
             thumbnail_path = None
@@ -120,8 +170,7 @@ class SceneProcessor:
                 logger.error(f"Failed to generate file thumbnail: {thumb_error}", exc_info=True)
                 # Continue processing even if thumbnail fails
 
-            # Only process scenes for video files
-            if file_type != 'VIDEO':
+            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
                 logger.info(f"Skipping scene detection for non-video file: {file_type}")
                 return await self.upload_manager_client.update_file_status(
                     file_id,

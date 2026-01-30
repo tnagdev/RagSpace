@@ -23,3 +23,4 @@ class UploadedFile(BaseModel):
     processingCompletedAt: str = None
     createdAt: str
     updatedAt: str
+    youtubeUrl: str = None

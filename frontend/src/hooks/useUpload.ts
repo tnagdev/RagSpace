@@ -154,3 +154,16 @@ export const useStorageStats = (
         ...options,
     });
 };
+
+export const useSubmitYouTubeLink = (
+    options?: UseMutationOptions<FileResponseDto, Error, string>
+) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (url: string) => uploadAPI.submitYouTubeLink(url),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+        },
+        ...options,
+    });
+};

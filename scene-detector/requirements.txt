@@ -17,6 +17,9 @@ aioboto3
 scenedetect[opencv]
 opencv-python
 
+# YouTube Download
+yt-dlp
+
 # Image Processing
 Pillow
 

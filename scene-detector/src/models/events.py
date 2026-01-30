@@ -65,11 +65,13 @@ class AuthUser(BaseModel):
 
 class UploadEventFileMetadata(BaseModel):
     s3Key: str
-    s3Url: str
+    s3Url: Optional[str] = None
     fileType: FileType
     fileName: str = None
     fileSize: Optional[int] = None
     mimeType: Optional[str] = None
+    youtubeUrl: Optional[str] = None
+    videoId: Optional[str] = None
 
 
 class UploadCompletedEventModel(BaseModel):
@@ -121,6 +123,9 @@ class FileDeletedEventModel(BaseModel):
 
 
 class UpdateFileStatusParams(BaseModel):
+    filename: Optional[str] = None
+    originalFilename: Optional[str] = None
+    fileSize: Optional[int] = None
     processingStatus: Optional[str] = None
     processingStage: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None

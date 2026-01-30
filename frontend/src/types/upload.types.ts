@@ -4,6 +4,7 @@ export enum FileType {
     VIDEO = 'VIDEO',
     AUDIO = 'AUDIO',
     DOCUMENT = 'DOCUMENT',
+    YOUTUBE_VIDEO = 'YOUTUBE_VIDEO',
     OTHER = 'OTHER',
 }
 
@@ -43,6 +44,7 @@ export interface FileResponseDto {
     s3Key: string;
     s3Url?: string;
     thumbnailUrl?: string; // Generated signed URL from thumbnailPath
+    youtubeUrl?: string;
     uploadStatus: UploadStatus;
     processingStatus: ProcessingStatus;
     processingStage: ProcessingStage;

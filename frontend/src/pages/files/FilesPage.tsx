@@ -1,12 +1,13 @@
 import { useState, useCallback, useMemo } from 'react';
 import { RefreshCw, Grid3x3, List } from 'lucide-react';
 import { FileUploadZone } from './components/FileUploadZone';
+import { YouTubeLinkInput } from './components/YouTubeLinkInput';
 import { PollingFileItem } from './components/PollingFileItem';
 import { FileCard } from './components/FileCard';
 import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
-import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile } from '@/hooks/useUpload';
+import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage } from '@/types/upload.types';
 
@@ -20,6 +21,7 @@ interface PollingFile {
 }
 
 const FilesPage = () => {
+    const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file');
     const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
     const [pollingFiles, setPollingFiles] = useState<PollingFile[]>([]);
     const [currentPage, setCurrentPage] = useState<number>(1);
@@ -44,6 +46,7 @@ const FilesPage = () => {
     const uploadMutation = useUploadFile();
     const abortMutation = useAbortMultipartUpload();
     const deleteMutation = useDeleteFile();
+    const youtubeSubmitMutation = useSubmitYouTubeLink();
 
     const completedFiles = completedFilesData?.files || [];
 
@@ -177,6 +180,35 @@ const FilesPage = () => {
         [deleteMutation, refetchCompleted, refetchProcessing]
     );
 
+    const handleYouTubeSubmit = useCallback(
+        async (url: string) => {
+            try {
+                const fakeId = `youtube-${Date.now()}`;
+                setPollingFiles((prev) => [...prev, {
+                    id: fakeId,
+                    file: {
+                        id: fakeId,
+                        originalFilename: 'YouTube Video',
+                        filename: 'YouTube Video',
+                        processingStage: 'UPLOAD',
+                        fileSize: 0,
+                        mimeType: 'video/youtube',
+                    } as any
+                }]);
+
+                const fileRecord = await youtubeSubmitMutation.mutateAsync(url);
+
+                setPollingFiles((prev) =>
+                    prev.map((pf) => pf.id === fakeId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf)
+                );
+            } catch (error) {
+                console.error('Failed to submit YouTube link:', error);
+                setPollingFiles((prev) => prev.filter((f) => f.id.startsWith('youtube-')));
+            }
+        },
+        [youtubeSubmitMutation]
+    );
+
     const handlePageChange = useCallback((page: number) => {
         setCurrentPage(page);
         const contentArea = document.querySelector('.files-content-scroll');
@@ -205,7 +237,35 @@ const FilesPage = () => {
         <div className="flex gap-6 h-full">
             {/* Left Upload Section */}
             <div className="w-80 flex flex-col gap-4">
-                <FileUploadZone onFilesSelected={handleFilesSelected} />
+                {/* Tab Switcher */}
+                <div className="flex items-center gap-2 bg-surface-secondary rounded-lg p-1">
+                    <Button
+                        variant={uploadMode === 'file' ? 'primary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setUploadMode('file')}
+                        className="flex-1"
+                    >
+                        Upload Files
+                    </Button>
+                    <Button
+                        variant={uploadMode === 'youtube' ? 'primary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setUploadMode('youtube')}
+                        className="flex-1"
+                    >
+                        YouTube Link
+                    </Button>
+                </div>
+
+                {/* Upload Zone or YouTube Input */}
+                {uploadMode === 'file' ? (
+                    <FileUploadZone onFilesSelected={handleFilesSelected} />
+                ) : (
+                    <YouTubeLinkInput
+                        onSubmit={handleYouTubeSubmit}
+                        isSubmitting={youtubeSubmitMutation.isPending}
+                    />
+                )}
 
                 {allProcessingFiles.length > 0 && (
                     <div className="flex-1 overflow-hidden flex flex-col">

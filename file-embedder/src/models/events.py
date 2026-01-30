@@ -17,11 +17,12 @@ class AuthUser(BaseModel):
 
 class UploadEventFileMetadata(BaseModel):
     s3Key: str
-    s3Url: str
+    s3Url: Optional[str] = None
     fileType: FileType
     fileName: str = None
     fileSize: Optional[int] = None
     mimeType: Optional[str] = None
+    youtubeUrl: Optional[str] = None
 
 
 class Session(BaseModel):

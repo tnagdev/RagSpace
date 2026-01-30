@@ -1,5 +1,5 @@
 import { type FC, useState } from 'react';
-import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive } from 'lucide-react';
+import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube } from 'lucide-react';
 import moment from 'moment';
 import type { FileResponseDto, FileType } from '@/types/upload.types';
 import Button from '@/components/Button';
@@ -19,6 +19,11 @@ const fileTypeConfig: Record<FileType, {
         icon: FileVideo,
         color: 'text-blue-400',
         bgGradient: 'from-blue-500/10 to-blue-600/5'
+    },
+    YOUTUBE_VIDEO: {
+        icon: Youtube,
+        color: 'text-red-400',
+        bgGradient: 'from-red-500/10 to-red-600/5'
     },
     IMAGE: {
         icon: FileImage,
@@ -48,6 +53,17 @@ const formatFileSize = (bytes: number): string => {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+};
+
+const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(secs).padStart(2, '0')}`;
 };
 
 export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
@@ -141,12 +157,13 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
 
                 {/* File Type Badge */}
                 <div className="mb-4">
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium capitalize border border-sidebar-border/50"
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium capitalize border border-sidebar-border/50"
                         style={{
                             background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(236, 72, 153, 0.1))',
                         }}
                     >
-                        {file.fileType.toLowerCase()}
+                        <Icon className={`w-3.5 h-3.5 ${config.color}`} />
+                        {file.fileType === 'YOUTUBE_VIDEO' ? 'YouTube' : file.fileType.toLowerCase()}
                     </span>
                 </div>
 
@@ -170,16 +187,20 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
                         </span>
                     </div>
 
+                    {(file.fileType === 'VIDEO' || file.fileType === 'YOUTUBE_VIDEO') && (file.metadata as any)?.duration && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-text-muted flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5" />
+                                Duration
+                            </span>
+                            <span className="text-text-secondary font-medium">
+                                {formatDuration((file.metadata as any).duration)}
+                            </span>
+                        </div>
+                    )}
+
                     {file.metadata && typeof file.metadata === 'object' && (
                         <>
-                            {(file.metadata as any).duration && (
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="text-text-muted">Duration</span>
-                                    <span className="text-text-secondary font-medium">
-                                        {Math.floor((file.metadata as any).duration / 60)}:{String(Math.floor((file.metadata as any).duration % 60)).padStart(2, '0')}
-                                    </span>
-                                </div>
-                            )}
                             {(file.metadata as any).dimensions && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-text-muted">Dimensions</span>

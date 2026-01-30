@@ -12,6 +12,7 @@ enum FileType {
     VIDEO
     AUDIO
     DOCUMENT
+    YOUTUBE_VIDEO
     OTHER
 
     @@schema("upload")
@@ -91,6 +92,7 @@ model File {
     s3Bucket              String
     s3Url                 String?
     thumbnailPath         String?
+    youtubeUrl            String?
     uploadStatus          UploadStatus     @default(PENDING)
     processingStatus      ProcessingStatus @default(NOT_STARTED)
     processingStage       ProcessingStage  @default(UPLOAD)

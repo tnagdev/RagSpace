@@ -35,6 +35,9 @@ class UploadManagerClient:
             url = f"{self.base_url}{UploadManagerEndpoints.UPDATE_FILE.value.format(file_id=file_id)}"
             payload = {}
             allowed_fields = [
+                "filename",
+                "originalFilename",
+                "fileSize",
                 "processingStatus",
                 "processingStage",
                 "metadata",
@@ -52,7 +55,7 @@ class UploadManagerClient:
                         payload[field] = value  
             
 
-            response = await self.client.send_request('PUT', url, json_data=payload)
+            response = await self.client.send_request('PUT', url, json=payload)
             return response
         except Exception as e:
             logger.error(f"Unexpected error updating file {file_id}: {e}")

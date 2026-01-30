@@ -160,7 +160,7 @@ export class UploadService {
             throw new NotFoundException(`File with ID ${id} not found`);
         }
 
-        if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+        if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key && file.fileType !== FileType.YOUTUBE_VIDEO) {
             const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
             let thumbnailUrl: string | null = null;
             if (file.thumbnailPath) {
@@ -175,6 +175,19 @@ export class UploadService {
                 s3Url: signedUrl,
                 thumbnailUrl,
             };
+        }
+
+        if (file.fileType === FileType.YOUTUBE_VIDEO && file.thumbnailPath) {
+            try {
+                const thumbnailUrl = await this.s3Service.getSignedUrl(file.thumbnailPath);
+                return {
+                    ...file,
+                    s3Url: null,
+                    thumbnailUrl,
+                };
+            } catch (error) {
+                this.logger.error(`Failed to generate signed URL for thumbnail ${file.thumbnailPath}:`, error);
+            }
         }
 
         return file;
@@ -197,9 +210,12 @@ export class UploadService {
 
         const filesWithUrls = files.map(async (file) => {
             try {
-                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                // Only generate S3 URLs for non-YouTube videos
+                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key && file.fileType !== FileType.YOUTUBE_VIDEO) {
                     const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
                     file.s3Url = signedUrl;
+                } else if (file.fileType === FileType.YOUTUBE_VIDEO) {
+                    file.s3Url = null;
                 }
             } catch (error) {
                 this.logger.error(`Failed to get signed URL for file ${file.id}:`, error);
@@ -255,9 +271,12 @@ export class UploadService {
 
         const filesWithUrls = files.map(async (file) => {
             try {
-                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                // Only generate S3 URLs for non-YouTube videos
+                if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key && file.fileType !== FileType.YOUTUBE_VIDEO) {
                     const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
                     file.s3Url = signedUrl;
+                } else if (file.fileType === FileType.YOUTUBE_VIDEO) {
+                    file.s3Url = null;
                 }
             } catch (error) {
                 this.logger.error(`Failed to get signed URL for file ${file.id}:`, error);
@@ -511,6 +530,110 @@ export class UploadService {
             return { message: 'Upload aborted successfully' };
         } catch (error) {
             this.logger.error('Error aborting multipart upload', error);
+            throw error;
+        }
+    }
+
+    async submitYouTubeLink(url: string, user: AuthUser, session?: AuthSession) {
+        try {
+            // Extract video ID from YouTube URL
+            const videoIdMatch = url.match(
+                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]+)/
+            );
+
+            if (!videoIdMatch) {
+                throw new Error('Invalid YouTube URL - could not extract video ID');
+            }
+
+            const videoId = videoIdMatch[1];
+
+            // Fetch YouTube metadata
+            let metadata: any = {
+                videoId,
+                source: 'youtube',
+            };
+
+            try {
+                // Use yt-dlp via exec to get video info
+                const { exec } = require('child_process');
+                const { promisify } = require('util');
+                const execAsync = promisify(exec);
+
+                const { stdout } = await execAsync(
+                    `yt-dlp --dump-json --no-download "${url}"`,
+                    { timeout: 15000 }
+                );
+
+                const videoInfo = JSON.parse(stdout);
+                const title = videoInfo.title || `YouTube Video ${videoId}`;
+                const filename = `${title.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}_${videoId}.mp4`;
+
+                metadata = {
+                    ...metadata,
+                    title: videoInfo.title,
+                    description: videoInfo.description,
+                    duration: videoInfo.duration,
+                    uploader: videoInfo.uploader,
+                    uploadDate: videoInfo.upload_date,
+                    viewCount: videoInfo.view_count,
+                    likeCount: videoInfo.like_count,
+                    thumbnail: videoInfo.thumbnail,
+                };
+
+                this.logger.log(`Fetched YouTube metadata: ${title}`);
+            } catch (metaError) {
+                this.logger.warn(`Failed to fetch YouTube metadata, using defaults: ${metaError.message}`);
+            }
+
+            const displayTitle = metadata.title || `YouTube Video ${videoId}`;
+            const filename = metadata.title
+                ? `${metadata.title.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}_${videoId}.mp4`
+                : `youtube_${videoId}.mp4`;
+
+            // Create file record with metadata
+            const fileRecord = await this.prisma.file.create({
+                data: {
+                    userId: user.id,
+                    filename,
+                    originalFilename: displayTitle,
+                    fileSize: 0, // Will be updated when downloaded
+                    mimeType: 'video/mp4',
+                    fileType: FileType.YOUTUBE_VIDEO,
+                    s3Key: `${user.id}/youtube/${videoId}.mp4`,
+                    s3Bucket: '',
+                    youtubeUrl: url,
+                    metadata: metadata,
+                    uploadStatus: UploadStatus.COMPLETED,
+                    uploadedAt: new Date(),
+                    processingStatus: ProcessingStatus.IN_PROGRESS,
+                    processingStage: ProcessingStage.EMBEDDING,
+                },
+            });
+
+            // Publish YouTube submission event
+            await this.rabbitmqService.publishEvent({
+                type: FileEventType.UPLOAD_COMPLETED,
+                fileId: fileRecord.id,
+                user: user,
+                session: session,
+                timestamp: new Date(),
+                data: {
+                    fileName: filename,
+                    fileSize: 0,
+                    mimeType: 'video/mp4',
+                    fileType: FileType.YOUTUBE_VIDEO,
+                    youtubeUrl: url,
+                    videoId: videoId,
+                    s3Key: fileRecord.s3Key,
+                    s3Url: null, // YouTube videos don't have S3 URLs initially
+                    metadata: metadata,
+                },
+            });
+
+            this.logger.log(`YouTube link submitted successfully: ${fileRecord.id}, URL: ${url}`);
+            return fileRecord;
+        } catch (error) {
+            this.logger.error(`Error submitting YouTube link for user ${user.id}`, error);
             throw error;
         }
     }

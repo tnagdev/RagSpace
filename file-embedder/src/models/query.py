@@ -35,6 +35,7 @@ class FileDetails(BaseModel):
     userId: str | None = None
     thumbnailUrl: str | None = None
     thumbnailPath: str | None = None
+    youtubeUrl: str | None = None
 
 
 class SceneDetails(BaseModel):

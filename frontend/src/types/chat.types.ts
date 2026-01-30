@@ -12,6 +12,7 @@ export interface SearchResult {
     file_name: string;
     score: number;
     timestamp?: number;
+    youtube_url?: string;
     // S3 keys and buckets (permanent storage)
     thumbnail_s3_key?: string;
     thumbnail_s3_bucket?: string;

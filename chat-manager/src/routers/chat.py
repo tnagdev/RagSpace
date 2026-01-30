@@ -330,6 +330,8 @@ async def _handle_direct_search_chat(
     results = []
     search_results_for_llm = []
     
+    logger.info(f"Search response received with {len(search_response.get('results', []))} results")
+    
     # Collect all file_ids and scene_ids for bulk metadata fetch
     file_ids_to_fetch = set()
     scene_ids_to_fetch = set()
@@ -376,16 +378,25 @@ async def _handle_direct_search_chat(
         file_id = result.get("file_id", "")
         scene_id = result.get("scene_id")
         
+        logger.info(f"Processing result for file {file_id}: file_details keys={list(file_details.keys())}")
+        logger.info(f"file_details content: fileType={file_details.get('fileType')}, youtubeUrl={file_details.get('youtubeUrl')}")
+        
         metadata = None
         if scene_id and scene_id in scene_metadata_map:
             metadata = scene_metadata_map[scene_id]
         elif file_id and file_id in file_metadata_map:
             metadata = file_metadata_map[file_id]
         
+        # Log what we're receiving from file_details
+        file_type = file_details.get("fileType")
+        youtube_url = file_details.get("youtubeUrl")
+        logger.info(f"Building result for file {file_id}: fileType={file_type}, youtubeUrl={youtube_url}")
+        
         result_data = {
             "file_id": file_id,
             "scene_id": scene_id,
             "file_name": result.get("file_name", "Unknown"),
+            "file_type": file_type,
             "score": result.get("score", 0.0),
             "timestamp": result.get("start_time") or result.get("timestamp"),
             "thumbnail_s3_key": scene_details.get("thumbnailS3Key") or file_details.get("thumbnailPath"),
@@ -394,6 +405,7 @@ async def _handle_direct_search_chat(
             "file_s3_bucket": file_details.get("s3Bucket"),
             "thumbnail_url": scene_details.get("thumbnailUrl") or file_details.get("thumbnailUrl"),
             "file_url": file_details.get("url"),
+            "youtube_url": youtube_url,
             "start_time": scene_details.get("startTime") or result.get("start_time"),
             "end_time": scene_details.get("endTime") or result.get("end_time"),
             "text_content": result.get("text", ""),
@@ -403,6 +415,8 @@ async def _handle_direct_search_chat(
             "style": metadata.get("style") if metadata else None,
             "colors": metadata.get("colors") if metadata else None,
         }
+        
+        logger.info(f"Result data: file_type={result_data['file_type']}, youtube_url={result_data['youtube_url']}")
         
         results.append(SearchResult(**result_data))
         search_results_for_llm.append(result_data)

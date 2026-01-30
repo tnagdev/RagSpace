@@ -9,6 +9,7 @@ export interface FileDetails {
     url?: string;
     thumbnailUrl?: string;
     userId?: string;
+    youtubeUrl?: string;
 }
 
 export interface SceneDetails {

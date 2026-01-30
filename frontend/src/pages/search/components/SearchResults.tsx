@@ -64,7 +64,8 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
             {Object.entries(groupedResults).map(([fileId, fileResults]) => {
                 const firstResult = fileResults[0];
                 const fileDetails = firstResult.file_details;
-                const isVideo = firstResult.file_type === FileType.VIDEO || firstResult.file_type === 'VIDEO';
+                const isVideo = firstResult.file_type === FileType.VIDEO || firstResult.file_type === 'VIDEO' || 
+                                firstResult.file_type === FileType.YOUTUBE_VIDEO || firstResult.file_type === 'YOUTUBE_VIDEO';
                 const isImage = firstResult.file_type === FileType.IMAGE || firstResult.file_type === 'IMAGE';
 
                 // For videos with multiple scenes, use accordion

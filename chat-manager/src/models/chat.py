@@ -9,6 +9,7 @@ class SearchResult(BaseModel):
     file_id: str
     scene_id: Optional[str] = None
     file_name: str
+    file_type: Optional[str] = None
     score: float
     timestamp: Optional[float] = None
     thumbnail_s3_key: Optional[str] = None
@@ -17,6 +18,7 @@ class SearchResult(BaseModel):
     file_s3_bucket: Optional[str] = None
     thumbnail_url: Optional[str] = None
     file_url: Optional[str] = None
+    youtube_url: Optional[str] = None
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     text_content: Optional[str] = None

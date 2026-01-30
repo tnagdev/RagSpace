@@ -46,6 +46,7 @@ async def generate_signed_urls_for_results(search_results: List[SearchResult]) -
             file_id=result.file_id,
             scene_id=result.scene_id,
             file_name=result.file_name,
+            file_type=result.file_type,
             score=result.score,
             timestamp=result.timestamp,
             thumbnail_s3_key=result.thumbnail_s3_key,
@@ -54,6 +55,7 @@ async def generate_signed_urls_for_results(search_results: List[SearchResult]) -
             file_s3_bucket=result.file_s3_bucket,
             thumbnail_url=signed_urls.get(result.thumbnail_s3_key) if result.thumbnail_s3_key else None,
             file_url=signed_urls.get(result.file_s3_key) if result.file_s3_key else None,
+            youtube_url=result.youtube_url,
             start_time=result.start_time,
             end_time=result.end_time,
             text_content=result.text_content
@@ -110,7 +112,6 @@ async def get_conversation(conversation_id: str, request: Request):
         refreshed_messages = []
         for message in conversation.messages:
             if message.searchResults and len(message.searchResults) > 0:
-                # Generate fresh signed URLs from stored S3 keys
                 refreshed_search_results = await generate_signed_urls_for_results(message.searchResults)
                 refreshed_messages.append(ChatMessage(
                     role=message.role,

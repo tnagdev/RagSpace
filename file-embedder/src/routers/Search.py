@@ -226,6 +226,10 @@ async def query_embeddings(
         if file_details_cache is None:
             file_details_cache = {}
             logger.warning("Failed to fetch file details in batch, cache will be empty")
+        else:
+            logger.info(f"Loaded {len(file_details_cache)} files from upload-manager")
+            for fid, details in file_details_cache.items():
+                logger.info(f"File {fid}: fileType={details.get('fileType')}, youtubeUrl={details.get('youtubeUrl')}")
         
         video_results_by_file = {}
         audio_results_by_file = {}
@@ -295,10 +299,16 @@ async def query_embeddings(
             if fid in file_details_cache:
                 fd = file_details_cache[fid]
                 logger.debug(f"File details for {fid}: {json.dumps(fd)}")
+                
+                # Extract youtubeUrl and log it
+                youtube_url = fd.get("youtubeUrl")
+                file_type = fd.get("fileType", ftype or "")
+                logger.info(f"File {fid}: fileType={file_type}, youtubeUrl={youtube_url}")
+                
                 file_details = FileDetails(
                     id=fd.get("id", fid),
                     fileName=fd.get("filename", ""),
-                    fileType=fd.get("fileType", ftype or ""),
+                    fileType=file_type,
                     fileSize=fd.get("fileSize"),
                     mimeType=fd.get("mimeType"),
                     url=fd.get("s3Url"),
@@ -306,7 +316,8 @@ async def query_embeddings(
                     s3Bucket=fd.get("s3Bucket"),
                     userId=fd.get("userId"),
                     thumbnailUrl=fd.get("thumbnailUrl"),
-                    thumbnailPath=fd.get("thumbnailPath")
+                    thumbnailPath=fd.get("thumbnailPath"),
+                    youtubeUrl=youtube_url
                 )
             
             
@@ -377,10 +388,15 @@ async def query_embeddings(
                                 thumbnailUrl=None
                             )
             
+            # Use actual file type from file details if available (e.g., YOUTUBE_VIDEO instead of generic VIDEO)
+            actual_file_type = ftype
+            if fid in file_details_cache:
+                actual_file_type = file_details_cache[fid].get("fileType", ftype)
+            
             query_results.append(QueryResult(
                 file_id=fid,
                 file_name=result.get("file_name"),
-                file_type=ftype,
+                file_type=actual_file_type,
                 scene_id=scene_id,
                 scene_index=scene_idx,
                 segment_index=segment_idx,
@@ -518,6 +534,10 @@ async def advanced_search(
         file_details_cache = await upload_manager.get_files_batch(file_ids)
         if file_details_cache is None:
             file_details_cache = {}
+        else:
+            logger.info(f"Loaded {len(file_details_cache)} files from upload-manager")
+            for fid, details in file_details_cache.items():
+                logger.info(f"File {fid}: fileType={details.get('fileType')}, youtubeUrl={details.get('youtubeUrl')}")
         
         # Group results for scene fetching
         video_file_ids = set()
@@ -589,7 +609,8 @@ async def advanced_search(
                     thumbnailUrl=fd.get("thumbnailUrl"),
                     thumbnailPath=fd.get("thumbnailPath"),
                     s3Key=fd.get("s3Key"),
-                    s3Bucket=fd.get("s3Bucket")
+                    s3Bucket=fd.get("s3Bucket"),
+                    youtubeUrl=fd.get("youtubeUrl")
                 )
             
             # Scene details
@@ -659,10 +680,15 @@ async def advanced_search(
                                 thumbnailUrl=None
                             )
             
+            # Use actual file type from file details if available (e.g., YOUTUBE_VIDEO instead of generic VIDEO)
+            actual_file_type = ftype
+            if fid in file_details_cache:
+                actual_file_type = file_details_cache[fid].get("fileType", ftype)
+            
             query_results.append(QueryResult(
                 file_id=fid,
                 file_name=result.get("file_name"),
-                file_type=ftype,
+                file_type=actual_file_type,
                 scene_id=scene_id,
                 scene_index=scene_idx,
                 segment_index=segment_idx,

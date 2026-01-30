@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { UpdateFileDto } from './dto/update-file.dto';
 import { InitMultipartUploadDto } from './dto/init-multipart.dto';
 import { CompleteMultipartUploadDto } from './dto/complete-multipart.dto';
+import { SubmitYouTubeLinkDto } from './dto/submit-youtube-link.dto';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
@@ -143,6 +144,16 @@ export class UploadController {
         @CurrentUser() user: AuthUser,
     ) {
         return this.uploadService.abortMultipartUpload(fileId, user);
+    }
+
+    @Post('youtube')
+    async submitYouTubeLink(
+        @Body() dto: SubmitYouTubeLinkDto,
+        @CurrentUser() user: AuthUser,
+        @CurrentSession() session: AuthSession,
+    ) {
+        this.logger.log(`YouTube link submission from user: ${user.id}, URL: ${dto.url}`);
+        return this.uploadService.submitYouTubeLink(dto.url, user, session);
     }
 
     @Get('health')

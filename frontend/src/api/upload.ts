@@ -166,4 +166,9 @@ export const uploadAPI = {
         const response = await privateAxios.get<StorageStatsDto>(`${UPLOAD_BASE}/storage/stats`);
         return response.data;
     },
+
+    submitYouTubeLink: async (url: string): Promise<FileResponseDto> => {
+        const response = await privateAxios.post<FileResponseDto>(`${UPLOAD_BASE}/youtube`, { url });
+        return response.data;
+    },
 };
