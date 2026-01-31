@@ -19,11 +19,6 @@ services:
       TORCH_HOME: /home/appuser/.cache/torch
       PYTHONPATH: /app
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 4g
     healthcheck:
       test:
         [
@@ -54,11 +49,6 @@ services:
       TORCH_HOME: /home/appuser/.cache/torch
       PYTHONPATH: /app
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 8g
     healthcheck:
       test: ["CMD", "pgrep", "-f", "main_consumer.py"]
       interval: 30s
