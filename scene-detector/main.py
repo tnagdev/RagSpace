@@ -1,3 +1,15 @@
+"""
+Combined mode for Scene Detector Service.
+Runs both HTTP server and RabbitMQ consumer in one process.
+
+⚠️ DEPRECATED: This combined mode is kept for backward compatibility.
+   For production use, run the separated processes:
+   - main_server.py (HTTP server)
+   - main_consumer.py (RabbitMQ consumer)
+
+   See docker-compose.yml for the recommended setup.
+"""
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

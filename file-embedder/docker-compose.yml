@@ -1,7 +1,6 @@
 version: "3.9"
 services:
   file-embedder-server:
-    image: file-embedder:latest
     container_name: file-embedder-server
     build:
       context: .
@@ -33,7 +32,6 @@ services:
       retries: 3
 
   file-embedder-consumer:
-    image: file-embedder:latest
     container_name: file-embedder-consumer
     build:
       context: .

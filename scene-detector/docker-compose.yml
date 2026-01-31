@@ -1,34 +1,20 @@
 version: "3.9"
 
 services:
-  scene-detector:
+  scene-detector-server:
     image: scene-detector:latest
-    container_name: scene-detector
+    container_name: scene-detector-server
     build:
       context: .
       dockerfile: Dockerfile
-
+    command: ["python", "main_server.py"]
     ports:
       - "80:8080"
-
-    volumes:
-      - temp-data:/tmp/scene-detector
-
     env_file:
       - .env
-
     environment:
       PYTHONPATH: /app
-      TEMP_DIR: /tmp/scene-detector
-
     restart: unless-stopped
-
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 4g
-
     healthcheck:
       test:
         [
@@ -37,6 +23,28 @@ services:
           "-c",
           'import urllib.request, os; urllib.request.urlopen(f''http://127.0.0.1:{os.getenv("PORT", "8080")}/health'').read()',
         ]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  scene-detector-consumer:
+    image: scene-detector:latest
+    container_name: scene-detector-consumer
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "main_consumer.py"]
+    volumes:
+      - temp-data:/tmp/scene-detector
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      TEMP_DIR: /tmp/scene-detector
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "main_consumer.py"]
       interval: 30s
       timeout: 5s
       start_period: 60s
