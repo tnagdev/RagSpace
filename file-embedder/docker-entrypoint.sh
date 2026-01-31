@@ -1,7 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "Starting File Embedder Service..."
+# Determine which service to start (default to combined mode for backward compatibility)
+SERVICE_MODE="${1:-main.py}"
+
+echo "Starting File Embedder Service (Mode: $SERVICE_MODE)..."
 echo "Note: This service uses ChromaDB which does not require migrations"
 
 # Download models at runtime if not already cached
@@ -20,6 +23,6 @@ echo "  → Downloading CLIP model..."
 python -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')" 2>&1 | grep -v "FutureWarning" || true
 
 echo "All models loaded successfully!"
-echo "Starting FastAPI application..."
+echo "Starting application: $SERVICE_MODE"
 
-exec python main.py
+exec python "$SERVICE_MODE"

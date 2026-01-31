@@ -3,33 +3,50 @@ import logging
 from typing import Optional
 from prisma import Prisma
 from src.config import settings
-from src.decorators.singleton import singleton
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
 class PrismaService:
-    """Singleton Prisma database service"""
+    """Global Prisma database service with connection pooling"""
+    _instance: Optional['PrismaService'] = None
+    _prisma: Optional[Prisma] = None
+    _initialized: bool = False
+
+    def __new__(cls):
+        """Ensure only one instance exists"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(self):
-        self.prisma: Optional[Prisma] = None
+        """Initialize only once"""
+        if not PrismaService._initialized:
+            PrismaService._initialized = True
+            logger.info("PrismaService singleton initialized")
+
+    @property
+    def prisma(self) -> Prisma:
+        """Get the shared Prisma client instance"""
+        if PrismaService._prisma is None:
+            raise RuntimeError("Prisma not connected. Call connect() first.")
+        return PrismaService._prisma
 
     async def connect(self):
-        """Connect to the database"""
-        if self.prisma is None:
-            self.prisma = Prisma(datasource={"url": settings.database_url})
-            await self.prisma.connect()
-            logger.info("Prisma connected to database")    
+        """Connect to the database with connection pooling"""
+        if PrismaService._prisma is None:
+            PrismaService._prisma = Prisma(datasource={"url": settings.database_url})
+            await PrismaService._prisma.connect()
+            logger.info("Prisma connected to database")
     
     async def disconnect(self):
         """Disconnect from the database"""
-        if self.prisma:
-            await self.prisma.disconnect()
-            self.prisma = None
+        if PrismaService._prisma:
+            await PrismaService._prisma.disconnect()
+            PrismaService._prisma = None
             logger.info("Prisma disconnected from database")
     
     async def ensure_connected(self):
         """Ensure the database connection is active"""
-        if self.prisma is None:
+        if PrismaService._prisma is None:
             await self.connect()

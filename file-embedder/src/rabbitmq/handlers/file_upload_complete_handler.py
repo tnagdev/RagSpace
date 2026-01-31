@@ -6,6 +6,7 @@ import asyncio
 from functools import partial
 from src.config import settings
 from src.utils.file_utils import extract_audio
+from src.utils.background_tasks import background_task_manager
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
 from src.models.events import UploadCompletedEventModel, EventFileMetadata
@@ -21,12 +22,19 @@ from src.services.YouTubeDownloaderService import YouTubeDownloaderService
 
 
 logger = logging.getLogger(__name__)
-@rabbitmq_consumer.register_handler(FileEventType.UPLOAD_COMPLETED)
-async def handle_upload_completed(event: UploadCompletedEventModel):
+
+
+async def _process_file_in_background(event: UploadCompletedEventModel):
+    """Background task for processing file without blocking the event handler.
+    
+    Args:
+        event: Validated upload completion event
+    """
     try:
         file_data: EventFileMetadata = event.data
         file_type = file_data.fileType
-        logger.info(f"Processing upload completed event for {file_type} file: {event.fileId}")
+        file_id = event.fileId
+        logger.info(f"[Background] Processing {file_type} file: {file_id}")
 
         match file_type:
             case FileType.VIDEO | FileType.YOUTUBE_VIDEO:
@@ -36,9 +44,35 @@ async def handle_upload_completed(event: UploadCompletedEventModel):
             case FileType.IMAGE:
                 await process_image(event)
             case _:
-                logger.warning(f"Unsupported file type {file_type} for file: {event.fileId}")
+                logger.warning(f"Unsupported file type {file_type} for file: {file_id}")
+        
+        logger.info(f"[Background] ✓ Completed processing file: {file_id}")
     except Exception as e:
-        logger.error(f"Error processing upload completed event: {e}", exc_info=True)
+        logger.error(f"[Background] Error processing file {event.fileId}: {e}", exc_info=True)
+
+
+@rabbitmq_consumer.register_handler(FileEventType.UPLOAD_COMPLETED)
+async def handle_upload_completed(event: UploadCompletedEventModel):
+    """Handle upload completion event and launch background processing.
+    
+    This handler returns immediately after launching a background task to prevent
+    blocking the RabbitMQ consumer and FastAPI event loop during heavy processing.
+    
+    Args:
+        event: Validated upload completion event
+    """
+    try:
+        file_data: EventFileMetadata = event.data
+        file_type = file_data.fileType
+        file_id = event.fileId
+        background_task_manager.create_task(
+            _process_file_in_background(event),
+            name=f"process_upload_{file_id}"
+        )
+        logger.info(f"✓ Launched background processing for {file_type} file: {file_id} (active tasks: {background_task_manager.active_count})")
+        
+    except Exception as e:
+        logger.error(f"Error launching background task for file {event.fileId}: {e}", exc_info=True)
 
 
 

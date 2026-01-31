@@ -1,6 +1,13 @@
 """
 FastAPI application for file embedding service.
 Processes audio and video content to generate embeddings for semantic search.
+
+⚠️ DEPRECATED: This combined mode is kept for backward compatibility.
+   For production use, run the separated processes:
+   - main_server.py (HTTP server)
+   - main_consumer.py (RabbitMQ consumer)
+
+   See docker-compose.yml for the recommended setup.
 """
 
 import logging
@@ -19,6 +26,7 @@ from src.rabbitmq import handlers
 from src.routers import Search
 from src.services.LLMService import LLMService
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
+from src.utils.background_tasks import background_task_manager
 import pytesseract
 
 
@@ -84,12 +92,19 @@ async def lifespan(app: FastAPI):
     yield
     
     logger.info("=== Shutting down File Embedder Service ===")
+    
+    # Stop accepting new messages
     if consumer_started:
         try:
             await rabbitmq_consumer.stop()
             logger.info("✓ RabbitMQ consumer stopped")
         except Exception as e:
             logger.error(f"Error stopping RabbitMQ consumer: {e}")
+    
+    # Wait for active background tasks to complete (with timeout)
+    if background_task_manager.active_count > 0:
+        logger.info(f"Waiting for {background_task_manager.active_count} background tasks to complete...")
+        await background_task_manager.wait_for_all(timeout=30.0)
     
     logger.info("✓ Shutdown complete")
 

@@ -27,6 +27,7 @@ const FilesPage = () => {
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
         {
@@ -37,8 +38,11 @@ const FilesPage = () => {
     const { data: processingFilesData, refetch: refetchProcessing } = useFiles(
         { limit: 100 },
         {
-            refetchInterval: 5000,
-            refetchIntervalInBackground: true,
+            refetchInterval: (data: any) => {
+                const processingFiles = (data?.files || []).filter((f: any) => f.processingStage !== ProcessingStage.COMPLETED);
+                const hasProcessing = processingFiles.length > 0 || pollingFiles.length > 0;
+                return hasProcessing ? 5000 : false;
+            },
             staleTime: 0,
         }
     );

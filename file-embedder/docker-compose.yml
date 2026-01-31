@@ -1,11 +1,12 @@
 version: "3.9"
 services:
-  file-embedder:
+  file-embedder-server:
     image: file-embedder:latest
-    container_name: file-embedder
+    container_name: file-embedder-server
     build:
       context: .
       dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_server.py"]
     ports:
       - "80:8080"
     volumes:
@@ -21,9 +22,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 10g
-
+          cpus: "1.0"
+          memory: 4g
     healthcheck:
       test:
         [
@@ -32,6 +32,35 @@ services:
           "-c",
           'import urllib.request, os; urllib.request.urlopen(f''http://127.0.0.1:{os.getenv("PORT", "8080")}/health'').read()',
         ]
+      interval: 30s
+      timeout: 3s
+      start_period: 120s
+      retries: 3
+
+  file-embedder-consumer:
+    image: file-embedder:latest
+    container_name: file-embedder-consumer
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_consumer.py"]
+    volumes:
+      - model-cache:/home/appuser/.cache
+      - chroma-data:/app/chroma_data
+    env_file:
+      - .env
+    environment:
+      HF_HOME: /home/appuser/.cache/huggingface
+      TORCH_HOME: /home/appuser/.cache/torch
+      PYTHONPATH: /app
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8g
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "main_consumer.py"]
       interval: 30s
       timeout: 3s
       start_period: 120s

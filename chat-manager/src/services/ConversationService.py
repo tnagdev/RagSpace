@@ -17,10 +17,21 @@ class ConversationService:
     """
     Database-backed conversation management using Prisma.
     Stores conversations and messages in PostgreSQL.
+    Uses shared Prisma connection to avoid exhausting connection pool.
     """
+    _prisma_service: Optional[PrismaService] = None
     
     def __init__(self):
-        self.prisma_service = PrismaService()
+        # Use shared singleton instance - don't create new connections
+        if ConversationService._prisma_service is None:
+            ConversationService._prisma_service = PrismaService()
+    
+    @property
+    def prisma_service(self) -> PrismaService:
+        """Get the shared Prisma service"""
+        if ConversationService._prisma_service is None:
+            ConversationService._prisma_service = PrismaService()
+        return ConversationService._prisma_service
     
     async def create_conversation(self, user_id: str, initial_message: Optional[str] = None, 
                                   file_ids: Optional[List[str]] = None) -> str:

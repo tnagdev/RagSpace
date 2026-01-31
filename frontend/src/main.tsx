@@ -6,7 +6,13 @@ import reportWebVitals from './reportWebVitals.ts'
 import RootRouter from './routes/index.tsx'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            refetchOnWindowFocus: false,
+        },
+    },
+});
 
 const rootElement = document.getElementById('app')
 if (rootElement && !rootElement.innerHTML) {

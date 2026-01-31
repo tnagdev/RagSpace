@@ -8,6 +8,7 @@ from src.services.prisma_service import PrismaService
 from src.services.s3_service import S3Service
 from src.middleware.InterServiceMiddleware import InterServiceMiddleware
 from src.routes.scenes import router as scenes_router
+from src.utils.background_tasks import background_task_manager
 import src.rabbitmq.handlers
 from src.models.enums import EventType
 
@@ -54,11 +55,18 @@ async def lifespan(app: FastAPI):
         
     finally:
         logger.info("Shutting down Scene Detector Service...")
+        
+        # Stop accepting new messages
         try:
             await rabbitmq_consumer.stop()
             logger.info("✓ RabbitMQ consumer stopped")
         except Exception as e:
             logger.error(f"Error stopping consumer: {e}")
+        
+        # Wait for active background tasks to complete (with timeout)
+        if background_task_manager.active_count > 0:
+            logger.info(f"Waiting for {background_task_manager.active_count} background tasks to complete...")
+            await background_task_manager.wait_for_all(timeout=30.0)
         
         try:
             if rabbitmq_producer:
