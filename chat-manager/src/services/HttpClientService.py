@@ -1,7 +1,7 @@
 """HTTP client for making requests to other microservices."""
 import httpx
 import logging
-import json
+from json import dumps as json_dumps
 from typing import Dict, Any, Optional
 from src.config import settings
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class HttpClient:
     """HTTP client for inter-service communication."""
     
-    def __init__(self, user: Dict[str, Any], session: Dict[str, Any]):
+    def __init__(self, user, session):
         self.timeout = httpx.Timeout(30.0, connect=10.0)
         self.file_embedder_url = settings.file_embedder_url
         self.upload_manager_url = settings.upload_manager_url
@@ -44,8 +44,14 @@ class HttpClient:
             logger.info(f"Sending {method} request to: {url}")
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 request_headers = headers or {}
-                request_headers['x-user'] = json.dumps(self.user)
-                request_headers['x-session'] = json.dumps(self.session)
+                if self.user:
+                    user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
+                    request_headers['x-user'] = json_dumps(user_data) if isinstance(user_data, dict) else str(user_data)
+                
+                if self.session:
+                    session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
+                    request_headers['x-session'] = json_dumps(session_data) if isinstance(session_data, dict) else str(session_data)
+                
                 request_headers['x-service'] = 'chat-manager'
                 
                 response = await client.request(
