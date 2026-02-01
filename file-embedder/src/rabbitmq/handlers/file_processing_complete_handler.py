@@ -47,7 +47,12 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         logger.info(f"[Background] Processing {len(scenes)} scene thumbnails for file: {file_id}")
 
         if not scenes:
-            logger.warning(f"[Background] No scenes found for file: {file_id}")
+            logger.warning(f"[Background] No scenes found for file: {file_id}, marking as COMPLETED")
+            await upload_manager.update_file_status(
+                file_id=file_id,
+                processing_status=ProcessingStatus.COMPLETED.value,
+                processing_stage=ProcessingStage.COMPLETED.value,
+            )
             return
 
         dir_path = os.path.join(settings.temp_dir, file_id, 'scene')

@@ -182,9 +182,10 @@ class SceneProcessor:
                 return await self.upload_manager_client.update_file_status(
                     file_id,
                     UpdateFileStatusParams(
-                        processingStatus='COMPLETED',
-                        processingStage='COMPLETED',
-                        processingCompletedAt=datetime.utcnow()
+                        processingStatus=ProcessingStatus.COMPLETED.value,
+                        processingStage=ProcessingStage.INDEXING.value,
+                        processingCompletedAt=datetime.utcnow(),
+                        metadata={'scenes_detected': 0}
                     )
                 )
             
