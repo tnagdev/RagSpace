@@ -45,9 +45,9 @@ class ProcessingStatus(str, Enum):
 class ProcessingStage(str, Enum):
     """Processing stages."""
     UPLOAD = "UPLOAD"
-    SCENE_DETECTION = "SCENE_DETECTION"
-    THUMBNAIL_GENERATION = "THUMBNAIL_GENERATION"
     EMBEDDING = "EMBEDDING"
+    SCENE_DETECTION = "SCENE_DETECTION"
+    INDEXING = "INDEXING"
     COMPLETED = "COMPLETED"
 
 

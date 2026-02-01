@@ -10,7 +10,7 @@ from src.utils.background_tasks import background_task_manager
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
 from src.models.events import UploadCompletedEventModel, EventFileMetadata
-from src.models.enums import FileType
+from src.models.enums import FileType, ProcessingStatus, ProcessingStage
 from src.services.S3ClientService import S3ClientService
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
@@ -190,6 +190,12 @@ async def process_image(event: UploadCompletedEventModel):
             logger.info(f"Successfully embedded text from image for file: {file_id}")
         else:
             logger.warning(f"No text embedding generated for file: {file_id}")
+        
+        await upload_manager.update_file_status(
+            file_id=file_id,
+            processing_status=ProcessingStatus.COMPLETED.value,
+            processing_stage=ProcessingStage.COMPLETED.value,
+        )
     
     except Exception as e:
         logger.error(f"Error processing image file {event.fileId}: {e}", exc_info=True)
@@ -260,6 +266,13 @@ async def process_audio(event: UploadCompletedEventModel):
             logger.info(f"Successfully embedded audio for file: {file_id}, {len(audio_items)} segments")
         else:
             logger.warning(f"No audio segments to embed for file: {file_id}")
+        
+        upload_manager = UploadManagerService(event.user, event.session)
+        await upload_manager.update_file_status(
+            file_id=file_id,
+            processing_status=ProcessingStatus.COMPLETED.value,
+            processing_stage=ProcessingStage.COMPLETED.value,
+        )
     except Exception as e:
         logger.error(f"Error processing audio file {event.fileId}: {e}", exc_info=True)
     finally:

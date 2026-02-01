@@ -35,6 +35,16 @@ class SceneProcessor:
             user = event_data.user
             user_id = user.id if user else None
 
+            file_record = await self.upload_manager_client.get_file(file_id)
+            if not file_record:
+                raise Exception(f"File not found: {file_id}")
+            
+            file_type = file_record.get('fileType', '').upper()
+            
+            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
+                logger.info(f"Skipping scene detection for non-video file type: {file_type}")
+                return
+
             await self.upload_manager_client.update_file_status(
                 file_id,
                 UpdateFileStatusParams(
@@ -56,11 +66,6 @@ class SceneProcessor:
                     }
                 }
             )
-
-            
-            file_record = await self.upload_manager_client.get_file(file_id)
-            if not file_record:
-                raise Exception(f"File not found: {file_id}")
             
             work_dir = tempfile.mkdtemp(dir=self.temp_dir)
             logger.info(f"Created work directory: {work_dir}")
@@ -170,17 +175,6 @@ class SceneProcessor:
                 logger.error(f"Failed to generate file thumbnail: {thumb_error}", exc_info=True)
                 # Continue processing even if thumbnail fails
 
-            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
-                logger.info(f"Skipping scene detection for non-video file: {file_type}")
-                return await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        processingStatus=ProcessingStatus.COMPLETED.value,
-                        processingStage=ProcessingStage.COMPLETED.value,
-                        processingCompletedAt=datetime.utcnow()
-                    )
-                )
-
             scenes_data = await self.scene_detection_service.detect_scenes(file_path)
             
             if not scenes_data:
@@ -277,9 +271,8 @@ class SceneProcessor:
             await self.upload_manager_client.update_file_status(
                 file_id,
                 UpdateFileStatusParams(
-                    processingStatus=ProcessingStatus.COMPLETED.value,
-                    processingStage=ProcessingStage.COMPLETED.value,
-                    processingCompletedAt=datetime.utcnow(),
+                    processingStatus=ProcessingStatus.IN_PROGRESS.value,
+                    processingStage=ProcessingStage.INDEXING.value,
                     metadata={
                         'scenes_detected': len(scenes_to_create),
                         'scenes_total': len(scenes_data)

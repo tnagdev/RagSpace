@@ -5,7 +5,7 @@ import tempfile
 import shutil
 import asyncio
 from typing import Dict, Any
-from src.models.enums import FileType
+from src.models.enums import FileType, ProcessingStatus, ProcessingStage
 from src.models.events import ProcessingCompletedEventModel
 from src.config import settings
 from src.utils.background_tasks import background_task_manager
@@ -177,20 +177,11 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         if not visual_items and not text_items:
             logger.warning(f"[Background] No embeddings to store for file: {file_id}")
 
-        try:
-            # Use the upload_manager HTTP client to update the file
-            url = f"{upload_manager.upload_manager_url}/upload/{file_id}"
-            await upload_manager.client.send_request(
-                "PUT",
-                url,
-                json={
-                    "processingStatus": "COMPLETED",
-                    "processingStage": "COMPLETED",
-                }
-            )
-            logger.info(f"[Background] Updated file {file_id} status to COMPLETED")
-        except Exception as e:
-            logger.error(f"[Background] Failed to update file status to COMPLETED: {e}")
+        await upload_manager.update_file_status(
+            file_id=file_id,
+            processing_status=ProcessingStatus.COMPLETED.value,
+            processing_stage=ProcessingStage.COMPLETED.value,
+        )
 
     except Exception as e:
         logger.error(f"[Background] Error processing scene detection completed event: {e}", exc_info=True)
