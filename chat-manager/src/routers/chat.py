@@ -48,7 +48,7 @@ async def generate_signed_urls_for_results(results: list[SearchResult], s3_servi
     return results
 
 
-@router.post("")
+@router.post("/")
 async def chat(body: ChatRequest, request: Request):
     """
     Process a chat message with SSE streaming response using agentic workflow.
