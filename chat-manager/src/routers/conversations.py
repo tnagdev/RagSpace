@@ -64,7 +64,7 @@ async def generate_signed_urls_for_results(search_results: List[SearchResult]) -
     return refreshed_results
 
 
-@router.get("/", response_model=List[ConversationSummary])
+@router.get("", response_model=List[ConversationSummary])
 async def list_conversations(request: Request):
     """
     List all conversations for the authenticated user.
