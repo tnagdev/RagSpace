@@ -45,13 +45,12 @@ app = FastAPI(
     title="Chat Manager Service",
     description="Conversational search interface for video content",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    redirect_slashes=False
 )
 
-# Add inter-service authentication middleware
 app.add_middleware(InterServiceMiddleware)
 
-# Include routers
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 
