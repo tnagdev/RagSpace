@@ -45,34 +45,11 @@ class HttpClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 request_headers = headers or {}
                 if self.user:
-                    try:
-                        if hasattr(self.user, 'model_dump'):
-                            user_data = self.user.model_dump()
-                        elif isinstance(self.user, dict):
-                            user_data = {
-                                "id": self.user.get("id"),
-                                "email": self.user.get("email"),
-                                "name": self.user.get("name")
-                            }
-                        else:
-                            user_data = str(self.user)
-                        request_headers['x-user'] = json_dumps(user_data)
-                    except (TypeError, ValueError) as e:
-                        logger.warning(f"Could not serialize user data: {e}")
-                        request_headers['x-user'] = json_dumps({"id": str(getattr(self.user, 'id', ''))})
+                    # User and session are always clean dicts from chat.py
+                    request_headers['x-user'] = json_dumps(self.user)
                 
                 if self.session:
-                    try:
-                        if hasattr(self.session, 'model_dump'):
-                            session_data = self.session.model_dump()
-                        elif isinstance(self.session, dict):
-                            session_data = {"userId": self.session.get("userId")}
-                        else:
-                            session_data = str(self.session)
-                        request_headers['x-session'] = json_dumps(session_data)
-                    except (TypeError, ValueError) as e:
-                        logger.warning(f"Could not serialize session data: {e}")
-                        request_headers['x-session'] = json_dumps({"userId": ""})
+                    request_headers['x-session'] = json_dumps(self.session)
                 
                 request_headers['x-service'] = 'chat-manager'
                 
