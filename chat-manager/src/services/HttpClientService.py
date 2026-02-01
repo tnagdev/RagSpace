@@ -45,12 +45,34 @@ class HttpClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 request_headers = headers or {}
                 if self.user:
-                    user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
-                    request_headers['x-user'] = json_dumps(user_data) if isinstance(user_data, dict) else str(user_data)
+                    try:
+                        if hasattr(self.user, 'model_dump'):
+                            user_data = self.user.model_dump()
+                        elif isinstance(self.user, dict):
+                            user_data = {
+                                "id": self.user.get("id"),
+                                "email": self.user.get("email"),
+                                "name": self.user.get("name")
+                            }
+                        else:
+                            user_data = str(self.user)
+                        request_headers['x-user'] = json_dumps(user_data)
+                    except (TypeError, ValueError) as e:
+                        logger.warning(f"Could not serialize user data: {e}")
+                        request_headers['x-user'] = json_dumps({"id": str(getattr(self.user, 'id', ''))})
                 
                 if self.session:
-                    session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
-                    request_headers['x-session'] = json_dumps(session_data) if isinstance(session_data, dict) else str(session_data)
+                    try:
+                        if hasattr(self.session, 'model_dump'):
+                            session_data = self.session.model_dump()
+                        elif isinstance(self.session, dict):
+                            session_data = {"userId": self.session.get("userId")}
+                        else:
+                            session_data = str(self.session)
+                        request_headers['x-session'] = json_dumps(session_data)
+                    except (TypeError, ValueError) as e:
+                        logger.warning(f"Could not serialize session data: {e}")
+                        request_headers['x-session'] = json_dumps({"userId": ""})
                 
                 request_headers['x-service'] = 'chat-manager'
                 
