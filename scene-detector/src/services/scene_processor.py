@@ -40,10 +40,6 @@ class SceneProcessor:
                 raise Exception(f"File not found: {file_id}")
             
             file_type = file_record.get('fileType', '').upper()
-            
-            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
-                logger.info(f"Skipping scene detection for non-video file type: {file_type}")
-                return
 
             await self.upload_manager_client.update_file_status(
                 file_id,
@@ -173,8 +169,11 @@ class SceneProcessor:
                 
             except Exception as thumb_error:
                 logger.error(f"Failed to generate file thumbnail: {thumb_error}", exc_info=True)
-                # Continue processing even if thumbnail fails
 
+            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
+                logger.info(f"Skipping scene detection for non-video file type: {file_type}")
+                return
+            
             scenes_data = await self.scene_detection_service.detect_scenes(file_path)
             
             if not scenes_data:
