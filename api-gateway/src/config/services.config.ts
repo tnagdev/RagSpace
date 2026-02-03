@@ -18,7 +18,7 @@ export const SERVICES: Record<string, ServiceConfig> = {
         name: 'upload-manager',
         transport: 'http',
         url: process.env.UPLOAD_MANAGER_URL,
-        routes: ['/api/upload', '/api/upload/*'],
+        routes: ['/api/upload', '/api/upload/*', '/api/collections', '/api/collections/*'],
     },
     SCENE_DETECTOR: {
         name: 'scene-detector',

@@ -1,13 +1,14 @@
 import { type FC, useState } from 'react';
-import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube } from 'lucide-react';
+import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube, FolderPlus, FolderMinus } from 'lucide-react';
 import moment from 'moment';
 import type { FileResponseDto, FileType } from '@/types/upload.types';
-import Button from '@/components/Button';
-import { cn } from '@/lib/utils';
 
 interface FileCardProps {
     file: FileResponseDto;
     onDelete?: (id: string) => void;
+    onAddToCollection?: (fileId: string) => void;
+    onRemoveFromCollection?: (fileId: string) => void;
+    showRemoveFromCollection?: boolean;
 }
 
 const fileTypeConfig: Record<FileType, {
@@ -66,7 +67,7 @@ const formatDuration = (seconds: number): string => {
     return `${minutes}:${String(secs).padStart(2, '0')}`;
 };
 
-export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
+export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection, onRemoveFromCollection, showRemoveFromCollection }) => {
     const [showMenu, setShowMenu] = useState(false);
     const config = fileTypeConfig[file.fileType];
     const Icon = config.icon;
@@ -129,6 +130,30 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
                                         <Download className="w-4 h-4" />
                                         Download
                                     </button>
+                                    {onAddToCollection && (
+                                        <button
+                                            onClick={() => {
+                                                onAddToCollection(file.id);
+                                                setShowMenu(false);
+                                            }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                                        >
+                                            <FolderPlus className="w-4 h-4" />
+                                            Add to Collection
+                                        </button>
+                                    )}
+                                    {showRemoveFromCollection && onRemoveFromCollection && (
+                                        <button
+                                            onClick={() => {
+                                                onRemoveFromCollection(file.id);
+                                                setShowMenu(false);
+                                            }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                                        >
+                                            <FolderMinus className="w-4 h-4" />
+                                            Remove from Collection
+                                        </button>
+                                    )}
                                     {onDelete && (
                                         <button
                                             onClick={() => {

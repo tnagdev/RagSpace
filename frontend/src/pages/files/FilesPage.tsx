@@ -10,6 +10,7 @@ import Pagination from '@/components/Pagination';
 import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage } from '@/types/upload.types';
+import { CollectionSidePanel } from '@/components/CollectionSidePanel';
 
 interface UploadProgress {
     [fileId: string]: number;
@@ -27,6 +28,8 @@ const FilesPage = () => {
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+    const [isCollectionPanelOpen, setIsCollectionPanelOpen] = useState(false);
+    const [selectedFileForCollection, setSelectedFileForCollection] = useState<string | null>(null);
 
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
@@ -261,7 +264,6 @@ const FilesPage = () => {
                     </Button>
                 </div>
 
-                {/* Upload Zone or YouTube Input */}
                 {uploadMode === 'file' ? (
                     <FileUploadZone onFilesSelected={handleFilesSelected} />
                 ) : (
@@ -361,6 +363,10 @@ const FilesPage = () => {
                                     key={file.id}
                                     file={file}
                                     onDelete={handleDeleteFile}
+                                    onAddToCollection={(fileId) => {
+                                        setSelectedFileForCollection(fileId);
+                                        setIsCollectionPanelOpen(true);
+                                    }}
                                 />
                             ))}
                         </div>
@@ -389,6 +395,18 @@ const FilesPage = () => {
                     />
                 )}
             </div>
+
+            {/* Collection Side Panel */}
+            {selectedFileForCollection && (
+                <CollectionSidePanel
+                    isOpen={isCollectionPanelOpen}
+                    onClose={() => {
+                        setIsCollectionPanelOpen(false);
+                        setSelectedFileForCollection(null);
+                    }}
+                    fileIds={[selectedFileForCollection]}
+                />
+            )}
         </div>
     );
 };

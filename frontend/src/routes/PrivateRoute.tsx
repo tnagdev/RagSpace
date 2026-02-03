@@ -2,10 +2,11 @@ import { createRoute, Navigate, Outlet, redirect, useLocation } from "@tanstack/
 import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
-import { Folder, Search, MessageSquare } from 'lucide-react';
+import { Folder, Search, MessageSquare, FolderTree } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
 import SearchPage from "@/pages/search/SearchPage";
 import ChatPage from "@/pages/chat/ChatPage";
+import CollectionsPage from "@/pages/collections/CollectionsPage";
 
 
 export interface NavRoute {
@@ -32,6 +33,20 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Files',
                 path: '/',
                 component: () => <FilesPage />,
+            }
+        ],
+    },
+    {
+        name: 'Collections',
+        path: '/collections',
+        component: () => <CollectionsPage />,
+        icon: FolderTree,
+        nav: true,
+        children: [
+            {
+                name: 'Collection Details',
+                path: '$id',
+                component: () => <></>,
             }
         ],
     },

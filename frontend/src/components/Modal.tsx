@@ -29,9 +29,9 @@ export interface ModalProps {
 
 const sizeClasses = {
     sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
+    md: 'max-w-xl',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
     full: 'max-w-full mx-4',
 };
 
@@ -111,13 +111,13 @@ export const Modal: React.FC<ModalProps> = ({
             onClick={handleOverlayClick}
         >
             {/* Backdrop */}
-            {backdropEnabled && <div className="absolute inset-0 bg-black/50 transition-opacity" />}
+            {backdropEnabled && <div className="absolute inset-0 bg-black/60 transition-opacity" />}
 
             {/* Modal */}
             <div
                 ref={modalRef}
                 className={twMerge(
-                    'relative bg-white rounded-lg shadow-xl w-full transform transition-all',
+                    'relative bg-bg-primary rounded-2xl shadow-xl w-full transform transition-all',
                     sizeClasses[size],
                     className
                 )}
@@ -125,29 +125,29 @@ export const Modal: React.FC<ModalProps> = ({
             >
                 {/* Header */}
                 {(showHeader && (title || showCloseButton)) && (
-                    <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                        {title && <h2 className="text-xl font-semibold text-gray-900">{title}</h2>}
+                    <div className="flex items-center justify-between px-6 pt-6 pb-4">
+                        {title && <h2 className="text-xl font-semibold text-text-primary">{title}</h2>}
                         {showCloseButton && (
                             <button
                                 onClick={onClose}
-                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                                className="text-text-muted hover:text-text-primary transition-colors"
                                 aria-label="Close modal"
                             >
-                                <X size={24} />
+                                <X size={20} />
                             </button>
                         )}
                     </div>
                 )}
 
                 {/* Content */}
-                <div className={twMerge('p-6', contentClassName)}>
+                <div className={twMerge('px-6 pb-6', contentClassName)}>
                     {children}
                 </div>
 
                 {/* Footer */}
                 {showFooter && (
                     <div className={twMerge(
-                        'flex items-center justify-end gap-3 p-6 border-t border-gray-200',
+                        'flex items-center justify-end gap-3 px-6 pb-6',
                         footerClassName
                     )}>
                         <button

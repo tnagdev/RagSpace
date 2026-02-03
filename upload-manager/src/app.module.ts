@@ -7,6 +7,7 @@ import { UploadModule } from './upload/upload.module';
 import { MetadataModule } from './metadata/metadata.module';
 import { S3Module } from './s3/s3.module';
 import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
+import { CollectionModule } from './collection/collection.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -21,6 +22,7 @@ import configuration from './config/configuration';
     MetadataModule,
     S3Module,
     RabbitmqModule,
+    CollectionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
