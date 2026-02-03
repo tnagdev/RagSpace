@@ -101,8 +101,11 @@ const CollectionsPage = () => {
         if (collectionToDelete?.id === selectedCollectionId) {
             setSelectedCollectionId(undefined);
             navigate({ to: '/collections' });
+        } else if (selectedCollectionId) {
+            // If we deleted a subcollection while viewing parent, refresh the parent view
+            refetchSelected();
         }
-    }, [refetch, collectionToDelete, selectedCollectionId, navigate]);
+    }, [refetch, refetchSelected, collectionToDelete, selectedCollectionId, navigate]);
 
     const handleAddFilesToCollection = useCallback(
         (files: FileResponseDto[]) => {
@@ -325,6 +328,17 @@ const CollectionsPage = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        icon={<FolderPlus className="w-4 h-4" />}
+                                        onClick={() => {
+                                            setParentIdForNewCollection(selectedCollectionId);
+                                            setIsCreateCollectionOpen(true);
+                                        }}
+                                    >
+                                        Add Subcollection
+                                    </Button>
                                     <Button
                                         variant="primary"
                                         size="sm"
@@ -567,6 +581,24 @@ const CollectionsPage = () => {
                 onClose={() => {
                     setIsCreateCollectionOpen(false);
                     setParentIdForNewCollection(undefined);
+                    // Refresh data after creating collection
+                    refetch();
+                    if (selectedCollectionId) {
+                        refetchSelected();
+                    }
+                    // Clear loaded children cache to force refresh
+                    if (parentIdForNewCollection) {
+                        setLoadedChildren(prev => {
+                            const newMap = new Map(prev);
+                            newMap.delete(parentIdForNewCollection);
+                            return newMap;
+                        });
+                        setLoadedNodes(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(parentIdForNewCollection);
+                            return newSet;
+                        });
+                    }
                 }}
                 parentId={parentIdForNewCollection}
             />
