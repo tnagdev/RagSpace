@@ -4,9 +4,11 @@ import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
 import { Folder, Search, MessageSquare, FolderTree } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
+import FileChatPage from "@/pages/files/FileChatPage";
 import SearchPage from "@/pages/search/SearchPage";
 import ChatPage from "@/pages/chat/ChatPage";
 import CollectionsPage from "@/pages/collections/CollectionsPage";
+import CollectionChatPage from "@/pages/collections/CollectionChatPage";
 
 
 export interface NavRoute {
@@ -33,6 +35,11 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Files',
                 path: '/',
                 component: () => <FilesPage />,
+            },
+            {
+                name: 'File Chat',
+                path: '$id/chat',
+                component: () => <FileChatPage />,
             }
         ],
     },
@@ -47,6 +54,11 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Collection Details',
                 path: '$id',
                 component: () => <></>,
+            },
+            {
+                name: 'Collection Chat',
+                path: '$id/chat',
+                component: () => <CollectionChatPage />,
             }
         ],
     },

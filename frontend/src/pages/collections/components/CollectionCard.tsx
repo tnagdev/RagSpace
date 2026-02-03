@@ -1,5 +1,6 @@
 import { type FC, useState } from 'react';
-import { Folder, MoreVertical, Pencil, Trash2, FolderPlus, Clock, File } from 'lucide-react';
+import { Folder, MoreVertical, Pencil, Trash2, FolderPlus, Clock, File, MessageSquare } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import moment from 'moment';
 import type { Collection } from '@/types/collection.types';
 
@@ -19,6 +20,7 @@ export const CollectionCard: FC<CollectionCardProps> = ({
     onAddSubcollection
 }) => {
     const [showMenu, setShowMenu] = useState(false);
+    const navigate = useNavigate();
 
     const fileCount = collection._count?.fileCollections || 0;
     const folderCount = collection._count?.children || 0;
@@ -65,6 +67,17 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                                     onClick={() => setShowMenu(false)}
                                 />
                                 <div className="absolute right-0 top-full mt-2 w-44 bg-bg-secondary border border-sidebar-border rounded-xl shadow-2xl z-20 overflow-hidden backdrop-blur-xl">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate({ to: `/collections/${collection.id}/chat` });
+                                            setShowMenu(false);
+                                        }}
+                                        className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                                    >
+                                        <MessageSquare className="w-4 h-4" />
+                                        Chat
+                                    </button>
                                     {onAddSubcollection && (
                                         <button
                                             onClick={(e) => {

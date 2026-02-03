@@ -375,6 +375,63 @@ export class UploadService {
         return { message: 'File deleted successfully' };
     }
 
+    async deleteFiles(ids: string[], user: AuthUser) {
+        const files = await this.prisma.file.findMany({
+            where: {
+                id: { in: ids },
+                userId: user.id,
+            },
+        });
+
+        if (files.length === 0) {
+            return { message: 'No files found', deletedCount: 0 };
+        }
+
+        try {
+            await this.rabbitmqService.publishEvent({
+                type: FileEventType.FILE_DELETED,
+                fileIds: files.map(f => f.id),
+                user: user,
+                timestamp: new Date(),
+                data: {
+                    fileType: files[0].fileType,
+                    fileName: `${files.length} files`,
+                },
+            });
+            this.logger.log(`Published batch file deletion event for ${files.length} files`);
+        } catch (error) {
+            this.logger.error(`Failed to publish batch file deletion event: ${error.message}`);
+        }
+
+        // Delete from S3
+        for (const file of files) {
+            if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                try {
+                    await this.s3Service.deleteFile(file.s3Key);
+                    this.logger.log(`Deleted S3 file: ${file.s3Key}`);
+                } catch (error) {
+                    this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
+                }
+            }
+
+            if ((file as any).thumbnailPath) {
+                try {
+                    await this.s3Service.deleteFile((file as any).thumbnailPath);
+                    this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
+                } catch (error) {
+                    this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
+                }
+            }
+        }
+
+        const deleteResult = await this.prisma.file.deleteMany({
+            where: { id: { in: ids } },
+        });
+
+        this.logger.log(`Batch deleted ${deleteResult.count} files from database`);
+        return { message: `${deleteResult.count} files deleted successfully`, deletedCount: deleteResult.count };
+    }
+
     private getFileTypeFromMimeType(mimeType: string): FileType {
         if (mimeType.startsWith('image/')) return FileType.IMAGE;
         if (mimeType.startsWith('video/')) return FileType.VIDEO;
@@ -618,7 +675,7 @@ export class UploadService {
                 session: session,
                 timestamp: new Date(),
                 data: {
-                    fileName: filename,
+                    fileName: fileRecord.originalFilename,
                     fileSize: 0,
                     mimeType: 'video/mp4',
                     fileType: FileType.YOUTUBE_VIDEO,

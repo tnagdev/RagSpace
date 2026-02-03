@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { IconButton } from '@/components/IconButton';
 import { Send, Paperclip, Loader2 } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
-    onAttachFiles: () => void;
+    onAttachFiles: (buttonRef: HTMLElement) => void;
     isLoading?: boolean;
     disabled?: boolean;
+    hideAttachment?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -14,8 +15,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
     onAttachFiles,
     isLoading = false,
     disabled = false,
+    hideAttachment = false,
 }) => {
     const [message, setMessage] = useState('');
+    const attachButtonRef = useRef<HTMLButtonElement>(null);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -41,14 +44,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
     return (
         <form onSubmit={handleSubmit} className="flex items-center gap-3">
-            <IconButton
-                variant="ghost"
-                size="md"
-                onClick={onAttachFiles}
-                disabled={disabled}
-                icon={<Paperclip size={20} />}
-                className=""
-            />
+            {!hideAttachment && (
+                <IconButton
+                    ref={attachButtonRef}
+                    variant="ghost"
+                    size="md"
+                    onClick={() => {
+                        if (attachButtonRef.current) {
+                            onAttachFiles(attachButtonRef.current);
+                        }
+                    }}
+                    disabled={disabled}
+                    icon={<Paperclip size={20} />}
+                    className=""
+                />
+            )}
 
             <div className="flex-1 overflow-hidden w-full px-4 py-2 pr-3 bg-bg-tertiary border-2 rounded-xl 
                              text-white placeholder-text-secondary resize-none overflow-y-auto custom-scrollbar

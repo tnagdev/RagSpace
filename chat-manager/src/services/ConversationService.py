@@ -34,7 +34,8 @@ class ConversationService:
         return ConversationService._prisma_service
     
     async def create_conversation(self, user_id: str, initial_message: Optional[str] = None, 
-                                  file_ids: Optional[List[str]] = None) -> str:
+                                  file_ids: Optional[List[str]] = None, file_id: Optional[str] = None,
+                                  collection_id: Optional[str] = None) -> str:
         """Create a new conversation"""
         await self.prisma_service.ensure_connected()
         
@@ -42,13 +43,19 @@ class ConversationService:
         title = self._generate_title(initial_message) if initial_message else "New Conversation"
         
         # Create conversation in database
-        await self.prisma_service.prisma.conversation.create(
-            data={
-                "id": conversation_id,
-                "userId": user_id,
-                "title": title
-            }
-        )
+        conversation_data = {
+            "id": conversation_id,
+            "userId": user_id,
+            "title": title
+        }
+        
+        # Add fileId or collectionId if provided
+        if file_id:
+            conversation_data["fileId"] = file_id
+        if collection_id:
+            conversation_data["collectionId"] = collection_id
+        
+        await self.prisma_service.prisma.conversation.create(data=conversation_data)
         
         # Add initial message if provided
         if initial_message:
@@ -108,7 +115,9 @@ class ConversationService:
             created_at=conversation.createdAt,
             updated_at=conversation.updatedAt,
             title=conversation.title,
-            summary=conversation.summary  # Include summary for infinite chat
+            summary=conversation.summary,
+            file_id=conversation.fileId,
+            collection_id=conversation.collectionId
         )
     
     async def update_summary(self, conversation_id: str, summary: str, user_id: str) -> bool:
@@ -186,12 +195,20 @@ class ConversationService:
         context_size = settings.context_window_size * 2  # user + assistant pairs
         return conversation.messages[-context_size:]
     
-    async def list_user_conversations(self, user_id: str) -> List[ConversationSummary]:
-        """List all conversations for a user"""
+    async def list_user_conversations(self, user_id: str, file_id: Optional[str] = None, 
+                                     collection_id: Optional[str] = None) -> List[ConversationSummary]:
+        """List all conversations for a user, optionally filtered by file_id or collection_id"""
         await self.prisma_service.ensure_connected()
         
+        # Build where clause
+        where_clause = {"userId": user_id}
+        if file_id:
+            where_clause["fileId"] = file_id
+        if collection_id:
+            where_clause["collectionId"] = collection_id
+        
         conversations = await self.prisma_service.prisma.conversation.find_many(
-            where={"userId": user_id},
+            where=where_clause,
             include={"messages": True},
             order={"updatedAt": "desc"}
         )
@@ -208,7 +225,9 @@ class ConversationService:
                 last_message=last_message[:100],
                 message_count=len(conv.messages),
                 created_at=conv.createdAt,
-                updated_at=conv.updatedAt
+                updated_at=conv.updatedAt,
+                file_id=conv.fileId,
+                collection_id=conv.collectionId
             ))
         
         return summaries
@@ -232,6 +251,58 @@ class ConversationService:
         
         logger.info(f"Deleted conversation {conversation_id}")
         return True
+    
+    async def delete_conversations_by_file_id(self, file_id: str, user_id: str) -> int:
+        """Delete all conversations for a specific file"""
+        await self.prisma_service.ensure_connected()
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "fileId": file_id,
+                "userId": user_id
+            }
+        )
+        logger.info(f"Deleted {result} conversations for file {file_id}")
+        return result
+    
+    async def delete_conversations_by_collection_id(self, collection_id: str, user_id: str) -> int:
+        """Delete all conversations for a specific collection"""
+        await self.prisma_service.ensure_connected()
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "collectionId": collection_id,
+                "userId": user_id
+            }
+        )
+        logger.info(f"Deleted {result} conversations for collection {collection_id}")
+        return result
+    
+    async def delete_conversations_by_file_ids(self, file_ids: list[str], user_id: str) -> int:
+        """Delete all conversations for multiple files in batch"""
+        await self.prisma_service.ensure_connected()
+        
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "fileId": {"in": file_ids},
+                "userId": user_id
+            }
+        )
+        
+        logger.info(f"Deleted {result} conversations for {len(file_ids)} files")
+        return result
+    
+    async def delete_conversations_by_collection_ids(self, collection_ids: list[str], user_id: str) -> int:
+        """Delete all conversations for multiple collections in batch"""
+        await self.prisma_service.ensure_connected()
+        
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "collectionId": {"in": collection_ids},
+                "userId": user_id
+            }
+        )
+        
+        logger.info(f"Deleted {result} conversations for {len(collection_ids)} collections")
+        return result
     
     def _generate_title(self, message: str) -> str:
         """Generate a title from the first message"""

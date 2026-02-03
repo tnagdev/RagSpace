@@ -1,28 +1,48 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { FileResponseDto, FileType } from '@/types/upload.types';
 import { QueryResult } from '@/types/search.types';
+import { Collection, CollectionAttachment } from '@/types/collection.types';
 import { useSearch } from '@/hooks/useSearch';
+import { collectionAPI } from '@/api/collection';
 import SearchInput from './components/SearchInput';
-import FileAttachments from './components/FileAttachments';
+import Attachments from '@/components/Attachments';
+import Popover from '@/components/Popover';
 import SearchResults from './components/SearchResults';
 import VideoPreview from './components/VideoPreview';
 import ImagePreview from './components/ImagePreview';
 import YouTubePlayer from './components/YouTubePlayer';
 import FilePickerModal from './components/FilePickerModal';
-import { AlertCircle, Search, Film } from 'lucide-react';
+import CollectionPickerModal from './components/CollectionPickerModal';
+import { AlertCircle, Search, Film, Folder, FilePlus } from 'lucide-react';
 
 const SearchPage: React.FC = () => {
     const [attachedFiles, setAttachedFiles] = useState<FileResponseDto[]>([]);
+    const [attachedCollections, setAttachedCollections] = useState<CollectionAttachment[]>([]);
     const [selectedResult, setSelectedResult] = useState<QueryResult | undefined>();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
+    const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+    const [attachmentButtonRef, setAttachmentButtonRef] = useState<HTMLElement | null>(null);
 
     const searchMutation = useSearch();
 
-    const handleSearch = (query: string) => {
-        const fileIds = attachedFiles.map(f => f.id);
+    const handleSearch = async (query: string) => {
+        // Resolve collection file IDs
+        let collectionFileIds: string[] = [];
+        try {
+            const fileIdPromises = attachedCollections.map(c => collectionAPI.getCollectionFiles(c.id));
+            const fileIdArrays = await Promise.all(fileIdPromises);
+            collectionFileIds = [...new Set(fileIdArrays.flat())]; // Deduplicate
+        } catch (err) {
+            console.error('Failed to resolve collection files:', err);
+        }
+
+        // Combine file IDs from direct attachments and collections
+        const allFileIds = [...new Set([...attachedFiles.map(f => f.id), ...collectionFileIds])];
+
         searchMutation.mutate({
             query,
-            file_ids: fileIds.length > 0 ? fileIds : undefined,
+            file_ids: allFileIds.length > 0 ? allFileIds : undefined,
         });
     };
 
@@ -30,8 +50,22 @@ const SearchPage: React.FC = () => {
         setAttachedFiles(files => files.filter(f => f.id !== fileId));
     };
 
+    const handleRemoveCollection = (collectionId: string) => {
+        setAttachedCollections(collections => collections.filter(c => c.id !== collectionId));
+    };
+
     const handleSelectFiles = (files: FileResponseDto[]) => {
         setAttachedFiles(files);
+    };
+
+    const handleSelectCollections = (collections: Collection[]) => {
+        const collectionAttachments: CollectionAttachment[] = collections.map(c => ({
+            id: c.id,
+            name: c.name,
+            color: c.color,
+            fileCount: c._count?.fileCollections || 0,
+        }));
+        setAttachedCollections(collectionAttachments);
     };
 
     const handleSceneClick = (result: QueryResult) => {
@@ -64,16 +98,21 @@ const SearchPage: React.FC = () => {
                         <div className="z-10 pb-4">
                             <SearchInput
                                 onSearch={handleSearch}
-                                onAttachFiles={() => setIsFilePickerOpen(true)}
+                                onAttachFiles={(ref) => {
+                                    setAttachmentButtonRef(ref);
+                                    setShowAttachmentMenu(!showAttachmentMenu);
+                                }}
                                 isLoading={searchMutation.isPending}
                             />
 
-                            {/* File Attachments */}
-                            {attachedFiles.length > 0 && (
+                            {/* Attachments */}
+                            {(attachedFiles.length > 0 || attachedCollections.length > 0) && (
                                 <div className="mt-4">
-                                    <FileAttachments
+                                    <Attachments
                                         files={attachedFiles}
+                                        collections={attachedCollections}
                                         onRemoveFile={handleRemoveFile}
+                                        onRemoveCollection={handleRemoveCollection}
                                     />
                                 </div>
                             )}
@@ -147,12 +186,49 @@ const SearchPage: React.FC = () => {
                 </div>
             </div>
 
+            {/* Attachment Menu Popover */}
+            <Popover
+                isOpen={showAttachmentMenu}
+                onClose={() => setShowAttachmentMenu(false)}
+                trigger={attachmentButtonRef}
+                className="w-48 py-1"
+            >
+                <button
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left text-text-secondary hover:text-text-primary hover:bg-sidebar-hover"
+                    onClick={() => {
+                        setIsFilePickerOpen(true);
+                        setShowAttachmentMenu(false);
+                    }}
+                >
+                    <FilePlus size={16} />
+                    <span>Attach Files</span>
+                </button>
+                <button
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left text-text-secondary hover:text-text-primary hover:bg-sidebar-hover"
+                    onClick={() => {
+                        setIsCollectionPickerOpen(true);
+                        setShowAttachmentMenu(false);
+                    }}
+                >
+                    <Folder size={16} />
+                    <span>Attach Collections</span>
+                </button>
+            </Popover>
+
             {/* File Picker Modal */}
             <FilePickerModal
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
                 onSelectFiles={handleSelectFiles}
                 selectedFileIds={attachedFiles.map(f => f.id)}
+            />
+
+            {/* Collection Picker Modal */}
+            <CollectionPickerModal
+                isOpen={isCollectionPickerOpen}
+                onClose={() => setIsCollectionPickerOpen(false)}
+                onSelectCollections={handleSelectCollections}
+                selectedCollectionIds={attachedCollections.map(c => c.id)}
             />
         </div>
     );

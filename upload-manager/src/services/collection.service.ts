@@ -3,9 +3,13 @@ import {
     NotFoundException,
     BadRequestException,
     ForbiddenException,
+    Inject,
+    forwardRef,
+    Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
+import { UploadService } from '../upload/upload.service';
 import {
     CreateCollectionDto,
     UpdateCollectionDto,
@@ -13,6 +17,7 @@ import {
     RemoveFilesFromCollectionDto,
 } from '../dto/collection.dto';
 import { Collection, File } from '@prisma/client';
+import { AuthUser } from 'src/common/types/auth-user.type';
 
 export interface CollectionWithRelations extends Collection {
     children?: CollectionWithRelations[];
@@ -51,9 +56,13 @@ type RawCollectionItem =
 
 @Injectable()
 export class CollectionService {
+    private readonly logger = new Logger(CollectionService.name);
+
     constructor(
         private prisma: PrismaService,
         private s3Service: S3Service,
+        @Inject(forwardRef(() => UploadService))
+        private uploadService: UploadService,
     ) { }
 
     async create(
@@ -362,7 +371,7 @@ export class CollectionService {
     }
 
     async delete(
-        userId: string,
+        user: AuthUser,
         collectionId: string,
         deleteFiles: boolean = false,
     ): Promise<{ deletedCollections: number; deletedFiles: number }> {
@@ -374,7 +383,7 @@ export class CollectionService {
             throw new NotFoundException('Collection not found');
         }
 
-        if (collection.userId !== userId) {
+        if (collection.userId !== user.id) {
             throw new ForbiddenException('Collection does not belong to you');
         }
 
@@ -388,7 +397,7 @@ export class CollectionService {
             // Find files that belong ONLY to collections being deleted
             const filesToDelete = await this.prisma.file.findMany({
                 where: {
-                    userId,
+                    userId: user.id,
                     fileCollections: {
                         some: {
                             collectionId: { in: allCollectionIds },
@@ -405,23 +414,22 @@ export class CollectionService {
             });
 
             // Filter files that belong exclusively to these collections
-            const exclusiveFileIds = filesToDelete
-                .filter((file) => {
-                    const collectionIds = file.fileCollections.map(
-                        (fc) => fc.collectionId,
-                    );
-                    return collectionIds.every((id) => allCollectionIds.includes(id));
-                })
-                .map((file) => file.id);
+            const exclusiveFiles = filesToDelete.filter((file) => {
+                const collectionIds = file.fileCollections.map(
+                    (fc) => fc.collectionId,
+                );
+                return collectionIds.every((id) => allCollectionIds.includes(id));
+            });
 
-            if (exclusiveFileIds.length > 0) {
-                const deleteResult = await this.prisma.file.deleteMany({
-                    where: {
-                        id: { in: exclusiveFileIds },
-                        userId,
-                    },
-                });
-                deletedFilesCount = deleteResult.count;
+            if (exclusiveFiles.length > 0) {
+                const exclusiveFileIds = exclusiveFiles.map(f => f.id);
+                try {
+                    const result = await this.uploadService.deleteFiles(exclusiveFileIds, user);
+                    deletedFilesCount = result.deletedCount;
+                    this.logger.log(`Batch deleted ${deletedFilesCount} files as part of collection deletion`);
+                } catch (error) {
+                    this.logger.error(`Error batch deleting files: ${error.message}`);
+                }
             }
         }
 
@@ -515,6 +523,37 @@ export class CollectionService {
         });
 
         return this.findOne(userId, collectionId);
+    }
+
+    async getCollectionFiles(userId: string, collectionId: string): Promise<string[]> {
+        // Verify collection exists and belongs to user
+        const collection = await this.prisma.collection.findUnique({
+            where: { id: collectionId },
+        });
+
+        if (!collection) {
+            throw new NotFoundException('Collection not found');
+        }
+
+        if (collection.userId !== userId) {
+            throw new ForbiddenException('Collection does not belong to you');
+        }
+
+        // Get all descendant collection IDs (including the collection itself)
+        const allCollectionIds = [collectionId, ...(await this.getAllDescendantIds(collectionId))];
+
+        // Get all unique file IDs from all these collections
+        const fileCollections = await this.prisma.fileCollection.findMany({
+            where: {
+                collectionId: { in: allCollectionIds },
+            },
+            select: {
+                fileId: true,
+            },
+            distinct: ['fileId'],
+        });
+
+        return fileCollections.map(fc => fc.fileId);
     }
 
     private async getAllDescendantIds(collectionId: string): Promise<string[]> {

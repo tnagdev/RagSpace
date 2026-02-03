@@ -3,19 +3,26 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { FileResponseDto, FileType } from '@/types/upload.types';
 import { SearchResult, ChatSSEEvent } from '@/types/chat.types';
 import { QueryResult } from '@/types/search.types';
+import { Collection, CollectionAttachment } from '@/types/collection.types';
 import { useConversations, useConversation } from '@/hooks/useChat';
 import { chatAPI } from '@/api/chat';
 import { uploadAPI } from '@/api/upload';
+import { collectionAPI } from '@/api/collection';
 import ChatInput from './components/ChatInput';
 import MessageList from './components/MessageList';
-import FileAttachments from './components/FileAttachments';
+import ConversationList from './components/ConversationList';
+import Attachments from '@/components/Attachments';
+import Popover from '@/components/Popover';
 import FilePickerModal from '../search/components/FilePickerModal';
+import CollectionPickerModal from '../search/components/CollectionPickerModal';
 import VideoPreview from '../search/components/VideoPreview';
 import ImagePreview from '../search/components/ImagePreview';
 import YouTubePlayer from '../search/components/YouTubePlayer';
+import Button from '@/components/Button';
 import { IconButton } from '@/components/IconButton';
+import { RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import Markdown from '@/components/Markdown';
-import { AlertCircle, MessageSquare, Film, X } from 'lucide-react';
+import { AlertCircle, MessageSquare, Film, X, Folder, FilePlus } from 'lucide-react';
 
 // Helper function to convert SearchResult to QueryResult for preview components
 const convertToQueryResult = (result: SearchResult): QueryResult => {
@@ -58,16 +65,24 @@ const ChatPage: React.FC = () => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const [attachedFiles, setAttachedFiles] = useState<FileResponseDto[]>([]);
+    const [attachedCollections, setAttachedCollections] = useState<CollectionAttachment[]>([]);
     const [selectedResult, setSelectedResult] = useState<SearchResult | undefined>();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
+    const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+    const [attachmentButtonRef, setAttachmentButtonRef] = useState<HTMLElement | null>(null);
     const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>>([]);
     const [streamingMessage, setStreamingMessage] = useState<string>('');
     const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
 
     const conversationsQuery = useConversations();
     const conversationQuery = useConversation(currentConversationId);
+
+    // Filter to only show global conversations (no file_id or collection_id)
+    const globalConversations = conversationsQuery.data?.filter(conv => !conv.file_id && !conv.collection_id) || [];
 
     // Auto-scroll to bottom when messages change
     useEffect(() => {
@@ -132,8 +147,22 @@ const ChatPage: React.FC = () => {
         setStreamingMessage('');
         setStreamingResults([]);
 
-        // Capture attached files before clearing
+        // Capture attached files and collections before clearing
         const currentAttachedFiles = [...attachedFiles];
+        const currentAttachedCollections = [...attachedCollections];
+
+        // Resolve collection file IDs
+        let collectionFileIds: string[] = [];
+        try {
+            const fileIdPromises = currentAttachedCollections.map(c => collectionAPI.getCollectionFiles(c.id));
+            const fileIdArrays = await Promise.all(fileIdPromises);
+            collectionFileIds = [...new Set(fileIdArrays.flat())]; // Deduplicate
+        } catch (err) {
+            console.error('Failed to resolve collection files:', err);
+        }
+
+        // Combine file IDs from direct attachments and collections
+        const allFileIds = [...new Set([...currentAttachedFiles.map(f => f.id), ...collectionFileIds])];
 
         // Add user message immediately with attached files
         const userMessage = {
@@ -145,12 +174,13 @@ const ChatPage: React.FC = () => {
 
         // Clear attachments after adding to message
         setAttachedFiles([]);
+        setAttachedCollections([]);
 
         // Prepare payload
         const payload = {
             message,
             conversation_id: currentConversationId,
-            file_ids: currentAttachedFiles.length > 0 ? currentAttachedFiles.map(f => f.id) : undefined,
+            file_ids: allFileIds.length > 0 ? allFileIds : undefined,
             max_results: 10,
             include_context: true,
         };
@@ -243,18 +273,77 @@ const ChatPage: React.FC = () => {
         setAttachedFiles(files => files.filter(f => f.id !== fileId));
     };
 
+    const handleRemoveCollection = (collectionId: string) => {
+        setAttachedCollections(collections => collections.filter(c => c.id !== collectionId));
+    };
+
     const handleSelectFiles = (files: FileResponseDto[]) => {
         setAttachedFiles(files);
     };
 
+    const handleSelectCollections = (collections: Collection[]) => {
+        const collectionAttachments: CollectionAttachment[] = collections.map(c => ({
+            id: c.id,
+            name: c.name,
+            color: c.color,
+            fileCount: c._count?.fileCollections || 0,
+        }));
+        setAttachedCollections(collectionAttachments);
+    };
+
     const handleResultClick = (result: SearchResult) => {
         setSelectedResult(result);
+        setIsLeftPanelCollapsed(true);
+    };
+
+    const handleNewChat = () => {
+        navigate({ to: '/chat', search: {}, replace: true });
+    };
+
+    const handleSelectConversation = (conversationId: string) => {
+        setIsLeftPanelCollapsed(true);
+        navigate({ to: '/chat', search: { conversation_id: conversationId } });
     };
 
     return (
-        <div className="h-full flex flex-col">
+        <div className="flex gap-6 h-full">
+            {/* Left Panel - Conversations */}
+            <div className={`flex flex-col transition-all duration-300 relative ${
+                isLeftPanelCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-64 opacity-100'
+            }`}>
+                <ConversationList
+                    conversations={globalConversations}
+                    currentConversationId={currentConversationId}
+                    onSelectConversation={handleSelectConversation}
+                    onNewChat={handleNewChat}
+                    isLoading={conversationsQuery.isLoading}
+                />
+            </div>
+            
+            {/* Collapse/Expand Toggle Button */}
+            <button
+                onClick={() => {
+                    if (isLeftPanelCollapsed) {
+                        setIsLeftPanelCollapsed(false);
+                        setSelectedResult(undefined);
+                    } else {
+                        setIsLeftPanelCollapsed(true);
+                    }
+                }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-accent-primary rounded-r-lg p-1.5 hover:bg-accent-primary/80 transition-all duration-200 shadow-lg"
+                style={{ left: isLeftPanelCollapsed ? '0' : 'calc(16rem + 1.5rem)' }}
+                title={isLeftPanelCollapsed ? 'Expand conversations' : 'Collapse conversations'}
+            >
+                {isLeftPanelCollapsed ? (
+                    <ChevronRight size={18} className="text-white" />
+                ) : (
+                    <ChevronLeft size={18} className="text-white" />
+                )}
+            </button>
+
+            {/* Right Panel - Chat */}
             <div className="flex-1 flex gap-6 min-h-0">
-                {/* Left Panel - Chat */}
+                {/* Chat Section */}
                 <div className={`flex flex-col h-full transition-all duration-300 ${selectedResult ? 'w-1/2' : 'w-full'}`}>
                     {/* Header */}
                     <div className="flex items-center justify-between mb-6 flex-shrink-0">
@@ -370,12 +459,14 @@ const ChatPage: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* File Attachments */}
-                                {attachedFiles.length > 0 && (
+                                {/* Attachments */}
+                                {(attachedFiles.length > 0 || attachedCollections.length > 0) && (
                                     <div className="mx-4 mt-4">
-                                        <FileAttachments
+                                        <Attachments
                                             files={attachedFiles}
+                                            collections={attachedCollections}
                                             onRemoveFile={handleRemoveFile}
+                                            onRemoveCollection={handleRemoveCollection}
                                         />
                                     </div>
                                 )}
@@ -384,7 +475,10 @@ const ChatPage: React.FC = () => {
                                 <div className="p-3 px-4">
                                     <ChatInput
                                         onSendMessage={handleSendMessage}
-                                        onAttachFiles={() => setIsFilePickerOpen(true)}
+                                        onAttachFiles={(ref) => {
+                                            setAttachmentButtonRef(ref);
+                                            setShowAttachmentMenu(!showAttachmentMenu);
+                                        }}
                                         isLoading={isStreaming}
                                         disabled={isStreaming}
                                     />
@@ -419,12 +513,12 @@ const ChatPage: React.FC = () => {
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             {(() => {
                                 const queryResult = convertToQueryResult(selectedResult);
-                                const isYouTubeVideo = selectedResult.file_type === FileType.YOUTUBE_VIDEO || selectedResult.file_type === 'YOUTUBE_VIDEO';
                                 const youtubeUrl = selectedResult.youtube_url;
+                                const isYouTubeVideo = !!youtubeUrl;
                                 const isVideo = queryResult.file_type === 'video' ||
                                     selectedResult.file_name?.match(/\.(mp4|webm|mov|avi)$/i);
 
-                                if (isYouTubeVideo && youtubeUrl) {
+                                if (isYouTubeVideo) {
                                     return <YouTubePlayer result={queryResult} youtubeUrl={youtubeUrl} />;
                                 } else if (isVideo) {
                                     return <VideoPreview result={queryResult} />;
@@ -437,12 +531,49 @@ const ChatPage: React.FC = () => {
                 )}
             </div>
 
+            {/* Attachment Menu Popover */}
+            <Popover
+                isOpen={showAttachmentMenu}
+                onClose={() => setShowAttachmentMenu(false)}
+                trigger={attachmentButtonRef}
+                className="w-48 py-1"
+            >
+                <button
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left text-text-secondary hover:text-text-primary hover:bg-sidebar-hover"
+                    onClick={() => {
+                        setIsFilePickerOpen(true);
+                        setShowAttachmentMenu(false);
+                    }}
+                >
+                    <FilePlus size={16} />
+                    <span>Attach Files</span>
+                </button>
+                <button
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left text-text-secondary hover:text-text-primary hover:bg-sidebar-hover"
+                    onClick={() => {
+                        setIsCollectionPickerOpen(true);
+                        setShowAttachmentMenu(false);
+                    }}
+                >
+                    <Folder size={16} />
+                    <span>Attach Collections</span>
+                </button>
+            </Popover>
+
             {/* File Picker Modal */}
             <FilePickerModal
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
                 onSelectFiles={handleSelectFiles}
                 selectedFileIds={attachedFiles.map(f => f.id)}
+            />
+
+            {/* Collection Picker Modal */}
+            <CollectionPickerModal
+                isOpen={isCollectionPickerOpen}
+                onClose={() => setIsCollectionPickerOpen(false)}
+                onSelectCollections={handleSelectCollections}
+                selectedCollectionIds={attachedCollections.map(c => c.id)}
             />
         </div>
     );

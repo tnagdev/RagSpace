@@ -67,6 +67,14 @@ export class CollectionController {
         return this.collectionService.findOne(user.id, collectionId, pageNum, limitNum);
     }
 
+    @Get(':id/files')
+    async getCollectionFiles(
+        @CurrentUser() user: AuthUser,
+        @Param('id') collectionId: string,
+    ) {
+        return this.collectionService.getCollectionFiles(user.id, collectionId);
+    }
+
     @Patch(':id')
     async update(
         @CurrentUser() user: AuthUser,
@@ -88,7 +96,7 @@ export class CollectionController {
         @Query() deleteCollectionDto: DeleteCollectionDto,
     ) {
         return this.collectionService.delete(
-            user.id,
+            user,
             collectionId,
             deleteCollectionDto.deleteFiles,
         );

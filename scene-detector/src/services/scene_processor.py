@@ -182,7 +182,7 @@ class SceneProcessor:
                     file_id,
                     UpdateFileStatusParams(
                         processingStatus=ProcessingStatus.COMPLETED.value,
-                        processingStage=ProcessingStage.INDEXING.value,
+                        processingStage=ProcessingStage.COMPLETED.value,
                         processingCompletedAt=datetime.utcnow(),
                         metadata={'scenes_detected': 0}
                     )
@@ -285,7 +285,7 @@ class SceneProcessor:
                 {
                     'type': EventType.PROCESSING_COMPLETED.value,
                     'fileId': file_id,
-                    'fileName': file_record.get('filename'),
+                    'fileName': file_record.get('originalFilename') or file_record.get('filename'),
                     'fileType': file_record.get('fileType'),
                     'user': user.model_dump() if hasattr(user, 'model_dump') else user,
                     'timestamp': datetime.utcnow().isoformat(),

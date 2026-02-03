@@ -600,7 +600,7 @@ async def advanced_search(
                 fd = file_details_cache[fid]
                 file_details = FileDetails(
                     id=fd.get("id", fid),
-                    fileName=fd.get("filename", ""),
+                    fileName=fd.get("originalFilename", ""),
                     fileType=fd.get("fileType", ftype or ""),
                     fileSize=fd.get("fileSize"),
                     mimeType=fd.get("mimeType"),
@@ -685,9 +685,14 @@ async def advanced_search(
             if fid in file_details_cache:
                 actual_file_type = file_details_cache[fid].get("fileType", ftype)
             
+            # Skip results with missing file details
+            if not file_details:
+                logger.warning(f"File details not found for file {fid}, skipping result")
+                continue
+            
             query_results.append(QueryResult(
                 file_id=fid,
-                file_name=result.get("file_name"),
+                file_name=file_details.fileName,
                 file_type=actual_file_type,
                 scene_id=scene_id,
                 scene_index=scene_idx,

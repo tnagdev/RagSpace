@@ -6,8 +6,6 @@ import { Logo } from './Logo';
 import { IconButton } from './IconButton';
 import { NavLink } from './NavLink';
 import { useStorageStats } from '@/hooks/useUpload';
-import ConversationList from '@/pages/chat/components/ConversationList';
-import { useConversations } from '@/hooks/useChat';
 
 
 interface SidebarProps {
@@ -33,9 +31,6 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { data: storageStats, isLoading: isLoadingStorage } = useStorageStats();
-    const conversationsQuery = useConversations();
-
-    const isChatPage = location.pathname.startsWith('/chat');
 
     const handleNavClick = async (item: any, e: React.MouseEvent) => {
         if (item?.path === '/countries') {
@@ -45,14 +40,6 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
             }
             setTimeout(() => triggerCountryModal(), 50);
         }
-    };
-
-    const handleSelectConversation = (conversationId: string) => {
-        navigate({ to: '/chat', search: { conversation_id: conversationId } });
-    };
-
-    const handleNewChat = () => {
-        navigate({ to: '/chat' });
     };
 
     return <aside
@@ -98,19 +85,6 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
                     />
                 );
             })}
-
-            {/* Chat Conversations - Show only on chat page */}
-            {isChatPage && isOpen && (
-                <div className="w-full mt-4 pt-4 border-t border-sidebar-border">
-                    <ConversationList
-                        conversations={conversationsQuery.data || []}
-                        currentConversationId={new URLSearchParams(location.search).get('conversation_id') || undefined}
-                        onSelectConversation={handleSelectConversation}
-                        onNewChat={handleNewChat}
-                        isLoading={conversationsQuery.isLoading}
-                    />
-                </div>
-            )}
         </nav>
 
         {/* Storage Plan Section */}

@@ -30,6 +30,8 @@ export interface ChatRequest {
     message: string;
     conversation_id?: string;
     file_ids?: string[];
+    file_id?: string;
+    collection_id?: string;
     max_results?: number;
     include_context?: boolean;
 }
@@ -67,9 +69,16 @@ export interface ChatToolResult {
 
 export interface ChatDone {
     type: 'done';
-    conversation_id: string;
+    conversation_id?: string;
+    content?: string;
+    results?: SearchResult[];
     tools_used?: string[];
     result_count?: number;
+}
+
+export interface ChatConversationId {
+    type: 'conversation_id';
+    conversation_id: string;
 }
 
 export interface ChatError {
@@ -77,7 +86,7 @@ export interface ChatError {
     error: string;
 }
 
-export type ChatSSEEvent = ChatMetadata | ChatContent | ChatResults | ChatToolStart | ChatToolResult | ChatDone | ChatError;
+export type ChatSSEEvent = ChatMetadata | ChatContent | ChatResults | ChatToolStart | ChatToolResult | ChatDone | ChatConversationId | ChatError;
 
 export interface ConversationSummary {
     id: string;
@@ -86,6 +95,8 @@ export interface ConversationSummary {
     message_count: number;
     created_at: string;
     updated_at: string;
+    file_id?: string;
+    collection_id?: string;
 }
 
 export interface Conversation {

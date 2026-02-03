@@ -588,7 +588,7 @@ class AgentService:
                     result_data = {
                         "file_id": result.get("file_id", ""),
                         "scene_id": result.get("scene_id"),
-                        "file_name": result.get("file_name", "Unknown"),
+                        "file_name":file_details.get("originalFilename", "") or result.get("file_name", "Unknown"),
                         "score": result.get("score", 0.0),
                         "timestamp": result.get("start_time") or result.get("timestamp"),
                         "thumbnail_s3_key": scene_details.get("thumbnailS3Key") or file_details.get("thumbnailPath"),
@@ -597,6 +597,7 @@ class AgentService:
                         "file_s3_bucket": file_details.get("s3Bucket"),
                         "thumbnail_url": scene_details.get("thumbnailUrl") or file_details.get("thumbnailUrl"),
                         "file_url": file_details.get("url"),
+                        "youtube_url": file_details.get("youtubeUrl"),
                         "start_time": scene_details.get("startTime") or result.get("start_time"),
                         "end_time": scene_details.get("endTime") or result.get("end_time"),
                         "text_content": result.get("text", ""),

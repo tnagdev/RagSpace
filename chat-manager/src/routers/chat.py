@@ -94,7 +94,9 @@ async def chat(body: ChatRequest, request: Request):
             conversation_id = await conversation_service.create_conversation(
                 user_id=user_id,
                 initial_message=body.message,
-                file_ids=body.file_ids
+                file_ids=body.file_ids,
+                file_id=body.file_id,
+                collection_id=body.collection_id
             )
             logger.info(f"Created new conversation: {conversation_id}")
         else:
@@ -395,7 +397,7 @@ async def _handle_direct_search_chat(
         result_data = {
             "file_id": file_id,
             "scene_id": scene_id,
-            "file_name": result.get("file_name", "Unknown"),
+            "file_name": file_details.get("originalFilename") or result.get("file_name", "Unknown"),
             "file_type": file_type,
             "score": result.get("score", 0.0),
             "timestamp": result.get("start_time") or result.get("timestamp"),

@@ -81,3 +81,11 @@ export interface DeleteCollectionResponse {
     deletedCollections: number;
     deletedFiles: number;
 }
+
+// For attachment display in search/chat
+export interface CollectionAttachment {
+    id: string;
+    name: string;
+    color?: string;
+    fileCount: number;
+}

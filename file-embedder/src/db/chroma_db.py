@@ -294,6 +294,31 @@ class ChromaDatabaseManager:
             self.image_collection.delete(ids=image_results["ids"])
             logger.info(f"Deleted {len(image_results['ids'])} image embeddings for file: {file_id}")
     
+    def delete_by_file_ids(self, file_ids: List[str]) -> None:
+        """Delete all embeddings associated with multiple file IDs across all collections (batch operation)."""
+        if not file_ids:
+            return
+        
+        total_text_deleted = 0
+        total_image_deleted = 0
+        text_results = self.text_collection.get(
+            where={"file_id": {"$in": file_ids}}
+        )
+        if text_results["ids"]:
+            self.text_collection.delete(ids=text_results["ids"])
+            total_text_deleted = len(text_results["ids"])
+            logger.info(f"Deleted {total_text_deleted} text embeddings for {len(file_ids)} files")
+        
+        image_results = self.image_collection.get(
+            where={"file_id": {"$in": file_ids}}
+        )
+        if image_results["ids"]:
+            self.image_collection.delete(ids=image_results["ids"])
+            total_image_deleted = len(image_results["ids"])
+            logger.info(f"Deleted {total_image_deleted} image embeddings for {len(file_ids)} files")
+        
+        logger.info(f"Batch deleted {total_text_deleted + total_image_deleted} total embeddings for {len(file_ids)} files")
+    
     def delete_by_video_id(self, video_id: str) -> None:
         """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""
         logger.warning("delete_by_video_id is deprecated, use delete_by_file_id instead")

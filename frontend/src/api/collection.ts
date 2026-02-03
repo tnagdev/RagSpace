@@ -94,4 +94,11 @@ export const collectionAPI = {
         );
         return response.data;
     },
+
+    getCollectionFiles: async (collectionId: string): Promise<string[]> => {
+        const response = await privateAxios.get<string[]>(
+            `${COLLECTION_BASE}/${collectionId}/files`,
+        );
+        return response.data;
+    },
 };

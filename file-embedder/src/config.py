@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # External Service URLs
     upload_manager_url: str
     scene_detector_url: str
+    chat_manager_url: str
     
     # Model Configuration
     device: str = "cpu"
