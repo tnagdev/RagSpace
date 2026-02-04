@@ -3,9 +3,10 @@ import { CollectionController } from '../controllers/collection.controller';
 import { CollectionService } from '../services/collection.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { S3Module } from '../s3/s3.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
-    imports: [PrismaModule, S3Module],
+    imports: [PrismaModule, S3Module, UploadModule],
     controllers: [CollectionController],
     providers: [CollectionService],
     exports: [CollectionService],

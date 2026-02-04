@@ -395,7 +395,7 @@ export class UploadService {
                 timestamp: new Date(),
                 data: {
                     fileType: files[0].fileType,
-                    fileName: `${files.length} files`,
+                    fileName: `${files.length} files`
                 },
             });
             this.logger.log(`Published batch file deletion event for ${files.length} files`);
@@ -425,7 +425,7 @@ export class UploadService {
         }
 
         const deleteResult = await this.prisma.file.deleteMany({
-            where: { id: { in: ids } },
+            where: { id: { in: files.map(f => f.id) } },
         });
 
         this.logger.log(`Batch deleted ${deleteResult.count} files from database`);

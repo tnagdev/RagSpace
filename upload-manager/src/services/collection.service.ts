@@ -17,7 +17,7 @@ import {
     RemoveFilesFromCollectionDto,
 } from '../dto/collection.dto';
 import { Collection, File } from '@prisma/client';
-import { AuthUser } from 'src/common/types/auth-user.type';
+import { AuthUser } from 'src/common/decorators/current-user.decorator';
 
 export interface CollectionWithRelations extends Collection {
     children?: CollectionWithRelations[];
@@ -433,11 +433,10 @@ export class CollectionService {
             }
         }
 
-        // Delete collections (cascade will delete FileCollection entries)
         const deleteResult = await this.prisma.collection.deleteMany({
             where: {
                 id: { in: allCollectionIds },
-                userId,
+                userId: user.id,
             },
         });
 

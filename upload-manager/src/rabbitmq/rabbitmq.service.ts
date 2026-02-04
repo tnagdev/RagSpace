@@ -23,7 +23,8 @@ export enum FileEventType {
 
 export interface FileEvent {
     type: FileEventType;
-    fileId: string;
+    fileId?: string;
+    fileIds?: string[];
     user: AuthUser;
     session?: AuthSession;
     timestamp: Date;

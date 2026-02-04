@@ -115,7 +115,8 @@ class FileDeletedEventData(BaseModel):
 
 class FileDeletedEventModel(BaseModel):
     type: EventType = EventType.FILE_DELETED
-    fileId: str
+    fileId: Optional[str] = None
+    fileIds: Optional[List[str]] = None
     user: AuthUser
     timestamp: str
     data: FileDeletedEventData
