@@ -11,17 +11,17 @@ import {
     HttpStatus,
     UseGuards,
 } from '@nestjs/common';
-import { CollectionService } from '../services/collection.service';
+import { CollectionService } from './collection.service';
 import {
     CreateCollectionDto,
     UpdateCollectionDto,
     AddFilesToCollectionDto,
     RemoveFilesFromCollectionDto,
     DeleteCollectionDto,
-} from '../dto/collection.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { AuthUser } from '../common/decorators/current-user.decorator';
+} from './dto/collection.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('collections')
 @UseGuards(JwtAuthGuard)

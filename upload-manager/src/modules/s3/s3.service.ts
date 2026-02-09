@@ -299,9 +299,6 @@ export class S3Service {
         }
     }
 
-    /**
-     * Abort multipart upload
-     */
     async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
         try {
             const abortCommand = new AbortMultipartUploadCommand({

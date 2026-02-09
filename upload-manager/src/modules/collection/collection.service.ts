@@ -8,51 +8,19 @@ import {
     Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { S3Service } from '../s3/s3.service';
+import { S3Service } from './../s3/s3.service';
 import { UploadService } from '../upload/upload.service';
 import {
     CreateCollectionDto,
     UpdateCollectionDto,
     AddFilesToCollectionDto,
     RemoveFilesFromCollectionDto,
-} from '../dto/collection.dto';
-import { Collection, File } from '@prisma/client';
+} from './dto/collection.dto';
+import { Collection } from '@prisma/client';
 import { AuthUser } from 'src/common/decorators/current-user.decorator';
+import { CollectionItemUnion, CollectionWithRelations } from 'src/types/collection';
+import { getCollectionItemsQuery, CollectionItemQueryResult } from './collection.queries';
 
-export interface CollectionWithRelations extends Collection {
-    children?: CollectionWithRelations[];
-    fileCollections?: Array<{
-        id: string;
-        fileId: string;
-        addedAt: Date;
-        file: File;
-    }>;
-    _count?: {
-        fileCollections: number;
-        children: number;
-    };
-}
-
-// Union types for collection items
-type CollectionItem = Collection & {
-    type: 'collection';
-    _count?: { fileCollections: number; children: number };
-};
-
-type FileCollectionItem = {
-    type: 'file';
-    id: string;
-    fileId: string;
-    addedAt: Date;
-    file: File;
-};
-
-type CollectionItemUnion = CollectionItem | FileCollectionItem;
-
-// Type for raw Prisma query result
-type RawCollectionItem =
-    | { type: 'collection'; data: Collection & { _count?: { fileCollections: number; children: number } } }
-    | { type: 'file'; data: { id: string; fileId: string; addedAt: Date; file: File } };
 
 @Injectable()
 export class CollectionService {
@@ -71,7 +39,6 @@ export class CollectionService {
     ): Promise<CollectionWithRelations> {
         const { parentId, ...data } = createCollectionDto;
 
-        // Verify parent collection exists and belongs to user
         if (parentId) {
             const parentCollection = await this.prisma.collection.findUnique({
                 where: { id: parentId },
@@ -106,11 +73,9 @@ export class CollectionService {
     async findAll(userId: string, parentId?: string): Promise<CollectionWithRelations[]> {
         const whereClause: any = { userId };
 
-        // Set parentId filter: null for root, or specific parent for children
-        if (parentId === 'root' || parentId === undefined || parentId === null) {
+        if (parentId === 'root' || !parentId) {
             whereClause.parentId = null;
         } else {
-            // Verify parent collection exists and belongs to user
             const parentCollection = await this.prisma.collection.findUnique({
                 where: { id: parentId },
             });
@@ -126,8 +91,6 @@ export class CollectionService {
             whereClause.parentId = parentId;
         }
 
-        // Fetch collections with counts only (no nested children)
-        // Frontend will lazy-load children as nodes are expanded
         const collections = await this.prisma.collection.findMany({
             where: whereClause,
             include: {
@@ -154,12 +117,10 @@ export class CollectionService {
     }> {
         const skip = (page - 1) * limit;
 
-        // Get total count
         const total = await this.prisma.collection.count({
             where: { userId },
         });
 
-        // Fetch collections with pagination
         const collections = await this.prisma.collection.findMany({
             where: { userId },
             include: {
@@ -196,7 +157,6 @@ export class CollectionService {
         items: CollectionItemUnion[];
         pagination: { total: number; page: number; limit: number; totalPages: number };
     }> {
-        // Get total counts first
         const collection = await this.prisma.collection.findUnique({
             where: { id: collectionId },
             include: {
@@ -223,51 +183,73 @@ export class CollectionService {
         const totalPages = Math.ceil(totalItems / limit);
         const skip = (page - 1) * limit;
 
-        // Fetch ALL children and files (no limit) - we'll paginate after sorting
-        const [children, fileCollections] = await Promise.all([
-            this.prisma.collection.findMany({
-                where: { parentId: collectionId },
-                include: {
-                    _count: {
-                        select: {
-                            fileCollections: true,
-                            children: true,
-                        },
-                    },
-                },
-            }),
-            this.prisma.fileCollection.findMany({
-                where: { collectionId },
-                include: {
-                    file: true,
-                },
-            }),
-        ]);
+        const rawResults = await this.prisma.$queryRaw<CollectionItemQueryResult[]>(
+            getCollectionItemsQuery(collectionId, limit, skip)
+        );
 
-        // Transform thumbnailPath to thumbnailUrl for files
-        await Promise.all(
-            fileCollections.map(async (fc) => {
-                if (fc.file?.thumbnailPath) {
-                    const thumbnailUrl = await this.s3Service.getSignedUrl(fc.file.thumbnailPath);
-                    (fc.file as any).thumbnailUrl = thumbnailUrl;
+        const items: CollectionItemUnion[] = await Promise.all(
+            rawResults.map(async (row) => {
+                if (row.type === 'collection') {
+                    return {
+                        id: row.id!,
+                        userId: row.userId!,
+                        name: row.name!,
+                        description: row.description,
+                        color: row.color,
+                        parentId: row.parentId,
+                        createdAt: row.createdAt!,
+                        updatedAt: row.updatedAt!,
+                        type: 'collection' as const,
+                        _count: {
+                            children: row.childrenCount!,
+                            fileCollections: row.fileCollectionsCount!,
+                        },
+                    };
+                } else {
+                    const file: any = {
+                        id: row.file_id!,
+                        userId: row.file_userId!,
+                        filename: row.file_filename!,
+                        originalFilename: row.file_originalFilename!,
+                        fileSize: row.file_fileSize!,
+                        mimeType: row.file_mimeType!,
+                        fileType: row.file_fileType!,
+                        s3Key: row.file_s3Key!,
+                        s3Bucket: row.file_s3Bucket!,
+                        s3Url: row.file_s3Url,
+                        thumbnailPath: row.file_thumbnailPath,
+                        youtubeUrl: row.file_youtubeUrl,
+                        uploadStatus: row.file_uploadStatus!,
+                        processingStatus: row.file_processingStatus!,
+                        processingStage: row.file_processingStage!,
+                        metadata: row.file_metadata,
+                        errorMessage: row.file_errorMessage,
+                        uploadedAt: row.file_uploadedAt,
+                        processingStartedAt: row.file_processingStartedAt,
+                        processingCompletedAt: row.file_processingCompletedAt,
+                        createdAt: row.file_createdAt!,
+                        updatedAt: row.file_updatedAt!,
+                    };
+
+                    if (file.thumbnailPath) {
+                        file.thumbnailUrl = await this.s3Service.getSignedUrl(file.thumbnailPath);
+                    }
+
+                    return {
+                        id: row.fcId!,
+                        fileId: row.fileId!,
+                        collectionId: row.collectionId!,
+                        addedAt: row.addedAt!,
+                        type: 'file' as const,
+                        file,
+                    };
                 }
             })
         );
 
-        const rawItems: RawCollectionItem[] = [
-            ...children.map(c => ({ type: 'collection' as const, data: c })),
-            ...fileCollections.map(fc => ({ type: 'file' as const, data: fc }))
-        ];
-
-        const unionItems = this.transformToUnionItems(rawItems);
-
-        const sortedItems = this.sortItemsByDate(unionItems);
-
-        const paginatedItems = sortedItems.slice(skip, skip + limit);
-
         return {
             ...collection,
-            items: paginatedItems,
+            items,
             pagination: {
                 total: totalItems,
                 page,
@@ -275,29 +257,6 @@ export class CollectionService {
                 totalPages,
             },
         };
-    }
-
-    private transformToUnionItems(rawItems: RawCollectionItem[]): CollectionItemUnion[] {
-        return rawItems.map(item => {
-            if (item.type === 'collection') {
-                return {
-                    ...item.data,
-                    type: 'collection' as const,
-                };
-            }
-            return {
-                ...item.data,
-                type: 'file' as const,
-            };
-        });
-    }
-
-    private sortItemsByDate(items: CollectionItemUnion[]): CollectionItemUnion[] {
-        return items.sort((a, b) => {
-            const dateA = a.type === 'collection' ? new Date(a.createdAt) : new Date(a.addedAt);
-            const dateB = b.type === 'collection' ? new Date(b.createdAt) : new Date(b.addedAt);
-            return dateB.getTime() - dateA.getTime();
-        });
     }
 
     async update(
@@ -319,7 +278,6 @@ export class CollectionService {
 
         const { parentId, ...data } = updateCollectionDto;
 
-        // Verify new parent collection if provided
         if (parentId !== undefined) {
             if (parentId === collectionId) {
                 throw new BadRequestException('Collection cannot be its own parent');
@@ -340,11 +298,11 @@ export class CollectionService {
                     );
                 }
 
-                // Check for circular reference
                 const wouldCreateCircle = await this.checkCircularReference(
                     collectionId,
                     parentId,
                 );
+
                 if (wouldCreateCircle) {
                     throw new BadRequestException(
                         'Cannot move collection: would create circular reference',
@@ -387,14 +345,12 @@ export class CollectionService {
             throw new ForbiddenException('Collection does not belong to you');
         }
 
-        // Get all descendant collection IDs
         const descendantIds = await this.getAllDescendantIds(collectionId);
         const allCollectionIds = [collectionId, ...descendantIds];
 
         let deletedFilesCount = 0;
 
         if (deleteFiles) {
-            // Find files that belong ONLY to collections being deleted
             const filesToDelete = await this.prisma.file.findMany({
                 where: {
                     userId: user.id,
@@ -413,7 +369,6 @@ export class CollectionService {
                 },
             });
 
-            // Filter files that belong exclusively to these collections
             const exclusiveFiles = filesToDelete.filter((file) => {
                 const collectionIds = file.fileCollections.map(
                     (fc) => fc.collectionId,
@@ -463,7 +418,6 @@ export class CollectionService {
             throw new ForbiddenException('Collection does not belong to you');
         }
 
-        // Verify all files exist and belong to user
         const files = await this.prisma.file.findMany({
             where: {
                 id: { in: addFilesDto.fileIds },
@@ -475,7 +429,6 @@ export class CollectionService {
             throw new BadRequestException('Some files not found or do not belong to you');
         }
 
-        // Create file-collection associations (ignore duplicates)
         await this.prisma.$transaction(
             addFilesDto.fileIds.map((fileId) =>
                 this.prisma.fileCollection.upsert({
@@ -525,7 +478,6 @@ export class CollectionService {
     }
 
     async getCollectionFiles(userId: string, collectionId: string): Promise<string[]> {
-        // Verify collection exists and belongs to user
         const collection = await this.prisma.collection.findUnique({
             where: { id: collectionId },
         });
@@ -538,10 +490,8 @@ export class CollectionService {
             throw new ForbiddenException('Collection does not belong to you');
         }
 
-        // Get all descendant collection IDs (including the collection itself)
         const allCollectionIds = [collectionId, ...(await this.getAllDescendantIds(collectionId))];
 
-        // Get all unique file IDs from all these collections
         const fileCollections = await this.prisma.fileCollection.findMany({
             where: {
                 collectionId: { in: allCollectionIds },

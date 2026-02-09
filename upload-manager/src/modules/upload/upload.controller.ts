@@ -15,9 +15,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import type { AuthUser, AuthSession } from '../common/decorators/current-user.decorator';
-import { CurrentUser, CurrentSession } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import type { AuthUser, AuthSession } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, CurrentSession } from '../../common/decorators/current-user.decorator';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { ConfigService } from '@nestjs/config';
 import { UpdateFileDto } from './dto/update-file.dto';
@@ -152,7 +152,6 @@ export class UploadController {
         @CurrentUser() user: AuthUser,
         @CurrentSession() session: AuthSession,
     ) {
-        this.logger.log(`YouTube link submission from user: ${user.id}, URL: ${dto.url}`);
         return this.uploadService.submitYouTubeLink(dto.url, user, session);
     }
 

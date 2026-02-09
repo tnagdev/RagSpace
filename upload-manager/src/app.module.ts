@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaModule } from './prisma/prisma.module';
-import { UploadModule } from './upload/upload.module';
-import { MetadataModule } from './metadata/metadata.module';
-import { S3Module } from './s3/s3.module';
-import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
-import { CollectionModule } from './collection/collection.module';
+import { PrismaModule } from './modules/prisma/prisma.module';
+import { UploadModule } from './modules/upload/upload.module';
+import { MetadataModule } from './modules/metadata/metadata.module';
+import { S3Module } from './modules/s3/s3.module';
+import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
+import { CollectionModule } from './modules/collection/collection.module';
 import configuration from './config/configuration';
 
 @Module({

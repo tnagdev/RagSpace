@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { MetadataService } from './metadata.service';
 import { CreateFileMetadataDto, UpdateFileMetadataDto } from './dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @Controller('metadata')
 @UseGuards(JwtAuthGuard)

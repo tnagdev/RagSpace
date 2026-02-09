@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CollectionController } from '../controllers/collection.controller';
-import { CollectionService } from '../services/collection.service';
+import { CollectionController } from './collection.controller';
+import { CollectionService } from './collection.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { S3Module } from '../s3/s3.module';
 import { UploadModule } from '../upload/upload.module';
@@ -11,4 +11,5 @@ import { UploadModule } from '../upload/upload.module';
     providers: [CollectionService],
     exports: [CollectionService],
 })
+
 export class CollectionModule { }

@@ -210,7 +210,6 @@ export class UploadService {
 
         const filesWithUrls = files.map(async (file) => {
             try {
-                // Only generate S3 URLs for non-YouTube videos
                 if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key && file.fileType !== FileType.YOUTUBE_VIDEO) {
                     const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
                     file.s3Url = signedUrl;
@@ -271,7 +270,6 @@ export class UploadService {
 
         const filesWithUrls = files.map(async (file) => {
             try {
-                // Only generate S3 URLs for non-YouTube videos
                 if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key && file.fileType !== FileType.YOUTUBE_VIDEO) {
                     const signedUrl = await this.s3Service.getSignedUrl(file.s3Key);
                     file.s3Url = signedUrl;
@@ -346,7 +344,6 @@ export class UploadService {
             // Continue with deletion even if event publishing fails
         }
 
-        // Delete from S3
         if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
             try {
                 await this.s3Service.deleteFile(file.s3Key);
@@ -356,7 +353,6 @@ export class UploadService {
             }
         }
 
-        // Delete thumbnail from S3 if exists
         if ((file as any).thumbnailPath) {
             try {
                 await this.s3Service.deleteFile((file as any).thumbnailPath);
@@ -366,7 +362,6 @@ export class UploadService {
             }
         }
 
-        // Delete from database
         await this.prisma.file.delete({
             where: { id },
         });
@@ -455,8 +450,6 @@ export class UploadService {
     ) {
         try {
             const fileType = this.getFileTypeFromMimeType(mimeType);
-
-            // Initialize multipart upload in S3 first to get the s3Key
             const uploadInit = await this.s3Service.initMultipartUpload(
                 fileName,
                 fileSize,
@@ -465,7 +458,6 @@ export class UploadService {
                 chunkSize,
             );
 
-            // Create file record with the generated s3Key
             const fileRecord = await this.prisma.file.create({
                 data: {
                     userId: user.id,
@@ -513,15 +505,11 @@ export class UploadService {
     ) {
         try {
             const fileRecord = await this.getFileById(fileId, user.id);
-
-            // Complete multipart upload in S3
             const uploadResult = await this.s3Service.completeMultipartUpload(
                 key,
                 uploadId,
                 parts,
             );
-
-            // Update file record
             const updatedFile = await this.prisma.file.update({
                 where: { id: fileId },
                 data: {
@@ -533,8 +521,6 @@ export class UploadService {
                     processingStage: ProcessingStage.EMBEDDING,
                 },
             });
-
-            // Publish upload completed event
             await this.rabbitmqService.publishEvent({
                 type: FileEventType.UPLOAD_COMPLETED,
                 fileId: fileRecord.id,
@@ -562,8 +548,6 @@ export class UploadService {
         try {
             const fileRecord = await this.getFileById(fileId, user.id);
             const metadata = fileRecord.metadata as any;
-
-            // Only try to abort if this was a multipart upload
             if (metadata?.uploadId && fileRecord.s3Key) {
                 try {
                     await this.s3Service.abortMultipartUpload(
@@ -571,14 +555,12 @@ export class UploadService {
                         metadata.uploadId,
                     );
                 } catch (s3Error) {
-                    // If abort fails (upload already completed/aborted), log but continue with deletion
                     this.logger.warn(`Failed to abort multipart upload for ${fileId}: ${s3Error.message}`);
                 }
             } else {
                 this.logger.log(`File ${fileId} was not a multipart upload, skipping abort`);
             }
 
-            // Delete the file record regardless of abort outcome
             await this.prisma.file.delete({
                 where: { id: fileId },
             });
@@ -593,7 +575,6 @@ export class UploadService {
 
     async submitYouTubeLink(url: string, user: AuthUser, session?: AuthSession) {
         try {
-            // Extract video ID from YouTube URL
             const videoIdMatch = url.match(
                 /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]+)/
             );
@@ -603,15 +584,12 @@ export class UploadService {
             }
 
             const videoId = videoIdMatch[1];
-
-            // Fetch YouTube metadata
             let metadata: any = {
                 videoId,
                 source: 'youtube',
             };
 
             try {
-                // Use yt-dlp via exec to get video info
                 const { exec } = require('child_process');
                 const { promisify } = require('util');
                 const execAsync = promisify(exec);
@@ -647,13 +625,12 @@ export class UploadService {
                 ? `${metadata.title.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}_${videoId}.mp4`
                 : `youtube_${videoId}.mp4`;
 
-            // Create file record with metadata
             const fileRecord = await this.prisma.file.create({
                 data: {
                     userId: user.id,
                     filename,
                     originalFilename: displayTitle,
-                    fileSize: 0, // Will be updated when downloaded
+                    fileSize: 0,
                     mimeType: 'video/mp4',
                     fileType: FileType.YOUTUBE_VIDEO,
                     s3Key: `${user.id}/youtube/${videoId}.mp4`,
@@ -667,7 +644,6 @@ export class UploadService {
                 },
             });
 
-            // Publish YouTube submission event
             await this.rabbitmqService.publishEvent({
                 type: FileEventType.UPLOAD_COMPLETED,
                 fileId: fileRecord.id,
@@ -682,7 +658,7 @@ export class UploadService {
                     youtubeUrl: url,
                     videoId: videoId,
                     s3Key: fileRecord.s3Key,
-                    s3Url: null, // YouTube videos don't have S3 URLs initially
+                    s3Url: null,
                     metadata: metadata,
                 },
             });
