@@ -5,7 +5,7 @@ from typing import Callable, Dict, Any, Optional, List
 import aio_pika
 from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel, AbstractRobustExchange, AbstractRobustQueue
 from pydantic import ValidationError
-from src.common.enums import EventType
+from src.models.enums import EventType
 from src.config.settings import settings
 from src.models.events import UploadCompletedEventModel, FileDeletedEventModel
 

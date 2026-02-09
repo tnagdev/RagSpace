@@ -6,7 +6,7 @@ from datetime import datetime
 from src.config.settings import settings
 from src.rabbitmq.rabbitmq_producer import RabbitMQProducer
 from src.services.upload_manager_client import UploadManagerClient
-from src.common.enums import EventType, ProcessingStage, ProcessingStatus
+from src.models.enums import EventType, ProcessingStage, ProcessingStatus
 from src.models.events import UploadCompletedEventModel, UpdateFileStatusParams
 from src.services.s3_service import S3Service
 from src.services.prisma_service import PrismaService

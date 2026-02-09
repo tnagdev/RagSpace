@@ -20,7 +20,6 @@ async def _process_file_in_background(event: UploadCompletedEventModel) -> None:
     
     try:
         logger.info(f"[Background] Processing file: {file_id} (user: {user_id})")
-        
         scene_processor = SceneProcessor(event.user, None)
         await scene_processor.process_file(file_id, event)
         logger.info(f"[Background] ✓ Successfully processed file: {file_id}")
@@ -48,7 +47,6 @@ async def handle_file_upload_completed(event: UploadCompletedEventModel) -> None
         if not event.user:
             raise ValueError("Missing user information in event")
         
-        # Launch processing in background and return immediately
         background_task_manager.create_task(
             _process_file_in_background(event),
             name=f"scene_detect_{file_id}"

@@ -1,6 +1,6 @@
 import logging
 from src.rabbitmq.rabbitmq_consumer import rabbitmq_consumer
-from src.common.enums import EventType
+from src.models.enums import EventType
 from src.services.prisma_service import PrismaService
 from src.services.s3_service import S3Service
 from src.models.events import FileDeletedEventModel
@@ -17,17 +17,15 @@ async def handle_file_deleted(event: FileDeletedEventModel) -> None:
         event: Validated file deletion event
     """
     try:
-        # Collect file IDs from both sources
         file_ids = []
         if event.fileId:
             file_ids.append(event.fileId)
         if event.fileIds:
             file_ids.extend(event.fileIds)
         
-        # Remove duplicates while preserving order
         file_ids = list(dict.fromkeys(file_ids))
-        
-        if not file_ids:
+
+        if not file_ids or len(file_ids) == 0:
             raise ValueError("Missing fileId or fileIds in event")
         
         logger.info(f"Processing file deletion for {len(file_ids)} file(s): {file_ids}")
@@ -35,22 +33,18 @@ async def handle_file_deleted(event: FileDeletedEventModel) -> None:
         prisma_service = PrismaService()
         await prisma_service.ensure_connected()
         
-        # Fetch all scenes to get thumbnail S3 keys
         scenes = await prisma_service.prisma.scene.find_many(
             where={"fileId": {"in": file_ids}}
         )
         
         if scenes:
-            # Extract thumbnail S3 keys
             thumbnail_keys = [scene.thumbnailS3Key for scene in scenes if scene.thumbnailS3Key]
-            
             if thumbnail_keys:
                 logger.info(f"Deleting {len(thumbnail_keys)} scene thumbnails from S3")
                 s3_service = S3Service()
                 deleted_count = await s3_service.delete_files_batch(thumbnail_keys)
                 logger.info(f"✓ Deleted {deleted_count}/{len(thumbnail_keys)} thumbnails from S3")
         
-        # Batch delete scenes from database
         result = await prisma_service.prisma.scene.delete_many(
             where={"fileId": {"in": file_ids}}
         )

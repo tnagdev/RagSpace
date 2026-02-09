@@ -1,7 +1,7 @@
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
-from src.common.enums import EventType
+from src.models.enums import EventType
 
 
 class Settings(BaseSettings):

@@ -73,10 +73,8 @@ async def get_scenes(
     try:
         if hasattr(request.state, 'user'):
             user = request.state.user if request.state.user else None
-        # Build filters
+
         where_conditions = {}
-        
-        # Auto-inject user_id if authenticated and not explicitly provided
         filter_user_id = user_id
         if user and user.get("id") and not user_id:
             filter_user_id = user["id"]
@@ -93,13 +91,11 @@ async def get_scenes(
             if id_list:
                 where_conditions["fileId"] = {"in": id_list}
         
-        # Handle scene IDs filter
         if scene_ids:
             id_list = [id.strip() for id in scene_ids.split(",") if id.strip()]
             if id_list:
                 where_conditions["id"] = {"in": id_list}
         
-        # Time range filters - support overlapping ranges
         time_filters = []
         if start_time_gte is not None:
             time_filters.append({"startTime": {"gte": start_time_gte}})
@@ -115,13 +111,11 @@ async def get_scenes(
                 where_conditions["AND"] = []
             where_conditions["AND"].extend(time_filters)
         
-        # Clean up empty AND
         if "AND" in where_conditions and not where_conditions["AND"]:
             del where_conditions["AND"]
         
         logger.info(f"Querying scenes with filters: {where_conditions}")
         
-        # Query database
         prisma_service = PrismaService()
         scenes = await prisma_service.prisma.scene.find_many(
             where=where_conditions if where_conditions else None,
@@ -130,17 +124,14 @@ async def get_scenes(
             take=limit
         )
         
-        # Get total count
         total = await prisma_service.prisma.scene.count(
             where=where_conditions if where_conditions else None
         )
         
-        # Generate signed URLs for thumbnails
         s3_service = S3Service()
         for scene in scenes:
             scene.thumbnailS3Url = await s3_service.get_signed_url(scene.thumbnailS3Key)
 
-        # Convert to response model
         scene_responses = [
             SceneResponse(
                 id=scene.id,
@@ -195,7 +186,6 @@ async def get_scene_by_id(
         if not scene:
             raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
         
-        # Check user access if authenticated
         if user and user.get("id") and scene.userId != user["id"]:
             raise HTTPException(status_code=403, detail="Access denied")
         
