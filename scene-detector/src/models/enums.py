@@ -50,6 +50,7 @@ class ProcessingStage(str, Enum):
     SCENE_DETECTION = "SCENE_DETECTION"
     INDEXING = "INDEXING"
     THUMBNAIL_GENERATION = "THUMBNAIL_GENERATION"
+    COMPLETED = "COMPLETED"
 
 
 class ServiceStatus(str, Enum):
