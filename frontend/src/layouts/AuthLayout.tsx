@@ -20,7 +20,7 @@ export const AuthLayout = () => {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-xl" style={{ background: 'linear-gradient(to bottom right, #a855f7, #7c3aed)' }}>
                         <IoSparkles size={20} className="text-white" />
                     </div>
-                    <span className="text-xl font-bold text-white tracking-tight">RagSpace</span>
+                    <span className="text-xl font-bold text-white tracking-tight">FiloRag</span>
                 </div>
             </div>
 
@@ -48,8 +48,8 @@ export const AuthLayout = () => {
                                             <h1 className="text-5xl font-bold tracking-tight">
                                                 <span className="text-white">Welcome to</span>
                                             </h1>
-                                            <h2 className="text-6xl font-bold bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(to right, #a855f7, #ec4899, #f472b6)' }}>
-                                                RagSpace
+                                            <h2 className="text-6xl font-bold bg-clip-text text-transparent pb-3" style={{ backgroundImage: 'linear-gradient(to right, #a855f7, #ec4899, #f472b6)' }}>
+                                                FiloRag
                                             </h2>
                                         </div>
                                         <p className="text-xl text-white/70 font-light max-w-md mx-auto leading-relaxed">
@@ -88,7 +88,7 @@ export const AuthLayout = () => {
                     <span>•</span>
                     <a href="#" className="hover:text-white/80 transition-colors">Terms</a>
                     <span>•</span>
-                    <span>© 2025 RagSpace</span>
+                    <span>© 2025 FiloRag</span>
                 </div>
             </div>
         </div>

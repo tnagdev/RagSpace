@@ -4,10 +4,10 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY prisma.config.* ./
-COPY src/prisma ./src/prisma/
+COPY src/modules/prisma ./src/modules/prisma/
 
 RUN npm ci
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/modules/prisma/schema.prisma
 
 COPY . .
 RUN npm run build
@@ -21,10 +21,10 @@ WORKDIR /app
 
 COPY --chown=nodejs:nodejs package*.json ./
 COPY --chown=nodejs:nodejs prisma.config.* ./
-COPY --chown=nodejs:nodejs src/prisma ./src/prisma/
+COPY --chown=nodejs:nodejs src/modules/prisma ./src/modules/prisma/
 
 RUN npm ci --omit=dev
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/modules/prisma/schema.prisma
 
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 COPY --chown=nodejs:nodejs docker-entrypoint.sh ./

@@ -60,8 +60,8 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
             }
 
             this.connection = amqp.connect([this.url], {
-                heartbeatIntervalInSeconds: 30,
-                reconnectTimeInSeconds: 10,
+                heartbeatIntervalInSeconds: 15,
+                reconnectTimeInSeconds: 5,
             });
 
             this.connection.on('connect', () => {
@@ -74,6 +74,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
             this.connection.on('connectFailed', (err) => {
                 this.logger.error('Failed to connect to RabbitMQ', err);
+            });
+
+            this.connection.on('blocked', (reason) => {
+                this.logger.warn('RabbitMQ connection blocked:', reason);
+            });
+
+            this.connection.on('unblocked', () => {
+                this.logger.log('RabbitMQ connection unblocked');
             });
 
             this.channelWrapper = this.connection.createChannel({

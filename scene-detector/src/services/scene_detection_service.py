@@ -7,13 +7,13 @@ from scenedetect.detectors import AdaptiveDetector
 from PIL import Image, ImageOps
 import cv2
 from src.config.settings import settings
-from src.decorators import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class SceneDetectionService:
+
+class SceneDetectionService(metaclass=SingletonMeta):
     """Service for detecting scenes in video files and generating thumbnails."""
     
     def __init__(self) -> None:
@@ -81,7 +81,7 @@ class SceneDetectionService:
         
         return subscenes
     
-    async def detect_scenes(self, video_path: str, max_scene_duration: int = 5) -> List[Dict]:
+    def detect_scenes(self, video_path: str, max_scene_duration: int = 5) -> List[Dict]:
         """Detect scenes in a video file and split long scenes.
         
         Args:

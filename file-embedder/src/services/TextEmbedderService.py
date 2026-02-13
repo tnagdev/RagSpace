@@ -7,14 +7,13 @@ from torch import Tensor
 import torch
 import numpy as np
 import logging
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class TextEmbedderService:
+class TextEmbedderService(metaclass=SingletonMeta):
     
     def __init__(self, text_model_name: str = "BAAI/bge-base-en-v1.5", use_contriever: bool = True):
         """
@@ -26,10 +25,11 @@ class TextEmbedderService:
             text_model_name: Name of the SentenceTransformer model
             use_contriever: Whether to load Contriever model for retrieval
         """
-        # Skip if already initialized (prevents duplicate model loading in inheritance)
-        if hasattr(self, 'text_model') and self.text_model is not None:
+        # Skip if already initialized (prevents duplicate model loading)
+        if hasattr(self, '_text_embedder_initialized'):
             return
-            
+        
+        self._text_embedder_initialized = True    
         logger.info(f"Loading text embedding model: {text_model_name}")
         self.text_model = SentenceTransformer(text_model_name)
         

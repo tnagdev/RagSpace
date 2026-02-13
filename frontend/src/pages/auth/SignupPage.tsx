@@ -51,7 +51,7 @@ const SignupPage = () => {
                     Create your account
                 </h1>
                 <p className="text-text-secondary">
-                    Get started with RagSpace for free
+                    Get started with FiloRag for free
                 </p>
             </div>
 

@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class S3Service:
+
+class S3Service(metaclass=SingletonMeta):
     """AWS S3 service for file operations with connection pooling."""
     
     def __init__(self) -> None:

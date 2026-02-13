@@ -3,13 +3,13 @@ import logging
 from typing import Optional, Dict, Tuple
 import aioboto3
 from src.config import settings
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class S3Service:
+
+class S3Service(metaclass=SingletonMeta):
     """Service for S3 operations including signed URL generation"""
     
     def __init__(self):

@@ -9,13 +9,12 @@ import os
 from typing import List, Optional, Dict, Any
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 import ffmpeg
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class AudioTranscriptionService:
+class AudioTranscriptionService(metaclass=SingletonMeta):
     """
     Service for extracting audio transcripts from video/audio files.
     Based on Video-RAG's Whisper implementation.
@@ -35,6 +34,12 @@ class AudioTranscriptionService:
             chunk_length_s: Length of audio chunks in seconds
             device: Device to run on ('cuda' or 'cpu')
         """
+        # Skip if already initialized (prevents duplicate model loading)
+        if hasattr(self, '_audio_transcription_initialized'):
+            return
+        
+        self._audio_transcription_initialized = True
+        
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:

@@ -4,12 +4,12 @@ from typing import Optional, Dict, Any
 from aio_pika import connect_robust, Message, ExchangeType
 from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel, AbstractRobustExchange
 from src.config.settings import settings
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class RabbitMQProducer:
+
+class RabbitMQProducer(metaclass=SingletonMeta):
     """RabbitMQ service for publishing events with connection pooling."""
     
     def __init__(self) -> None:
@@ -28,7 +28,8 @@ class RabbitMQProducer:
             self.connection = await connect_robust(
                 settings.rabbitmq_url,
                 reconnect_interval=5,
-                fail_fast=False
+                fail_fast=False,
+                heartbeat=15
             )
             self.channel = await self.connection.channel()
             self.exchange = await self.channel.declare_exchange(

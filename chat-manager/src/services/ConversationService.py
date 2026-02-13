@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from src.models.chat import Conversation, ChatMessage, ConversationSummary
 from src.config import settings
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.services.PrismaService import PrismaService
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class ConversationService:
+
+class ConversationService(metaclass=SingletonMeta):
     """
     Database-backed conversation management using Prisma.
     Stores conversations and messages in PostgreSQL.

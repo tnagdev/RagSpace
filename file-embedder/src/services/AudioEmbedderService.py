@@ -8,13 +8,13 @@ from torch import Tensor, cuda
 import whisper
 import logging
 from pydantic import validate_call, ValidationError
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.services.TextEmbedderService import TextEmbedderService
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class AudioEmbedderService(TextEmbedderService):
+
+class AudioEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
     def __init__(self, transcription_model = 'base', text_model_name: str = "BAAI/bge-base-en-v1.5", **kwargs):
         """
         Initialize AudioEmbedder with Whisper and SentenceTransformer models.
@@ -23,14 +23,16 @@ class AudioEmbedderService(TextEmbedderService):
             text_model_name: Name of the SentenceTransformer model
             device: Device to run models on ('cuda' or 'cpu')
         """
-        # Skip if already initialized (prevents duplicate model loading in inheritance)
-        if hasattr(self, 'transcription_model') and self.transcription_model is not None:
+        # Skip if already initialized (prevents duplicate model loading)
+        if hasattr(self, '_audio_embedder_initialized'):
             return
-            
+        
+        self._audio_embedder_initialized = True    
         self.device = "cuda" if cuda.is_available() else "cpu"
-        logger.info(f"Loading Whisper model on {self.device}...")
+        logger.info(f"Loading Whisper model '{transcription_model}' on {self.device}...")
 
         self.transcription_model = whisper.load_model(transcription_model, device=self.device)
+        logger.info("Whisper model loaded successfully")
         super().__init__(text_model_name=text_model_name, **kwargs)
     
     @validate_call
@@ -48,8 +50,8 @@ class AudioEmbedderService(TextEmbedderService):
             logger.info(f"Transcribing audio: {audio_path}")
             result = self.transcription_model.transcribe(audio_path)
             return result
-        except whisper.errors.WhisperError as e:
-            logger.error(f"Whisper transcription error: {e}")
+        except AttributeError as e:
+            logger.error(f"Transcription model not initialized: {e}")
             return None
         except ValidationError as e:
             logger.error(f"Validation error during transcription: {e}")

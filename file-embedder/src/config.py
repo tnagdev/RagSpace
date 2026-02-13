@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     llm_model: str = "meta/llama-3.2-11b-vision-instruct"
     llm_max_concurrent_requests: int = 5
     mode: str = "production"
+    
+    # YouTube Downloader Configuration
+    youtube_cookie_browser: Optional[str] = None  # Browser to extract cookies from: chrome, firefox, edge, safari
+                                                   # Set to None to disable (recommended for Docker)
 
     class Config:
         env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"

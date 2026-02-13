@@ -6,7 +6,7 @@ import cv2
 import open_clip
 import torch
 import whisper
-from src.decorators import singleton
+from src.decorators.singleton import SingletonMeta
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
 from torch import Tensor, cuda;
@@ -20,11 +20,9 @@ from pydantic import validate_call, ValidationError
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService):
+
+class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService, metaclass=SingletonMeta):
     """Handles visual embedding generation using CLIP."""
-    
-    _video_embedder_initialized = False
     
     def __init__(
             self, 
@@ -40,7 +38,7 @@ class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService):
             device: Device to run model on ('cuda' or 'cpu')
         """
         # Skip if already initialized (prevents duplicate model loading)
-        if self._video_embedder_initialized:
+        if hasattr(self, '_video_embedder_initialized'):
             return
         self._video_embedder_initialized = True
         

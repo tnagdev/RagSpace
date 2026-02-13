@@ -8,13 +8,13 @@ import logging
 from src.db.chroma_db import ChromaDatabaseManager
 from src.services.TextEmbedderService import TextEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class AdvancedRetrieverService:
+
+class AdvancedRetrieverService(metaclass=SingletonMeta):
     """
     Advanced retrieval combining multiple strategies from Video-RAG:
     - Multi-query averaging for better semantic coverage
@@ -29,9 +29,11 @@ class AdvancedRetrieverService:
         text_embedder: TextEmbedderService = None,
         image_embedder: ImageEmbedderService = None
     ):
-        # Skip if already initialized
-        if hasattr(self, 'db') and self.db is not None:
+        # Skip if already initialized (prevents duplicate initialization)
+        if hasattr(self, '_advanced_retriever_initialized'):
             return
+        
+        self._advanced_retriever_initialized = True
             
         self.db = chroma_db or ChromaDatabaseManager()
         self.text_embedder = text_embedder or TextEmbedderService()

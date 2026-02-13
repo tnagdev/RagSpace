@@ -14,7 +14,7 @@ export const Logo: FC<LogoProps> = ({ className, collapsed = false, showText = t
       </div>
       {showText && !collapsed && (
         <span className="font-semibold text-lg text-text-primary whitespace-nowrap">
-          RagSpace
+          FiloRag
         </span>
       )}
     </div>

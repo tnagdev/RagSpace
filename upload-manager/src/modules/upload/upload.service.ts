@@ -633,7 +633,7 @@ export class UploadService {
                     fileSize: 0,
                     mimeType: 'video/mp4',
                     fileType: FileType.YOUTUBE_VIDEO,
-                    s3Key: `${user.id}/youtube/${videoId}.mp4`,
+                    s3Key: `${user.id}/youtube/${videoId}_${Date.now()}.mp4`,
                     s3Bucket: '',
                     youtubeUrl: url,
                     metadata: metadata,

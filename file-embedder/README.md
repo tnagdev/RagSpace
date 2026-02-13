@@ -95,6 +95,11 @@ DEVICE=cuda  # or 'cpu'
 # Model Configuration
 CLIP_MODEL=ViT-B-32
 TEXT_MODEL=BAAI/bge-base-en-v1.5
+
+# YouTube Downloader Configuration
+YOUTUBE_COOKIE_BROWSER=chrome  # Browser to extract cookies from: chrome, firefox, edge, safari
+                                # Set to empty or omit for Docker environments
+                                # Helps bypass YouTube bot detection when running locally
 ```
 
 ## 📚 API Documentation
@@ -231,6 +236,35 @@ Ensure RabbitMQ is running:
 ```bash
 docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 ```
+
+### YouTube Bot Detection Error
+If you get "Sign in to confirm you're not a bot" errors:
+
+**For Local Development:**
+1. **Set Browser Cookie Source**: Configure `YOUTUBE_COOKIE_BROWSER` in `.env`:
+   ```bash
+   YOUTUBE_COOKIE_BROWSER=chrome  # or firefox, edge, safari
+   ```
+
+2. **Sign In to YouTube**: Open the browser specified above, sign in to YouTube, and watch a video to ensure cookies are active.
+
+**For Docker/Production:**
+The service automatically disables cookie extraction in Docker environments (where browsers aren't available). It will:
+- First attempt download with realistic headers and user-agent
+- Automatically retry without cookies if cookie extraction fails
+- Continue working even if bot detection is encountered occasionally
+
+To explicitly disable cookies in any environment:
+```bash
+# In .env file
+YOUTUBE_COOKIE_BROWSER=  # Leave empty
+# or omit the variable entirely
+```
+
+3. **Update yt-dlp**: Ensure latest version:
+   ```bash
+   pip install --upgrade yt-dlp
+   ```
 
 ### Models Download Slow
 First run downloads ~3GB of models. Ensure stable internet connection.

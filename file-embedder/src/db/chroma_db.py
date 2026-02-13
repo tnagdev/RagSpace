@@ -4,18 +4,21 @@ from chromadb.config import Settings as ChromaSettings
 import numpy as np
 from typing import List, Dict, Any, Optional
 import logging
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class ChromaDatabaseManager:
+
+class ChromaDatabaseManager(metaclass=SingletonMeta):
     """Manages ChromaDB collections for video and audio embeddings."""
     
     def __init__(self):
-        if hasattr(self, 'client') and self.client is not None:
+        # Skip if already initialized (prevents duplicate initialization)
+        if hasattr(self, '_chroma_db_initialized'):
             return
+        
+        self._chroma_db_initialized = True
             
         # Use HttpClient for remote ChromaDB server
         logger.info(f"Connecting to ChromaDB at {settings.chroma_host}:{settings.chroma_port}")

@@ -1,6 +1,7 @@
 """Background task management utilities for non-blocking processing."""
 import asyncio
 import logging
+import os
 import time
 from typing import Set, Coroutine, Any, Optional
 
@@ -156,4 +157,9 @@ class BackgroundTaskManager:
 
 
 # Global instance for the scene-detector service
-background_task_manager = BackgroundTaskManager(max_concurrent=5)
+# Dynamic concurrency based on CPU cores: max(2, min(cpu_count // 2, 6))
+CPU_COUNT = os.cpu_count() or 4
+MAX_CONCURRENT_TASKS = max(2, min(CPU_COUNT // 2, 6))
+background_task_manager = BackgroundTaskManager(max_concurrent=MAX_CONCURRENT_TASKS)
+
+logger.info(f"Background task manager initialized with {MAX_CONCURRENT_TASKS} max concurrent tasks (CPU cores: {CPU_COUNT})")

@@ -6,7 +6,6 @@ import asyncio
 from functools import partial
 from src.config import settings
 from src.utils.file_utils import extract_audio
-from src.utils.background_tasks import background_task_manager
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
 from src.models.events import UploadCompletedEventModel, EventFileMetadata
@@ -17,24 +16,18 @@ from src.services.ImageEmbedderService import ImageEmbedderService
 from src.services.VideoEmbedderService import VideoEmbedderService
 from src.services.UploadManagerService import UploadManagerService
 from src.services.YouTubeDownloaderService import YouTubeDownloaderService
-
-
+from src.decorators.cpu_manager import cpu_executor
 
 
 logger = logging.getLogger(__name__)
 
 
 async def _process_file_in_background(event: UploadCompletedEventModel):
-    """Background task for processing file without blocking the event handler.
-    
-    Args:
-        event: Validated upload completion event
-    """
+    """Process file with CPU-intensive operations using singleton models."""
     try:
         file_data: EventFileMetadata = event.data
         file_type = file_data.fileType
         file_id = event.fileId
-        logger.info(f"[Background] Processing {file_type} file: {file_id}")
 
         match file_type:
             case FileType.VIDEO | FileType.YOUTUBE_VIDEO:
@@ -46,33 +39,26 @@ async def _process_file_in_background(event: UploadCompletedEventModel):
             case _:
                 logger.warning(f"Unsupported file type {file_type} for file: {file_id}")
         
-        logger.info(f"[Background] ✓ Completed processing file: {file_id}")
+        logger.info(f"✓ Completed processing file {file_id}")
     except Exception as e:
-        logger.error(f"[Background] Error processing file {event.fileId}: {e}", exc_info=True)
+        logger.error(f"Error processing file {event.fileId}: {e}", exc_info=True)
 
 
 @rabbitmq_consumer.register_handler(FileEventType.UPLOAD_COMPLETED)
 async def handle_upload_completed(event: UploadCompletedEventModel):
-    """Handle upload completion event and launch background processing.
-    
-    This handler returns immediately after launching a background task to prevent
-    blocking the RabbitMQ consumer and FastAPI event loop during heavy processing.
-    
-    Args:
-        event: Validated upload completion event
-    """
+    """Handle upload completion event and process file."""
     try:
         file_data: EventFileMetadata = event.data
         file_type = file_data.fileType
         file_id = event.fileId
-        background_task_manager.create_task(
-            _process_file_in_background(event),
-            name=f"process_upload_{file_id}"
-        )
-        logger.info(f"✓ Launched background processing for {file_type} file: {file_id} (active tasks: {background_task_manager.active_count})")
+
+        logger.info(f"Processing {file_type} file: {file_id}")
+        await _process_file_in_background(event)
+        logger.info(f"✓ Completed processing {file_type} file: {file_id}")
         
     except Exception as e:
-        logger.error(f"Error launching background task for file {event.fileId}: {e}", exc_info=True)
+        logger.error(f"Error processing file {event.fileId}: {e}", exc_info=True)
+        raise
 
 
 
@@ -104,43 +90,20 @@ async def process_image(event: UploadCompletedEventModel):
         image_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=image_path)
         
-        # Run blocking operations in executor with individual timeouts
-        loop = asyncio.get_event_loop()
-        
+        loop = asyncio.get_running_loop()
         logger.info(f"Starting image embedding for {file_id}...")
-        try:
-            embedding = await asyncio.wait_for(
-                loop.run_in_executor(None, image_embedder.embed_image, image_path),
-                timeout=120.0  # 2 minute timeout for embedding
-            )
-            logger.info(f"Image embedding completed for {file_id}")
-        except asyncio.TimeoutError:
-            logger.error(f"Image embedding timeout for {file_id}")
-            embedding = None
+        embedding = await loop.run_in_executor(cpu_executor, image_embedder.embed_image, image_path)
+        logger.info(f"Image embedding completed for {file_id}")
         
         logger.info(f"Starting OCR text extraction for {file_id}...")
-        try:
-            text = await asyncio.wait_for(
-                loop.run_in_executor(None, image_embedder.extract_text, image_path),
-                timeout=180.0  # 3 minute timeout for OCR
-            )
-            logger.info(f"OCR completed for {file_id}, extracted {len(text) if text else 0} characters")
-        except asyncio.TimeoutError:
-            logger.error(f"OCR timeout for {file_id}")
-            text = None
+        text = await loop.run_in_executor(cpu_executor, image_embedder.extract_text, image_path)
+        logger.info(f"OCR completed for {file_id}, extracted {len(text) if text else 0} characters")
         
         text_embedding = None
         if text:
             logger.info(f"Starting text embedding for {file_id}...")
-            try:
-                text_embedding = await asyncio.wait_for(
-                    loop.run_in_executor(None, image_embedder.embed_text, text),
-                    timeout=60.0
-                )
-                logger.info(f"Text embedding completed for {file_id}")
-            except asyncio.TimeoutError:
-                logger.error(f"Text embedding timeout for {file_id}")
-                text_embedding = None
+            text_embedding = await loop.run_in_executor(cpu_executor, image_embedder.embed_text, text)
+            logger.info(f"Text embedding completed for {file_id}")
 
         try:
             description = await image_embedder.generate_image_description(image_path)
@@ -231,36 +194,35 @@ async def process_audio(event: UploadCompletedEventModel):
         audio_path = os.path.join(temp_dir, original_name)
         await s3_client.download(s3_url=s3_url, s3_key=s3_key, local_path=audio_path)
 
-        # Run blocking transcription in executor
-        loop = asyncio.get_event_loop()
-        transcription = await loop.run_in_executor(
-            None,
-            audio_embedder.transcribe_audio,
-            audio_path
-        )
-            
-        logger.info("Generating audio embeddings...")
+        loop = asyncio.get_running_loop()
+        transcription = await loop.run_in_executor(cpu_executor, audio_embedder.transcribe_audio, audio_path)
+        
+        segments = transcription["segments"]
+        logger.info(f"Generating audio embeddings for {len(segments)} segments...")
+        
         audio_items = []
-        for i, segment in enumerate(transcription["segments"]):
-            text = segment["text"]
-            # Run embedding in executor
-            embedding = await loop.run_in_executor(
-                None,
-                audio_embedder.embed_text,
-                text
-            )
-            audio_items.append({
-                "chunk_id": f"{file_id}#audio#{i}",
-                "segment_index": i,
-                "file_id": file_id,
-                "user_id": user_id,
-                "file_type": FileType.AUDIO,
-                "file_name": original_name,
-                "vector": embedding,
-                "start_time": segment["start"],
-                "end_time": segment["end"],
-                "text": text
-            })
+        SEGMENT_BATCH_SIZE = 5
+        
+        for batch_start in range(0, len(segments), SEGMENT_BATCH_SIZE):
+            batch_end = min(batch_start + SEGMENT_BATCH_SIZE, len(segments))
+            batch_segments = segments[batch_start:batch_end]
+            
+            for i, segment in enumerate(batch_segments, start=batch_start):
+                text = segment["text"]
+                embedding = await loop.run_in_executor(cpu_executor, audio_embedder.embed_text, text)
+                audio_items.append({
+                    "chunk_id": f"{file_id}#audio#{i}",
+                    "segment_index": i,
+                    "file_id": file_id,
+                    "user_id": user_id,
+                    "file_type": FileType.AUDIO,
+                    "file_name": original_name,
+                    "vector": embedding,
+                    "start_time": segment["start"],
+                    "end_time": segment["end"],
+                    "text": text
+                })
+            
         if audio_items:
             chroma_db.upsert_items(chroma_db.text_index_name, audio_items)
             logger.info(f"Successfully embedded audio for file: {file_id}, {len(audio_items)} segments")
@@ -286,7 +248,7 @@ async def process_video(event: UploadCompletedEventModel):
     try:
         s3_client = S3ClientService()
         audio_embedder = AudioEmbedderService()
-        youtube_downloader = YouTubeDownloaderService()
+        youtube_downloader = YouTubeDownloaderService(cookie_browser=settings.youtube_cookie_browser)
         chroma_db = ChromaDatabaseManager()
         
         file_id = event.fileId
@@ -302,6 +264,7 @@ async def process_video(event: UploadCompletedEventModel):
         youtube_url = file_data.youtubeUrl if hasattr(file_data, 'youtubeUrl') else None
 
         video_path = os.path.join(temp_dir, file_data.fileName)
+        loop = asyncio.get_running_loop()
         
         if youtube_url:
             logger.info(f"Downloading YouTube video: {youtube_url}")
@@ -321,42 +284,35 @@ async def process_video(event: UploadCompletedEventModel):
         raw_file_name = os.path.splitext(original_name)[0].lower()
         audio_path = os.path.join(temp_dir, raw_file_name + '_audio.wav')
 
-        # Run blocking operations in executor
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            extract_audio,
-            video_path,
-            audio_path
-        )
-        transcription = await loop.run_in_executor(
-            None,
-            audio_embedder.transcribe_audio,
-            audio_path
-        )
+        await loop.run_in_executor(cpu_executor, extract_audio, video_path, audio_path)
+        transcription = await loop.run_in_executor(cpu_executor, audio_embedder.transcribe_audio, audio_path)
         
-        logger.info("Generating audio embeddings...")
+        segments = transcription["segments"]
+        logger.info(f"Generating audio embeddings for {len(segments)} segments...")
+        
         audio_items = []
-        for i, segment in enumerate(transcription["segments"]):
-            text = segment["text"]
-            # Run embedding in executor
-            embedding = await loop.run_in_executor(
-                None,
-                audio_embedder.embed_text,
-                text
-            )
-            audio_items.append({
-                "chunk_id": f"{file_id}#audio#{i}",
-                "segment_index": i,
-                "file_id": file_id,
-                "user_id": user_id,
-                "file_type": FileType.VIDEO,
-                "file_name": original_name,
-                "vector": embedding,
-                "start_time": segment["start"],
-                "end_time": segment["end"],
-                "text": text
-            })
+        SEGMENT_BATCH_SIZE = 5
+        
+        for batch_start in range(0, len(segments), SEGMENT_BATCH_SIZE):
+            batch_end = min(batch_start + SEGMENT_BATCH_SIZE, len(segments))
+            batch_segments = segments[batch_start:batch_end]
+            
+            for i, segment in enumerate(batch_segments, start=batch_start):
+                text = segment["text"]
+                embedding = await loop.run_in_executor(cpu_executor, audio_embedder.embed_text, text)
+                audio_items.append({
+                    "chunk_id": f"{file_id}#audio#{i}",
+                    "segment_index": i,
+                    "file_id": file_id,
+                    "user_id": user_id,
+                    "file_type": FileType.VIDEO,
+                    "file_name": original_name,
+                    "vector": embedding,
+                    "start_time": segment["start"],
+                    "end_time": segment["end"],
+                    "text": text
+                })
+            
         if audio_items:
             chroma_db.upsert_items(chroma_db.text_index_name, audio_items)
             logger.info(f"Successfully embedded audio for file: {file_id}, {len(audio_items)} segments")

@@ -11,7 +11,6 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageToolCall
 
 from src.config import settings
-from src.decorators.singleton import singleton
 from src.models.chat import ChatMessage, SearchResult
 from src.tools.definitions import TOOLS
 from src.services.SummaryService import SummaryService
