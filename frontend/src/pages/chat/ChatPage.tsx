@@ -308,9 +308,8 @@ const ChatPage: React.FC = () => {
     return (
         <div className="flex gap-6 h-full">
             {/* Left Panel - Conversations */}
-            <div className={`flex flex-col transition-all duration-300 relative ${
-                isLeftPanelCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-64 opacity-100'
-            }`}>
+            <div className={`flex flex-col transition-all duration-300 relative ${isLeftPanelCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-64 opacity-100'
+                }`}>
                 <ConversationList
                     conversations={globalConversations}
                     currentConversationId={currentConversationId}
@@ -319,7 +318,7 @@ const ChatPage: React.FC = () => {
                     isLoading={conversationsQuery.isLoading}
                 />
             </div>
-            
+
             {/* Collapse/Expand Toggle Button */}
             <button
                 onClick={() => {

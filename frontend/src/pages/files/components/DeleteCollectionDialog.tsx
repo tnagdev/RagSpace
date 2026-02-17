@@ -50,10 +50,10 @@ export const DeleteCollectionDialog: React.FC<
         >
             <div className="space-y-5">
                 {/* Warning banner */}
-                <div className="flex gap-3.5 py-4 rounded-lg bg-status-warning/8">
+                <div className="flex gap-3.5 p-4 rounded-lg bg-status-warning/8">
                     <AlertTriangle
-                        className="shrink-0 text-status-warning mt-1.5"
-                        size={25}
+                        className="shrink-0 text-status-warning mt-0.5"
+                        size={24}
                     />
                     <div className="flex-1">
                         <p className="font-medium mb-1 text-text-primary leading-snug">
@@ -106,9 +106,8 @@ export const DeleteCollectionDialog: React.FC<
                         variant="danger"
                         onClick={handleDelete}
                         disabled={deleteCollection.isPending}
-                        loading={deleteCollection.isPending}
                     >
-                        Delete Collection
+                        {deleteCollection.isPending ? 'Processing...' : 'Delete Collection'}
                     </Button>
                 </div>
             </div>

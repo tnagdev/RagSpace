@@ -4,3 +4,5 @@ export * from './quota.guard';
 export * from './plan.guard';
 export * from './quota.decorator';
 export * from './usage-tracking.interceptor';
+export * from './file-quota.decorator';
+export * from './file-quota.guard';

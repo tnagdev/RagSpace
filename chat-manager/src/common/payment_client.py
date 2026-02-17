@@ -13,8 +13,8 @@ class UsageMetricType(str, Enum):
     STORAGE = "STORAGE"
     FILE_CONVERSATIONS = "FILE_CONVERSATIONS"
     YOUTUBE_VIDEOS = "YOUTUBE_VIDEOS"
-    EMBEDDINGS = "EMBEDDINGS"
     MAX_VIDEO_LENGTH = "MAX_VIDEO_LENGTH"
+    MAX_AUDIO_DURATION = "MAX_AUDIO_DURATION"
 
 
 class UsageCheckResult:
@@ -51,7 +51,7 @@ class PaymentClient:
         """Check if user can perform an action based on usage quota"""
         try:
             response = await self.client.post(
-                f"{self.base_url}/api/usage/check",
+                f"{self.base_url}/usage/check",
                 json={"metric": metric.value, "amount": amount},
                 headers={
                     "x-user": f'{{"id": "{user_id}"}}',
@@ -84,7 +84,7 @@ class PaymentClient:
         """Track usage after successful operation"""
         try:
             await self.client.post(
-                f"{self.base_url}/api/usage/track",
+                f"{self.base_url}/usage/track",
                 json={"metric": metric.value, "amount": amount, "metadata": metadata},
                 headers={
                     "x-user": f'{{"id": "{user_id}"}}',
@@ -105,7 +105,7 @@ class PaymentClient:
         """Decrement usage (e.g., when deleting a resource)"""
         try:
             await self.client.post(
-                f"{self.base_url}/api/usage/decrement",
+                f"{self.base_url}/usage/decrement",
                 json={"metric": metric.value, "amount": amount},
                 headers={
                     "x-user": f'{{"id": "{user_id}"}}',
@@ -124,7 +124,7 @@ class PaymentClient:
         """Validate if user's plan meets minimum requirements"""
         try:
             response = await self.client.get(
-                f"{self.base_url}/api/validation/plan-type",
+                f"{self.base_url}/validation/plan-type",
                 headers={
                     "x-user": f'{{"id": "{user_id}"}}',
                     "x-service": self.service_name,
@@ -162,7 +162,7 @@ class PaymentClient:
         """Get remaining quota for a metric"""
         try:
             response = await self.client.get(
-                f"{self.base_url}/api/usage/remaining",
+                f"{self.base_url}/usage/remaining",
                 params={"metric": metric.value},
                 headers={
                     "x-user": f'{{"id": "{user_id}"}}',

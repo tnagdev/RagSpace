@@ -8,6 +8,7 @@ from src.models.chat import Conversation, ChatMessage, ConversationSummary
 from src.config import settings
 from src.decorators.singleton import SingletonMeta
 from src.services.PrismaService import PrismaService
+from src.common.payment_client import get_payment_client, UsageMetricType
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class ConversationService(metaclass=SingletonMeta):
     async def create_conversation(self, user_id: str, initial_message: Optional[str] = None, 
                                   file_ids: Optional[List[str]] = None, file_id: Optional[str] = None,
                                   collection_id: Optional[str] = None) -> str:
-        """Create a new conversation"""
+        """Create a new conversation (quota validation handled by decorator)"""
         await self.prisma_service.ensure_connected()
         
         conversation_id = str(uuid.uuid4())
@@ -233,7 +234,7 @@ class ConversationService(metaclass=SingletonMeta):
         return summaries
     
     async def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
-        """Delete a conversation"""
+        """Delete a conversation and decrement usage"""
         await self.prisma_service.ensure_connected()
         
         # Verify conversation exists and belongs to user
@@ -242,44 +243,160 @@ class ConversationService(metaclass=SingletonMeta):
         )
         
         if not conversation or conversation.userId != user_id:
+            logger.warning(f"Conversation {conversation_id} not found for user {user_id}")
             return False
         
-        # Delete conversation (messages will cascade delete)
+        # Store file_id before deletion for usage tracking
+        file_id = conversation.fileId
+        
+        # Delete messages first (cascade should handle this, but being explicit)
+        await self.prisma_service.prisma.message.delete_many(
+            where={"conversationId": conversation_id}
+        )
+        
+        # Delete conversation
         await self.prisma_service.prisma.conversation.delete(
             where={"id": conversation_id}
         )
+        
+        # Decrement usage - CONVERSATIONS and FILE_CONVERSATIONS are separate quotas
+        try:
+            payment_client = get_payment_client()
+            
+            if file_id:
+                # File-specific conversation: decrement FILE_CONVERSATIONS only
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.FILE_CONVERSATIONS,
+                    1
+                )
+            else:
+                # General conversation: decrement CONVERSATIONS only
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.CONVERSATIONS,
+                    1
+                )
+        except Exception as e:
+            logger.error(f"Failed to decrement conversation usage: {e}")
+            # Continue if tracking fails (non-blocking)
         
         logger.info(f"Deleted conversation {conversation_id}")
         return True
     
     async def delete_conversations_by_file_id(self, file_id: str, user_id: str) -> int:
-        """Delete all conversations for a specific file"""
+        """Delete all conversations for a specific file with usage tracking"""
         await self.prisma_service.ensure_connected()
+        
+        # Delete conversations and get actual count deleted
+        # This is thread-safe - if concurrent requests happen, only one will delete the conversations
         result = await self.prisma_service.prisma.conversation.delete_many(
             where={
                 "fileId": file_id,
                 "userId": user_id
             }
         )
-        logger.info(f"Deleted {result} conversations for file {file_id}")
-        return result
+        
+        count = result
+        if count == 0:
+            return 0
+        
+        # Decrement usage counters - file conversations only decrement FILE_CONVERSATIONS
+        try:
+            payment_client = get_payment_client()
+            
+            # All conversations with fileId are file-specific
+            # Only decrement FILE_CONVERSATIONS (separate quota from general CONVERSATIONS)
+            await payment_client.decrement_usage(
+                user_id,
+                UsageMetricType.FILE_CONVERSATIONS,
+                count
+            )
+            
+            logger.info(f"Deleted {count} file conversations for file {file_id} and decremented FILE_CONVERSATIONS")
+        except Exception as e:
+            logger.error(f"Failed to decrement usage after bulk delete: {e}")
+            # Continue despite tracking failure (non-blocking)
+        
+        return count
     
     async def delete_conversations_by_collection_id(self, collection_id: str, user_id: str) -> int:
-        """Delete all conversations for a specific collection"""
+        """Delete all conversations for a specific collection with usage tracking"""
         await self.prisma_service.ensure_connected()
-        result = await self.prisma_service.prisma.conversation.delete_many(
+        
+        # Fetch conversations with fileId info to minimize race condition window
+        # We need this to know how many are file-specific vs general
+        conversations = await self.prisma_service.prisma.conversation.find_many(
             where={
                 "collectionId": collection_id,
                 "userId": user_id
+            },
+            select={"id": True, "fileId": True}
+        )
+        
+        if len(conversations) == 0:
+            return 0
+        
+        # Get counts before deletion
+        total_count = len(conversations)
+        file_conversations_count = sum(1 for conv in conversations if conv.fileId is not None)
+        conversation_ids = [conv.id for conv in conversations]
+        
+        # Delete by specific IDs to ensure we only delete what we counted
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "id": {"in": conversation_ids},
+                "userId": user_id  # Additional safety check
             }
         )
-        logger.info(f"Deleted {result} conversations for collection {collection_id}")
-        return result
+        
+        # Use the actual delete count (in case of race condition, result might be less)
+        actual_deleted = result
+        
+        # Decrement usage counters - separate quotas for general vs file conversations
+        try:
+            payment_client = get_payment_client()
+            
+            # Calculate proportional counts if we deleted less than expected (race condition)
+            general_conversations_count = total_count - file_conversations_count
+            
+            if actual_deleted < total_count and total_count > 0:
+                # Proportionally reduce both counts
+                ratio = actual_deleted / total_count
+                file_conversations_to_decrement = int(ratio * file_conversations_count)
+                general_conversations_to_decrement = int(ratio * general_conversations_count)
+            else:
+                file_conversations_to_decrement = file_conversations_count
+                general_conversations_to_decrement = general_conversations_count
+            
+            # Decrement FILE_CONVERSATIONS for file-specific conversations
+            if file_conversations_to_decrement > 0:
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.FILE_CONVERSATIONS,
+                    file_conversations_to_decrement
+                )
+            
+            # Decrement CONVERSATIONS for general conversations
+            if general_conversations_to_decrement > 0:
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.CONVERSATIONS,
+                    general_conversations_to_decrement
+                )
+            
+            logger.info(f"Deleted {actual_deleted} conversations for collection {collection_id} ({file_conversations_to_decrement} file-specific, {general_conversations_to_decrement} general) and decremented usage")
+        except Exception as e:
+            logger.error(f"Failed to decrement usage after bulk delete: {e}")
+            # Continue despite tracking failure (non-blocking)
+        
+        return actual_deleted
     
     async def delete_conversations_by_file_ids(self, file_ids: list[str], user_id: str) -> int:
-        """Delete all conversations for multiple files in batch"""
+        """Delete all conversations for multiple files in batch with usage tracking"""
         await self.prisma_service.ensure_connected()
         
+        # Delete conversations and get actual count deleted (thread-safe)
         result = await self.prisma_service.prisma.conversation.delete_many(
             where={
                 "fileId": {"in": file_ids},
@@ -287,22 +404,99 @@ class ConversationService(metaclass=SingletonMeta):
             }
         )
         
-        logger.info(f"Deleted {result} conversations for {len(file_ids)} files")
-        return result
+        count = result
+        if count == 0:
+            return 0
+        
+        # Decrement usage counters - file conversations only decrement FILE_CONVERSATIONS
+        try:
+            payment_client = get_payment_client()
+            
+            # All conversations with fileId are file-specific
+            # Only decrement FILE_CONVERSATIONS (separate quota from general CONVERSATIONS)
+            await payment_client.decrement_usage(
+                user_id,
+                UsageMetricType.FILE_CONVERSATIONS,
+                count
+            )
+            
+            logger.info(f"Deleted {count} file conversations for {len(file_ids)} files and decremented FILE_CONVERSATIONS")
+        except Exception as e:
+            logger.error(f"Failed to decrement usage after bulk delete: {e}")
+            # Continue despite tracking failure (non-blocking)
+        
+        return count
     
     async def delete_conversations_by_collection_ids(self, collection_ids: list[str], user_id: str) -> int:
-        """Delete all conversations for multiple collections in batch"""
+        """Delete all conversations for multiple collections in batch with usage tracking"""
         await self.prisma_service.ensure_connected()
         
-        result = await self.prisma_service.prisma.conversation.delete_many(
+        # Fetch conversations with fileId info to minimize race condition window
+        conversations = await self.prisma_service.prisma.conversation.find_many(
             where={
                 "collectionId": {"in": collection_ids},
                 "userId": user_id
+            },
+            select={"id": True, "fileId": True}
+        )
+        
+        if len(conversations) == 0:
+            return 0
+        
+        # Get counts before deletion
+        total_count = len(conversations)
+        file_conversations_count = sum(1 for conv in conversations if conv.fileId is not None)
+        conversation_ids = [conv.id for conv in conversations]
+        
+        # Delete by specific IDs to ensure we only delete what we counted
+        result = await self.prisma_service.prisma.conversation.delete_many(
+            where={
+                "id": {"in": conversation_ids},
+                "userId": user_id  # Additional safety check
             }
         )
         
-        logger.info(f"Deleted {result} conversations for {len(collection_ids)} collections")
-        return result
+        # Use the actual delete count
+        actual_deleted = result
+        
+        # Decrement usage counters - separate quotas for general vs file conversations
+        try:
+            payment_client = get_payment_client()
+            
+            # Calculate proportional counts if we deleted less than expected (race condition)
+            general_conversations_count = total_count - file_conversations_count
+            
+            if actual_deleted < total_count and total_count > 0:
+                # Proportionally reduce both counts
+                ratio = actual_deleted / total_count
+                file_conversations_to_decrement = int(ratio * file_conversations_count)
+                general_conversations_to_decrement = int(ratio * general_conversations_count)
+            else:
+                file_conversations_to_decrement = file_conversations_count
+                general_conversations_to_decrement = general_conversations_count
+            
+            # Decrement FILE_CONVERSATIONS for file-specific conversations
+            if file_conversations_to_decrement > 0:
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.FILE_CONVERSATIONS,
+                    file_conversations_to_decrement
+                )
+            
+            # Decrement CONVERSATIONS for general conversations
+            if general_conversations_to_decrement > 0:
+                await payment_client.decrement_usage(
+                    user_id,
+                    UsageMetricType.CONVERSATIONS,
+                    general_conversations_to_decrement
+                )
+            
+            logger.info(f"Deleted {actual_deleted} conversations for {len(collection_ids)} collections ({file_conversations_to_decrement} file-specific, {general_conversations_to_decrement} general) and decremented usage")
+        except Exception as e:
+            logger.error(f"Failed to decrement usage after bulk delete: {e}")
+            # Continue despite tracking failure (non-blocking)
+        
+        return actual_deleted
     
     def _generate_title(self, message: str) -> str:
         """Generate a title from the first message"""

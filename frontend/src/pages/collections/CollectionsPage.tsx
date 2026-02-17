@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { TreeView, type TreeNode, type TreeAction } from '@/components/TreeView';
 import { CreateCollectionDialog } from '../files/components/CreateCollectionDialog';
 import { DeleteCollectionDialog } from '../files/components/DeleteCollectionDialog';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FileCard } from '../files/components/FileCard';
 import { FileTableRow } from '../files/components/FileTableRow';
 import { CollectionCard } from './components/CollectionCard';
@@ -35,6 +36,8 @@ const CollectionsPage = () => {
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+    const [fileToRemove, setFileToRemove] = useState<string | null>(null);
 
     // Load root collections
     const { data: rootCollections, isLoading, refetch } = useCollections(null);
@@ -133,13 +136,20 @@ const CollectionsPage = () => {
     );
 
     const handleRemoveFromCollection = useCallback(
-        async (fileId: string) => {
-            if (!selectedCollectionId) return;
+        (fileId: string) => {
+            setFileToRemove(fileId);
+        },
+        []
+    );
+
+    const confirmRemoveFromCollection = useCallback(
+        async () => {
+            if (!fileToRemove || !selectedCollectionId) return;
 
             removeFilesFromCollection.mutate(
                 {
                     collectionId: selectedCollectionId,
-                    data: { fileIds: [fileId] },
+                    data: { fileIds: [fileToRemove] },
                 },
                 {
                     onSuccess: async () => {
@@ -149,16 +159,25 @@ const CollectionsPage = () => {
                             const parentChildren = await collectionAPI.getCollections(selectedCollection.parentId);
                             setLoadedChildren(prev => new Map(prev).set(selectedCollection.parentId!, parentChildren));
                         }
+                        setFileToRemove(null);
                     },
                 }
             );
         },
-        [selectedCollectionId, selectedCollection, removeFilesFromCollection, refetchSelected, refetch, loadedChildren]
+        [fileToRemove, selectedCollectionId, selectedCollection, removeFilesFromCollection, refetchSelected, refetch, loadedChildren]
     );
 
     const handleDeleteFile = useCallback(
-        async (fileId: string) => {
-            deleteFile.mutate(fileId, {
+        (fileId: string) => {
+            setFileToDelete(fileId);
+        },
+        []
+    );
+
+    const confirmDeleteFile = useCallback(
+        async () => {
+            if (!fileToDelete) return;
+            deleteFile.mutate(fileToDelete, {
                 onSuccess: async () => {
                     await refetchSelected();
                     await refetch();
@@ -166,10 +185,11 @@ const CollectionsPage = () => {
                         const parentChildren = await collectionAPI.getCollections(selectedCollection.parentId);
                         setLoadedChildren(prev => new Map(prev).set(selectedCollection.parentId!, parentChildren));
                     }
+                    setFileToDelete(null);
                 },
             });
         },
-        [deleteFile, selectedCollection, refetchSelected, refetch, loadedChildren]
+        [fileToDelete, deleteFile, selectedCollection, refetchSelected, refetch, loadedChildren]
     );
 
     const allItems: CollectionItemUnion[] = selectedCollection?.items || [];
@@ -619,6 +639,32 @@ const CollectionsPage = () => {
                 title="Add Files to Collection"
                 description="Select files to add to this collection"
                 confirmButtonText="Add"
+            />
+
+            {/* Delete File Confirmation Dialog */}
+            <ConfirmDialog
+                isOpen={fileToDelete !== null}
+                onClose={() => setFileToDelete(null)}
+                onConfirm={confirmDeleteFile}
+                title="Delete File"
+                message="Are you sure you want to delete this file? This action cannot be undone and the file cannot be recovered."
+                confirmText="Delete"
+                cancelText="Cancel"
+                variant="danger"
+                isLoading={deleteFile.isPending}
+            />
+
+            {/* Remove File from Collection Confirmation Dialog */}
+            <ConfirmDialog
+                isOpen={fileToRemove !== null}
+                onClose={() => setFileToRemove(null)}
+                onConfirm={confirmRemoveFromCollection}
+                title="Remove File from Collection"
+                message="Are you sure you want to remove this file from the collection? The file itself will not be deleted."
+                confirmText="Remove"
+                cancelText="Cancel"
+                variant="warning"
+                isLoading={removeFilesFromCollection.isPending}
             />
         </div>
     );

@@ -4,17 +4,22 @@ generator client {
 
 datasource db {
     provider = "postgresql"
+    schemas  = ["payment"]
 }
 
 enum PlanType {
     FREE
     BASIC
     PRO
+
+    @@schema("payment")
 }
 
 enum PlanInterval {
     MONTHLY
     YEARLY
+
+    @@schema("payment")
 }
 
 enum SubscriptionStatus {
@@ -24,6 +29,8 @@ enum SubscriptionStatus {
     PAST_DUE
     PAUSED
     TRIALING
+
+    @@schema("payment")
 }
 
 enum UsageMetricType {
@@ -32,6 +39,9 @@ enum UsageMetricType {
     FILE_CONVERSATIONS
     YOUTUBE_VIDEOS
     MAX_VIDEO_LENGTH
+    MAX_AUDIO_DURATION
+
+    @@schema("payment")
 }
 
 model Plan {
@@ -60,6 +70,7 @@ model Plan {
     subscriptions Subscription[]
 
     @@map("plans")
+    @@schema("payment")
 }
 
 model Subscription {
@@ -95,6 +106,7 @@ model Subscription {
     @@index([userId])
     @@index([status])
     @@map("subscriptions")
+    @@schema("payment")
 }
 
 model UsageQuota {
@@ -115,6 +127,7 @@ model UsageQuota {
     @@unique([subscriptionId, metricType])
     @@index([subscriptionId])
     @@map("usage_quotas")
+    @@schema("payment")
 }
 
 model UsageRecord {
@@ -141,6 +154,7 @@ model UsageRecord {
     @@index([metricType])
     @@index([timestamp])
     @@map("usage_records")
+    @@schema("payment")
 }
 
 model WebhookEvent {
@@ -158,6 +172,7 @@ model WebhookEvent {
     @@index([processed])
     @@index([eventType])
     @@map("webhook_events")
+    @@schema("payment")
 }
 
 model PaymentHistory {
@@ -184,4 +199,5 @@ model PaymentHistory {
     @@index([userId])
     @@index([subscriptionId])
     @@map("payment_history")
+    @@schema("payment")
 }

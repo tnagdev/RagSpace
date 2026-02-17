@@ -14,9 +14,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.11-slim
 
+# Install runtime dependencies including Node.js for Prisma
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
+    libatomic1 \
+    openssl \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1001 appuser && \
@@ -32,8 +38,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
 
 # Create temp directory with proper permissions
-RUN mkdir -p /tmp/scene-detector && \
+RUN mkdir -p /tmp/scene-detector /home/appuser/.cache && \
     chown -R appuser:appuser /tmp/scene-detector && \
+    chown -R appuser:appuser /home/appuser/.cache && \
     chmod -R 755 /tmp/scene-detector
 
 COPY --chown=appuser:appuser . .

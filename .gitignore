@@ -108,6 +108,7 @@ docker-compose.override.yml
 .env.production
 .env.production.local
 *.env
+*.env.docker
 .envrc
 
 # ============== IDEs and Editors ==============

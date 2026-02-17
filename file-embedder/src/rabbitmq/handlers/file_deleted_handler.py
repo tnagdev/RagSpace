@@ -35,8 +35,7 @@ async def handle_file_deleted(event: FileDeletedEventModel) -> None:
     
     try:
         logger.info(f"Processing deletion for {len(file_ids)} file(s): {file_ids}")
-        
-        # Clean up ChromaDB embeddings using batch method
+
         chroma_db = ChromaDatabaseManager()
         try:
             chroma_db.delete_by_file_ids(file_ids)

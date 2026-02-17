@@ -7,6 +7,7 @@ import { FileCard } from './components/FileCard';
 import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage } from '@/types/upload.types';
@@ -30,6 +31,7 @@ const FilesPage = () => {
     const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
     const [isCollectionPanelOpen, setIsCollectionPanelOpen] = useState(false);
     const [selectedFileForCollection, setSelectedFileForCollection] = useState<string | null>(null);
+    const [fileToDelete, setFileToDelete] = useState<string | null>(null);
 
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
@@ -175,16 +177,25 @@ const FilesPage = () => {
     );
 
     const handleDeleteFile = useCallback(
-        async (id: string) => {
+        (id: string) => {
+            setFileToDelete(id);
+        },
+        []
+    );
+
+    const confirmDeleteFile = useCallback(
+        async () => {
+            if (!fileToDelete) return;
             try {
-                await deleteMutation.mutateAsync(id);
+                await deleteMutation.mutateAsync(fileToDelete);
                 refetchCompleted();
                 refetchProcessing();
+                setFileToDelete(null);
             } catch (error) {
                 console.error('Failed to delete file:', error);
             }
         },
-        [deleteMutation, refetchCompleted, refetchProcessing]
+        [fileToDelete, deleteMutation, refetchCompleted, refetchProcessing]
     );
 
     const handleYouTubeSubmit = useCallback(
@@ -407,6 +418,19 @@ const FilesPage = () => {
                     fileIds={[selectedFileForCollection]}
                 />
             )}
+
+            {/* Delete Confirmation Dialog */}
+            <ConfirmDialog
+                isOpen={fileToDelete !== null}
+                onClose={() => setFileToDelete(null)}
+                onConfirm={confirmDeleteFile}
+                title="Delete File"
+                message="Are you sure you want to delete this file? This action cannot be undone and the file cannot be recovered."
+                confirmText="Delete"
+                cancelText="Cancel"
+                variant="danger"
+                isLoading={deleteMutation.isPending}
+            />
         </div>
     );
 };

@@ -1,10 +1,17 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CurrentUser, AuthUser } from '../common/decorators';
+import { Public } from '../common/decorators/public.decorator';
 
-@Controller('api/subscriptions')
+@Controller('/subscriptions')
 export class SubscriptionController {
     constructor(private subscriptionService: SubscriptionService) { }
+
+    @Public()
+    @Post('free')
+    async createFreeSubscription(@Body() body: { userId: string }) {
+        return this.subscriptionService.createFreeSubscription(body.userId);
+    }
 
     @Get('current')
     async getCurrentSubscription(@CurrentUser() user: AuthUser) {

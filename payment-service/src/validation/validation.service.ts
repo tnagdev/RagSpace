@@ -25,7 +25,7 @@ export class ValidationService {
         }
 
         // Check if subscription is in valid state
-        const validStatuses = [SubscriptionStatus.ACTIVE];
+        const validStatuses: SubscriptionStatus[] = [SubscriptionStatus.ACTIVE];
         if (requirement.allowTrial) {
             validStatuses.push(SubscriptionStatus.TRIALING);
         }

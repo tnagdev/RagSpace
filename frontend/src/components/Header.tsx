@@ -2,12 +2,14 @@ import { UserProfile } from './UserAvatar';
 import { Bell, Settings } from 'lucide-react';
 import { IconButton } from './IconButton';
 import { SearchBar } from './SearchBar';
+import { useNavigate } from '@tanstack/react-router';
 
 interface HeaderProps {
   className?: string;
 }
 
 export default function Header({ className }: HeaderProps) {
+  const navigate = useNavigate();
 
   return (
     <>
@@ -33,6 +35,7 @@ export default function Header({ className }: HeaderProps) {
               size="md"
               icon={<Settings className="w-5 h-5" />}
               title="Settings"
+              onClick={() => navigate({ to: '/settings' })}
             />
           </div>
 

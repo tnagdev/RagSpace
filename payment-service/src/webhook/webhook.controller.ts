@@ -10,7 +10,7 @@ import { WebhookService } from './webhook.service';
 import { LemonSqueezyService } from '../providers/lemon-squeezy/lemon-squeezy.service';
 import { Public } from '../common/decorators';
 
-@Controller('api/webhooks')
+@Controller('/webhooks')
 export class WebhookController {
     private readonly logger = new Logger(WebhookController.name);
 

@@ -5,10 +5,10 @@ set -e
 SERVICE_MODE="${1:-main.py}"
 
 echo "Generating Prisma client..."
-python -m prisma generate --schema ./prisma/schema.prisma
+prisma generate --schema ./prisma/schema.prisma
 
 echo "Running database migrations..."
-python -m prisma migrate deploy --schema ./prisma/schema.prisma
+prisma db push --schema ./prisma/schema.prisma --skip-generate
 
 echo "Starting Scene Detector Service: $SERVICE_MODE"
 exec python "$SERVICE_MODE"

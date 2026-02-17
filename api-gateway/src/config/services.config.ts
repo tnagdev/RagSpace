@@ -38,4 +38,10 @@ export const SERVICES: Record<string, ServiceConfig> = {
         url: process.env.CHAT_MANAGER_URL,
         routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*'],
     },
+    PAYMENT_SERVICE: {
+        name: 'payment-service',
+        transport: 'http',
+        url: process.env.PAYMENT_SERVICE_URL,
+        routes: ['/api/plans', '/api/plans/*', '/api/subscriptions', '/api/subscriptions/*', '/api/usage', '/api/usage/*', '/api/validation', '/api/validation/*', '/api/webhooks/*'],
+    },
 };

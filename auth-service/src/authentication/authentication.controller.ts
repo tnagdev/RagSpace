@@ -73,6 +73,7 @@ export class AuthenticationController {
                 const data = await result.json();
                 if (data.user && data.user.id) {
                     await this.authService.updateUserUsername(data.user.id, finalUsername);
+                    await this.authService.createFreeSubscription(data.user.id);
                 }
                 return res.json(data);
             }

@@ -10,6 +10,7 @@ from src.config import settings
 from src.routers import chat, conversations
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
 from src.services.PrismaService import PrismaService
+from src.common.payment_client import init_payment_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +28,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting chat-manager service...")
     logger.info(f"File embedder URL: {settings.file_embedder_url}")
+    
+    # Initialize payment client
+    init_payment_client(
+        base_url=settings.payment_service_url,
+        service_name=settings.service_name,
+        timeout=5
+    )
+    logger.info(f"Payment client initialized: {settings.payment_service_url}")
     
     # Connect to Prisma database
     prisma_service = PrismaService()

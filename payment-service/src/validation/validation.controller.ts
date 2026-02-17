@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { ValidationService } from './validation.service';
 import { CurrentUser, AuthUser, Public } from '../common/decorators';
 
-@Controller('api/validation')
+@Controller('/validation')
 export class ValidationController {
     constructor(private validationService: ValidationService) { }
 

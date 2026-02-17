@@ -177,7 +177,14 @@ class SceneProcessor:
 
             if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
                 logger.info(f"Skipping scene detection for non-video file type: {file_type}")
-                return
+                return await self.upload_manager_client.update_file_status(
+                    file_id,
+                    UpdateFileStatusParams(
+                        processingStatus=ProcessingStatus.COMPLETED.value,
+                        processingStage=ProcessingStage.COMPLETED.value,
+                        processingCompletedAt=datetime.utcnow()
+                    )
+                )
             
             scenes_data = await loop.run_in_executor(cpu_executor, self.scene_detection_service.detect_scenes, file_path)
             

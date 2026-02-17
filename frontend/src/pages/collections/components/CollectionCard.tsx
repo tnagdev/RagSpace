@@ -3,6 +3,7 @@ import { Folder, MoreVertical, Pencil, Trash2, FolderPlus, Clock, File, MessageS
 import { useNavigate } from '@tanstack/react-router';
 import moment from 'moment';
 import type { Collection } from '@/types/collection.types';
+import Popover from '@/components/Popover';
 
 interface CollectionCardProps {
     collection: Collection;
@@ -20,6 +21,7 @@ export const CollectionCard: FC<CollectionCardProps> = ({
     onAddSubcollection
 }) => {
     const [showMenu, setShowMenu] = useState(false);
+    const [menuButtonRef, setMenuButtonRef] = useState<HTMLElement | null>(null);
     const navigate = useNavigate();
 
     const fileCount = collection._count?.fileCollections || 0;
@@ -49,78 +51,74 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                     </div>
 
                     {/* Actions Menu */}
-                    <div className="relative">
+                    <button
+                        ref={setMenuButtonRef}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(!showMenu);
+                        }}
+                        className="p-2 rounded-lg hover:bg-sidebar-hover transition-colors"
+                    >
+                        <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
+                    </button>
+
+                    <Popover
+                        isOpen={showMenu}
+                        onClose={() => setShowMenu(false)}
+                        trigger={menuButtonRef}
+                        className="w-48 py-1"
+                    >
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setShowMenu(!showMenu);
+                                navigate({ to: `/collections/${collection.id}/chat` });
+                                setShowMenu(false);
                             }}
-                            className="p-2 rounded-lg hover:bg-sidebar-hover transition-colors"
+                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
                         >
-                            <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
+                            <MessageSquare className="w-4 h-4" />
+                            Chat
                         </button>
-
-                        {showMenu && (
-                            <>
-                                <div
-                                    className="fixed inset-0 z-10"
-                                    onClick={() => setShowMenu(false)}
-                                />
-                                <div className="absolute right-0 top-full mt-2 w-44 bg-bg-secondary border border-sidebar-border rounded-xl shadow-2xl z-20 overflow-hidden backdrop-blur-xl">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            navigate({ to: `/collections/${collection.id}/chat` });
-                                            setShowMenu(false);
-                                        }}
-                                        className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
-                                    >
-                                        <MessageSquare className="w-4 h-4" />
-                                        Chat
-                                    </button>
-                                    {onAddSubcollection && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onAddSubcollection(collection);
-                                                setShowMenu(false);
-                                            }}
-                                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
-                                        >
-                                            <FolderPlus className="w-4 h-4" />
-                                            Add Subcollection
-                                        </button>
-                                    )}
-                                    {onEdit && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit(collection);
-                                                setShowMenu(false);
-                                            }}
-                                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
-                                        >
-                                            <Pencil className="w-4 h-4" />
-                                            Edit
-                                        </button>
-                                    )}
-                                    {onDelete && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDelete(collection);
-                                                setShowMenu(false);
-                                            }}
-                                            className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all flex items-center gap-3"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            </>
+                        {onAddSubcollection && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAddSubcollection(collection);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                            >
+                                <FolderPlus className="w-4 h-4" />
+                                Add Subcollection
+                            </button>
                         )}
-                    </div>
+                        {onEdit && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEdit(collection);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                            >
+                                <Pencil className="w-4 h-4" />
+                                Edit
+                            </button>
+                        )}
+                        {onDelete && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete(collection);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all flex items-center gap-3"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                            </button>
+                        )}
+                    </Popover>
                 </div>
 
                 {/* Collection Name */}

@@ -7,7 +7,6 @@ export interface PlanLimits {
     [UsageMetricType.STORAGE]?: number;
     [UsageMetricType.FILE_CONVERSATIONS]?: number;
     [UsageMetricType.YOUTUBE_VIDEOS]?: number;
-    [UsageMetricType.EMBEDDINGS]?: number;
     [UsageMetricType.MAX_VIDEO_LENGTH]?: number;
     [key: string]: number | undefined; // Index signature for Record compatibility
 }

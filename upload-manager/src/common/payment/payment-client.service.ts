@@ -8,8 +8,8 @@ export enum UsageMetricType {
     STORAGE = 'STORAGE',
     FILE_CONVERSATIONS = 'FILE_CONVERSATIONS',
     YOUTUBE_VIDEOS = 'YOUTUBE_VIDEOS',
-    EMBEDDINGS = 'EMBEDDINGS',
     MAX_VIDEO_LENGTH = 'MAX_VIDEO_LENGTH',
+    MAX_AUDIO_DURATION = 'MAX_AUDIO_DURATION',
 }
 
 export interface UsageCheckResult {
@@ -234,6 +234,28 @@ export class PaymentClientService {
             return response.data;
         } catch (error) {
             this.logger.error(`Failed to get usage stats: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Get user's plan limits
+     */
+    async getUserPlanLimits(userId: string): Promise<Record<string, number> | null> {
+        try {
+            const stats = await this.getUsageStats(userId);
+            if (!stats || !stats.quotas) {
+                return null;
+            }
+
+            const limits: Record<string, number> = {};
+            for (const quota of stats.quotas) {
+                limits[quota.metric] = quota.limit;
+            }
+
+            return limits;
+        } catch (error) {
+            this.logger.error(`Failed to get user plan limits: ${error.message}`);
             return null;
         }
     }

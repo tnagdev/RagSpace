@@ -24,6 +24,8 @@ import { UpdateFileDto } from './dto/update-file.dto';
 import { InitMultipartUploadDto } from './dto/init-multipart.dto';
 import { CompleteMultipartUploadDto } from './dto/complete-multipart.dto';
 import { SubmitYouTubeLinkDto } from './dto/submit-youtube-link.dto';
+import { ValidateFileUpload } from '../../common/payment/file-quota.decorator';
+import { CheckQuota, UsageMetricType } from '../../common/payment';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
@@ -41,6 +43,13 @@ export class UploadController {
 
     @Post()
     @UseInterceptors(FileInterceptor('file'))
+    @ValidateFileUpload({
+        validateVideoDuration: true,
+        validateImageDimensions: true,
+        validateAudioDuration: true,
+        blockDocuments: true,
+        checkStorage: true,
+    })
     async uploadFile(
         @UploadedFile()
         file: Express.Multer.File,
@@ -110,6 +119,13 @@ export class UploadController {
     }
 
     @Post('multipart/init')
+    @ValidateFileUpload({
+        checkStorage: true,
+        blockDocuments: true,
+        getFileSize: (req) => req.body.fileSize,
+        getMimeType: (req) => req.body.mimeType,
+        getFileName: (req) => req.body.fileName,
+    })
     async initMultipartUpload(
         @Body() dto: InitMultipartUploadDto,
         @CurrentUser() user: AuthUser,
@@ -147,6 +163,10 @@ export class UploadController {
     }
 
     @Post('youtube')
+    @CheckQuota({
+        metric: UsageMetricType.YOUTUBE_VIDEOS,
+        amount: 1,
+    })
     async submitYouTubeLink(
         @Body() dto: SubmitYouTubeLinkDto,
         @CurrentUser() user: AuthUser,

@@ -3,7 +3,7 @@ import { UsageService } from './usage.service';
 import { CurrentUser, AuthUser } from '../common/decorators';
 import { UsageMetricType } from '@prisma/client';
 
-@Controller('api/usage')
+@Controller('/usage')
 export class UsageController {
     constructor(private usageService: UsageService) { }
 

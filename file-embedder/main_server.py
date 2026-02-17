@@ -13,6 +13,8 @@ from src.db.chroma_db import ChromaDatabaseManager
 from src.routers import Search
 from src.services.LLMService import LLMService
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
+from src.services.TextEmbedderService import TextEmbedderService
+from src.services.ImageEmbedderService import ImageEmbedderService
 import pytesseract
 
 
@@ -41,6 +43,12 @@ async def lifespan(app: FastAPI):
         LLMService()
         logger.info("✓ Core services initialized")
 
+        logger.info("Initializing embedder services...")
+        TextEmbedderService()
+        logger.info("✓ Text embedder initialized")
+        ImageEmbedderService()
+        logger.info("✓ Image embedder initialized")
+        
         AdvancedRetrieverService()
         logger.info("✓ Retriever service initialized")
         

@@ -80,6 +80,27 @@ export class SubscriptionService {
         });
     }
 
+    async createFreeSubscription(userId: string) {
+        const existingSubscription = await this.getUserSubscription(userId);
+        if (existingSubscription) {
+            this.logger.log(`User ${userId} already has an active subscription`);
+            return existingSubscription;
+        }
+
+        const freePlan = await this.planService.getPlanByType('FREE' as any);
+        const now = new Date();
+        const periodEnd = new Date(now);
+        periodEnd.setDate(periodEnd.getDate() + 30);
+
+        return this.createSubscription({
+            userId,
+            planId: freePlan.id,
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            status: SubscriptionStatus.ACTIVE,
+        });
+    }
+
     async createCheckoutSession(userId: string, planId: string, userEmail: string) {
         const plan = await this.planService.getPlanById(planId);
 

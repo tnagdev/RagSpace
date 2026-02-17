@@ -3,7 +3,7 @@ import { PlanService } from './plan.service';
 import { Public } from '../common/decorators';
 import { PlanType, PlanInterval } from '@prisma/client';
 
-@Controller('api/plans')
+@Controller('/plans')
 export class PlanController {
     constructor(private planService: PlanService) { }
 

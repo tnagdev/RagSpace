@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from '@tanstack/react-router'
-import { createContext, useContext, type FC } from "react"
+import { createContext, useContext, type FC, useState } from "react"
 import { NavItems } from "@/routes/PrivateRoute";
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import { Logo } from './Logo';
 import { IconButton } from './IconButton';
 import { NavLink } from './NavLink';
-import { useStorageStats } from '@/hooks/useUpload';
+import { UsageWidget } from './UsageWidget';
+import { usePlansModal } from '@/contexts/PlansModalContext';
 
 
 interface SidebarProps {
@@ -30,7 +31,8 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     const { isOpen, setIsOpen } = useContext(SidebarContext);
     const navigate = useNavigate();
     const location = useLocation();
-    const { data: storageStats, isLoading: isLoadingStorage } = useStorageStats();
+    const { openPlansModal } = usePlansModal();
+    const [isUsageExpanded, setIsUsageExpanded] = useState(false);
 
     const handleNavClick = async (item: any, e: React.MouseEvent) => {
         if (item?.path === '/countries') {
@@ -87,32 +89,40 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
             })}
         </nav>
 
-        {/* Storage Plan Section */}
-        <div className={`p-4 mx-3 mb-6 rounded-xl bg-sidebar-hover border border-sidebar-border transition-all duration-300 ${!isOpen ? 'opacity-0 h-0 p-0 m-0 overflow-hidden' : 'opacity-100'}`}>
-            <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-text-secondary">Storage Plan</span>
-                <span className="text-xs text-accent-primary cursor-pointer hover:text-accent-primary-hover transition-colors">
-                    Upgrade
-                </span>
+        {/* Combined Usage Section */}
+        <div className={`mx-3 mb-6 rounded-xl bg-sidebar-hover border border-sidebar-border transition-all duration-300 ${!isOpen ? 'opacity-0 h-0 p-0 m-0 overflow-hidden' : 'opacity-100'}`}>
+            {/* Header with collapse toggle */}
+            <div
+                className="flex items-center justify-between p-4 cursor-pointer hover:bg-sidebar-border/30 transition-colors rounded-t-xl"
+                onClick={() => setIsUsageExpanded(!isUsageExpanded)}
+            >
+                <div className="flex items-center gap-2">
+                    <TrendingUp className="w-3.5 h-3.5 text-accent-primary" />
+                    <span className="text-xs font-semibold text-text-secondary">Usage</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            openPlansModal('Upgrade your plan for more resources');
+                        }}
+                        className="text-xs text-accent-primary hover:text-accent-primary-hover transition-colors"
+                    >
+                        Upgrade
+                    </button>
+                    {isUsageExpanded ? (
+                        <ChevronUp className="w-4 h-4 text-text-muted" />
+                    ) : (
+                        <ChevronDown className="w-4 h-4 text-text-muted" />
+                    )}
+                </div>
             </div>
-            {isLoadingStorage ? (
-                <div className="text-xs text-text-muted">Loading...</div>
-            ) : storageStats ? (
-                <>
-                    <div className="mb-2">
-                        <div className="w-full bg-sidebar-border rounded-full h-2">
-                            <div
-                                className="bg-linear-to-r from-gradient-primary-start to-gradient-primary-end h-2 rounded-full transition-all duration-500"
-                                style={{ width: `${storageStats.usedPercentage}%` }}
-                            ></div>
-                        </div>
-                    </div>
-                    <p className="text-xs text-text-muted">
-                        {storageStats.usedGB} of {storageStats.totalGB} GB ({storageStats.fileCount} files)
-                    </p>
-                </>
-            ) : (
-                <p className="text-xs text-text-muted">Unable to load storage info</p>
+
+            {/* Collapsible Content */}
+            {isUsageExpanded && (
+                <div className="px-4 pb-4">
+                    <UsageWidget variant="sidebar" />
+                </div>
             )}
         </div>
     </aside>

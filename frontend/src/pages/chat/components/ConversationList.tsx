@@ -2,6 +2,8 @@ import { ConversationSummary } from '@/types/chat.types';
 import Button from '@/components/Button';
 import { MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useDeleteConversation } from '@/hooks/useChat';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { useState } from 'react';
 
 interface ConversationListProps {
     conversations: ConversationSummary[];
@@ -33,17 +35,23 @@ const ConversationList: React.FC<ConversationListProps> = ({
     onNewChat,
     isLoading,
 }) => {
+    const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
     const deleteMutation = useDeleteConversation();
 
     const handleDelete = (e: React.MouseEvent, conversationId: string) => {
         e.stopPropagation();
-        if (confirm('Delete this conversation?')) {
-            deleteMutation.mutate(conversationId);
+        setConversationToDelete(conversationId);
+    };
+
+    const confirmDelete = () => {
+        if (conversationToDelete) {
+            deleteMutation.mutate(conversationToDelete);
+            setConversationToDelete(null);
         }
     };
 
     return (
-        <div className="w-full">
+        <div className="w-full min-h-0 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-accent-secondary uppercase tracking-wider">
                     Conversations
@@ -69,7 +77,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
                     No conversations yet
                 </div>
             ) : (
-                <div className="space-y-1 max-h-96 overflow-y-auto custom-scrollbar">
+                <div className="space-y-1 flex-1 overflow-y-auto custom-scrollbar">
                     {conversations.map((conv) => (
                         <button
                             key={conv.id}
@@ -111,6 +119,18 @@ const ConversationList: React.FC<ConversationListProps> = ({
                     ))}
                 </div>
             )}
+
+            <ConfirmDialog
+                isOpen={conversationToDelete !== null}
+                onClose={() => setConversationToDelete(null)}
+                onConfirm={confirmDelete}
+                title="Delete Conversation"
+                message="Are you sure you want to delete this conversation? This action cannot be undone."
+                confirmText="Delete"
+                cancelText="Cancel"
+                variant="danger"
+                isLoading={deleteMutation.isPending}
+            />
         </div>
     );
 };
