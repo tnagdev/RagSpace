@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { LemonSqueezyService } from '../providers/lemon-squeezy/lemon-squeezy.service';
 import { SubscriptionStatus } from '@prisma/client';
 
 @Injectable()
@@ -10,16 +11,35 @@ export class WebhookService {
     constructor(
         private prisma: PrismaService,
         private subscriptionService: SubscriptionService,
+        private lemonSqueezy: LemonSqueezyService,
     ) { }
 
     async processWebhook(eventType: string, payload: any): Promise<void> {
-        // Store webhook event
-        const webhookEvent = await this.prisma.webhookEvent.create({
-            data: {
+        const lemonSqueezyId = payload.meta?.webhook_id || payload.meta?.custom_data?.webhook_id || `${eventType}-${Date.now()}`;
+
+        const existingEvent = await this.prisma.webhookEvent.findUnique({
+            where: { lemonSqueezyId },
+        });
+
+        if (existingEvent) {
+            if (existingEvent.processed) {
+                this.logger.log(`Webhook ${lemonSqueezyId} already processed, skipping`);
+                return;
+            }
+            this.logger.log(`Retrying webhook ${lemonSqueezyId}`);
+        }
+
+        const webhookEvent = await this.prisma.webhookEvent.upsert({
+            where: { lemonSqueezyId },
+            create: {
                 eventType,
-                lemonSqueezyId: payload.meta?.event_name || payload.id,
+                lemonSqueezyId,
                 payload,
                 processed: false,
+            },
+            update: {
+                payload,
+                updatedAt: new Date(),
             },
         });
 
@@ -69,7 +89,6 @@ export class WebhookService {
                     this.logger.warn(`Unhandled webhook event type: ${eventType}`);
             }
 
-            // Mark as processed
             await this.prisma.webhookEvent.update({
                 where: { id: webhookEvent.id },
                 data: { processed: true, processedAt: new Date() },
@@ -85,11 +104,11 @@ export class WebhookService {
     }
 
     private async handleOrderCreated(payload: any): Promise<void> {
-        const { data } = payload;
-        const userId = data.attributes.custom_data?.userId;
+        const { data, meta } = payload;
+        const userId = meta?.custom_data?.user_id;
 
         if (!userId) {
-            this.logger.warn('Order created without userId');
+            this.logger.warn('Order created without userId. Meta custom_data:', JSON.stringify(meta?.custom_data));
             return;
         }
 
@@ -109,32 +128,58 @@ export class WebhookService {
     }
 
     private async handleSubscriptionCreated(payload: any): Promise<void> {
-        const { data } = payload;
-        const userId = data.attributes.custom_data?.userId;
-        const planId = data.attributes.custom_data?.planId;
+        const { data, meta } = payload;
+        const userId = meta?.custom_data?.user_id;
+        const planId = meta?.custom_data?.plan_id;
 
         if (!userId || !planId) {
-            this.logger.warn('Subscription created without userId or planId');
+            this.logger.warn('Subscription created without userId or planId. Meta custom_data:', JSON.stringify(meta?.custom_data));
             return;
         }
 
-        await this.subscriptionService.createSubscription({
-            userId,
-            planId,
-            lemonSqueezySubscriptionId: data.id,
-            lemonSqueezyCustomerId: data.attributes.customer_id,
-            currentPeriodStart: new Date(data.attributes.current_period_start),
-            currentPeriodEnd: new Date(data.attributes.current_period_end),
-            status: this.mapLemonSqueezyStatus(data.attributes.status),
-        });
+        try {
+            await this.subscriptionService.createSubscription({
+                userId,
+                planId,
+                lemonSqueezySubscriptionId: String(data.id),
+                lemonSqueezyCustomerId: String(data.attributes.customer_id),
+                currentPeriodStart: new Date(data.attributes.created_at),
+                currentPeriodEnd: new Date(data.attributes.renews_at),
+                status: this.mapLemonSqueezyStatus(data.attributes.status),
+            });
 
-        this.logger.log(`Subscription created for user ${userId}`);
+            this.logger.log(`Subscription created for user ${userId}`);
+        } catch (error) {
+            this.logger.error(`Failed to create subscription for user ${userId}`, error);
+            const orderId = data.attributes.first_order_id;
+            if (orderId) {
+                try {
+                    const paymentHistory = await this.prisma.paymentHistory.findFirst({
+                        where: { lemonSqueezyOrderId: orderId },
+                    });
+
+                    if (paymentHistory) {
+                        const refundAmount = Math.round(paymentHistory.amount * 100); // Convert to cents
+                        await this.lemonSqueezy.createRefund(orderId, refundAmount);
+                        this.logger.log(`Refund of ${refundAmount} cents issued for order ${orderId} due to subscription creation failure`);
+                    } else {
+                        this.logger.warn(`Payment history not found for order ${orderId} - cannot determine refund amount`);
+                    }
+                } catch (refundError) {
+                    this.logger.error(`Failed to issue refund for order ${orderId}`, refundError);
+                }
+            } else {
+                this.logger.warn(`No order ID found for failed subscription ${data.id} - cannot issue refund`);
+            }
+            throw error;
+        }
     }
 
     private async handleSubscriptionUpdated(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
+            include: { plan: true },
         });
 
         if (!subscription) {
@@ -142,13 +187,50 @@ export class WebhookService {
             return;
         }
 
+        // If subscription has any pending scheduled change (downgrade, cancel_to_free),
+        // only update dates/status — don't process variant changes that would override it
+        if (subscription.scheduledChangeType &&
+            subscription.scheduledChangeAt &&
+            subscription.scheduledChangeAt > new Date()) {
+            this.logger.log(`Subscription ${subscription.id} has scheduled ${subscription.scheduledChangeType} at ${subscription.scheduledChangeAt}, preserving — only updating dates, keeping status ACTIVE`);
+            await this.prisma.subscription.update({
+                where: { id: subscription.id },
+                data: {
+                    // Keep status ACTIVE — user still has access until period end.
+                    // LS sends "cancelled" status but we must not apply it yet or
+                    // getUserSubscription (which filters by ACTIVE/TRIALING) returns null.
+                    currentPeriodStart: new Date(data.attributes.created_at),
+                    currentPeriodEnd: new Date(data.attributes.renews_at),
+                },
+            });
+            return;
+        }
+
+        const updates: any = {
+            status: this.mapLemonSqueezyStatus(data.attributes.status),
+            currentPeriodStart: new Date(data.attributes.created_at),
+            currentPeriodEnd: new Date(data.attributes.renews_at),
+        };
+
+        const newVariantId = data.attributes.variant_id?.toString();
+        if (newVariantId && newVariantId !== subscription.plan.lemonSqueezyVariantId) {
+            const newPlan = await this.prisma.plan.findFirst({
+                where: { lemonSqueezyVariantId: newVariantId },
+            });
+
+            if (newPlan) {
+                updates.planId = newPlan.id;
+                updates.scheduledPlanId = null;
+                updates.scheduledChangeAt = null;
+                updates.scheduledChangeType = null;
+                this.logger.log(`Plan changed from ${subscription.plan.name} to ${newPlan.name} for subscription ${subscription.id}`);
+                await this.subscriptionService.updateUsageQuotasForPlanChange(subscription.id, newPlan);
+            }
+        }
+
         await this.prisma.subscription.update({
             where: { id: subscription.id },
-            data: {
-                status: this.mapLemonSqueezyStatus(data.attributes.status),
-                currentPeriodStart: new Date(data.attributes.current_period_start),
-                currentPeriodEnd: new Date(data.attributes.current_period_end),
-            },
+            data: updates,
         });
 
         this.logger.log(`Subscription updated: ${subscription.id}`);
@@ -157,29 +239,84 @@ export class WebhookService {
     private async handleSubscriptionCancelled(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for cancellation: ${data.id}`);
+            return;
+        }
 
-        if (!subscription) return;
+        // Check if local cancellation already scheduled the change
+        if (subscription.scheduledChangeType === 'cancel_to_free' &&
+            subscription.scheduledChangeAt &&
+            subscription.scheduledChangeAt > new Date()) {
+            this.logger.log(`Subscription ${subscription.id} already has scheduled cancellation at ${subscription.scheduledChangeAt}, webhook ignored to preserve local state`);
+            // Don't update anything - preserve local scheduled changes
+            return;
+        }
 
-        await this.prisma.subscription.update({
-            where: { id: subscription.id },
-            data: {
-                status: SubscriptionStatus.CANCELLED,
-                canceledAt: new Date(),
-            },
-        });
+        const endsAt = data.attributes.ends_at ? new Date(data.attributes.ends_at) : subscription.currentPeriodEnd;
+        const isCancelledAtPeriodEnd = endsAt && endsAt > new Date();
+        if (isCancelledAtPeriodEnd) {
+            const freePlan = await this.prisma.plan.findFirst({
+                where: { type: 'FREE' as any },
+            });
 
-        this.logger.log(`Subscription cancelled: ${subscription.id}`);
+            if (!freePlan) {
+                this.logger.error('Free plan not found for subscription cancellation');
+                return;
+            }
+
+            await this.prisma.subscription.update({
+                where: { id: subscription.id },
+                data: {
+                    cancelAtPeriodEnd: true,
+                    canceledAt: new Date(),
+                    scheduledPlanId: freePlan.id,
+                    scheduledChangeAt: endsAt,
+                    scheduledChangeType: 'cancel_to_free'
+                },
+            });
+            this.logger.log(`Subscription ${subscription.id} cancelled at period end. Will transition to free plan on ${endsAt}`);
+        } else {
+            const freePlan = await this.prisma.plan.findFirst({
+                where: { type: 'FREE' as any },
+            });
+
+            if (!freePlan) {
+                this.logger.error('Free plan not found for subscription cancellation');
+                return;
+            }
+
+            await this.prisma.subscription.update({
+                where: { id: subscription.id },
+                data: {
+                    planId: freePlan.id,
+                    status: SubscriptionStatus.CANCELLED,
+                    canceledAt: new Date(),
+                    scheduledPlanId: null,
+                    scheduledChangeAt: null,
+                    scheduledChangeType: null,
+                    lemonSqueezySubscriptionId: null,
+                    lemonSqueezyCustomerId: null,
+                    lemonSqueezyOrderId: null,
+                },
+            });
+            await this.subscriptionService['updateUsageQuotasForPlanChange'](subscription.id, freePlan);
+            this.logger.log(`Subscription ${subscription.id} cancelled immediately and transitioned to free plan`);
+        }
     }
 
     private async handleSubscriptionResumed(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for resume: ${data.id}`);
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },
@@ -195,26 +332,50 @@ export class WebhookService {
     private async handleSubscriptionExpired(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for expiration: ${data.id}`);
+            return;
+        }
+        const freePlan = await this.prisma.plan.findFirst({
+            where: { type: 'FREE' as any },
+        });
+
+        if (!freePlan) {
+            this.logger.error('Free plan not found for subscription expiration');
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },
-            data: { status: SubscriptionStatus.EXPIRED },
+            data: {
+                planId: freePlan.id,
+                status: SubscriptionStatus.EXPIRED,
+                scheduledPlanId: null,
+                scheduledChangeAt: null,
+                scheduledChangeType: null,
+                cancelAtPeriodEnd: false,
+                lemonSqueezySubscriptionId: null,
+                lemonSqueezyCustomerId: null,
+                lemonSqueezyOrderId: null,
+            },
         });
-
-        this.logger.log(`Subscription expired: ${subscription.id}`);
+        await this.subscriptionService.updateUsageQuotasForPlanChange(subscription.id, freePlan);
+        this.logger.log(`Subscription expired and transitioned to free plan: ${subscription.id}`);
     }
 
     private async handleSubscriptionPaused(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for pause: ${data.id}`);
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },
@@ -227,10 +388,13 @@ export class WebhookService {
     private async handleSubscriptionUnpaused(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for unpause: ${data.id}`);
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },
@@ -243,10 +407,13 @@ export class WebhookService {
     private async handlePaymentSuccess(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for payment success: ${data.id}`);
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },
@@ -274,10 +441,13 @@ export class WebhookService {
     private async handlePaymentFailed(payload: any): Promise<void> {
         const { data } = payload;
         const subscription = await this.prisma.subscription.findUnique({
-            where: { lemonSqueezySubscriptionId: data.id },
+            where: { lemonSqueezySubscriptionId: String(data.id) },
         });
 
-        if (!subscription) return;
+        if (!subscription) {
+            this.logger.warn(`Subscription not found for payment failure: ${data.id}`);
+            return;
+        }
 
         await this.prisma.subscription.update({
             where: { id: subscription.id },

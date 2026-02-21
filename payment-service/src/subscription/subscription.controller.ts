@@ -62,4 +62,9 @@ export class SubscriptionController {
     async resume(@CurrentUser() user: AuthUser) {
         return this.subscriptionService.resumeSubscription(user.id);
     }
+
+    @Delete('scheduled-change')
+    async cancelScheduledChange(@CurrentUser() user: AuthUser) {
+        return this.subscriptionService.cancelScheduledChange(user.id);
+    }
 }

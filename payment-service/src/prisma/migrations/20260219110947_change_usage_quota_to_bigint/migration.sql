@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "usage_quotas" ALTER COLUMN "limit" SET DATA TYPE BIGINT,
+ALTER COLUMN "used" SET DATA TYPE BIGINT;

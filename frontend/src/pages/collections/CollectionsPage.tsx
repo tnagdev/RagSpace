@@ -29,6 +29,7 @@ const CollectionsPage = () => {
     const [isCreateCollectionOpen, setIsCreateCollectionOpen] = useState(false);
     const [isDeleteCollectionOpen, setIsDeleteCollectionOpen] = useState(false);
     const [collectionToDelete, setCollectionToDelete] = useState<Collection | null>(null);
+    const [collectionToEdit, setCollectionToEdit] = useState<Collection | null>(null);
     const [parentIdForNewCollection, setParentIdForNewCollection] = useState<string | undefined>();
     const [loadedChildren, setLoadedChildren] = useState<Map<string, Collection[]>>(new Map());
     const [loadedNodes, setLoadedNodes] = useState<Set<string>>(new Set());
@@ -82,12 +83,14 @@ const CollectionsPage = () => {
 
     const handleCreateCollection = useCallback(() => {
         setParentIdForNewCollection(undefined);
+        setCollectionToEdit(null);
         setIsCreateCollectionOpen(true);
     }, []);
 
     const handleEditCollection = useCallback((collection: Collection) => {
-        // TODO: Implement edit dialog
-        console.log('Edit collection:', collection);
+        setCollectionToEdit(collection);
+        setParentIdForNewCollection(undefined);
+        setIsCreateCollectionOpen(true);
     }, []);
 
     const handleDeleteCollection = useCallback((node: TreeNode) => {
@@ -601,6 +604,7 @@ const CollectionsPage = () => {
                 onClose={() => {
                     setIsCreateCollectionOpen(false);
                     setParentIdForNewCollection(undefined);
+                    setCollectionToEdit(null);
                     // Refresh data after creating collection
                     refetch();
                     if (selectedCollectionId) {
@@ -621,6 +625,7 @@ const CollectionsPage = () => {
                     }
                 }}
                 parentId={parentIdForNewCollection}
+                collection={collectionToEdit || undefined}
             />
             <DeleteCollectionDialog
                 isOpen={isDeleteCollectionOpen}

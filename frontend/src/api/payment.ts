@@ -15,6 +15,11 @@ export const paymentAPI = {
         return response.data;
     },
 
+    getPlansWithComparison: async (): Promise<Plan[]> => {
+        const response = await privateAxios.get<Plan[]>(`${PAYMENT_BASE}/plans/with-comparison`);
+        return response.data;
+    },
+
     getPlanById: async (id: string): Promise<Plan> => {
         const response = await publicAxios.get<Plan>(`${PAYMENT_BASE}/plans/${id}`);
         return response.data;
@@ -77,6 +82,13 @@ export const paymentAPI = {
     resumeSubscription: async (): Promise<Subscription> => {
         const response = await privateAxios.patch<Subscription>(
             `${PAYMENT_BASE}/subscriptions/resume`
+        );
+        return response.data;
+    },
+
+    cancelScheduledChange: async (): Promise<Subscription> => {
+        const response = await privateAxios.delete<Subscription>(
+            `${PAYMENT_BASE}/subscriptions/scheduled-change`
         );
         return response.data;
     },

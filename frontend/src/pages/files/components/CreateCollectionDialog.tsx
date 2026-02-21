@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer } from '@/components/Drawer';
 import Button from '@/components/Button';
-import { useCreateCollection, useCollectionsFlat } from '@/hooks/useCollection';
-import type { CreateCollectionDto } from '@/types/collection.types';
+import { useCreateCollection, useUpdateCollection, useCollectionsFlat } from '@/hooks/useCollection';
+import type { CreateCollectionDto, Collection } from '@/types/collection.types';
 
 interface CreateCollectionDialogProps {
     isOpen: boolean;
     onClose: () => void;
     parentId?: string;
+    collection?: Collection; // For edit mode
 }
 
 const PRESET_COLORS = [
@@ -23,7 +24,7 @@ const PRESET_COLORS = [
 
 export const CreateCollectionDialog: React.FC<
     CreateCollectionDialogProps
-> = ({ isOpen, onClose, parentId }) => {
+> = ({ isOpen, onClose, parentId, collection }) => {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [color, setColor] = useState(PRESET_COLORS[6]); // Default to purple
@@ -34,18 +35,27 @@ export const CreateCollectionDialog: React.FC<
     const { data } = useCollectionsFlat({ enabled: isOpen });
     const collections = data?.collections || [];
     const createCollection = useCreateCollection();
+    const updateCollection = useUpdateCollection();
 
-    // Reset form when drawer closes
+    const isEditMode = !!collection;
+
+    // Initialize form when drawer opens or collection changes
     useEffect(() => {
         if (!isOpen) {
             setName('');
             setDescription('');
             setColor(PRESET_COLORS[6]);
             setSelectedParentId(undefined);
+        } else if (collection) {
+            // Pre-fill values for edit mode
+            setName(collection.name);
+            setDescription(collection.description || '');
+            setColor(collection.color || PRESET_COLORS[6]);
+            setSelectedParentId(collection.parentId);
         } else if (parentId) {
             setSelectedParentId(parentId);
         }
-    }, [isOpen, parentId]);
+    }, [isOpen, parentId, collection]);
 
     const handleSubmit = async () => {
         if (!name.trim()) return;
@@ -57,18 +67,34 @@ export const CreateCollectionDialog: React.FC<
             parentId: selectedParentId,
         };
 
-        createCollection.mutate(data, {
-            onSuccess: () => {
-                onClose();
-            },
-        });
+        if (isEditMode && collection) {
+            updateCollection.mutate(
+                {
+                    collectionId: collection.id,
+                    data,
+                },
+                {
+                    onSuccess: () => {
+                        onClose();
+                    },
+                }
+            );
+        } else {
+            createCollection.mutate(data, {
+                onSuccess: () => {
+                    onClose();
+                },
+            });
+        }
     };
+
+    const isPending = createCollection.isPending || updateCollection.isPending;
 
     return (
         <Drawer
             isOpen={isOpen}
             onClose={onClose}
-            title="Create Collection"
+            title={isEditMode ? 'Edit Collection' : 'Create Collection'}
             position="right"
             width="md"
             showFooter={true}
@@ -79,7 +105,7 @@ export const CreateCollectionDialog: React.FC<
                     <Button
                         variant="secondary"
                         onClick={onClose}
-                        disabled={createCollection.isPending}
+                        disabled={isPending}
                         size="sm"
                     >
                         Cancel
@@ -87,11 +113,11 @@ export const CreateCollectionDialog: React.FC<
                     <Button
                         variant="primary"
                         onClick={handleSubmit}
-                        disabled={!name.trim() || createCollection.isPending}
-                        loading={createCollection.isPending}
+                        disabled={!name.trim() || isPending}
+                        loading={isPending}
                         size="sm"
                     >
-                        Create Collection
+                        {isEditMode ? 'Update Collection' : 'Create Collection'}
                     </Button>
                 </div>
             }
@@ -175,11 +201,13 @@ export const CreateCollectionDialog: React.FC<
                                 className="w-full px-3 py-2.5 rounded-lg border bg-bg-tertiary border-border-input text-text-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary transition-colors"
                             >
                                 <option value="">None (Root level)</option>
-                                {collections.map((col) => (
-                                    <option key={col.id} value={col.id}>
-                                        {col.name}
-                                    </option>
-                                ))}
+                                {collections
+                                    .filter((col) => !isEditMode || col.id !== collection?.id)
+                                    .map((col) => (
+                                        <option key={col.id} value={col.id}>
+                                            {col.name}
+                                        </option>
+                                    ))}
                             </select>
                         </div>
                     )}

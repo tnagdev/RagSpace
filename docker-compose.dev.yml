@@ -1,0 +1,249 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ragspace-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ragspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: ragspace-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ragspace-chromadb
+    environment:
+      IS_PERSISTENT: true
+      ANONYMIZED_TELEMETRY: false
+    ports:
+      - "8007:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  api-gateway:
+    container_name: ragspace-api-gateway
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    env_file:
+      - ./api-gateway/.env.docker
+    ports:
+      - "8000:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  auth-service:
+    container_name: ragspace-auth-service
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./auth-service/.env.docker
+    ports:
+      - "8001:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  upload-manager:
+    container_name: ragspace-upload-manager
+    build:
+      context: ./upload-manager
+      dockerfile: Dockerfile
+    env_file:
+      - ./upload-manager/.env.docker
+    ports:
+      - "8002:8080"
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  payment-service:
+    container_name: ragspace-payment-service
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./payment-service/.env.docker
+    ports:
+      - "8006:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  scene-detector-server:
+    container_name: ragspace-scene-detector-server
+    build:
+      context: ./scene-detector
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_server.py"]
+    env_file:
+      - ./scene-detector/.env.docker
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "8003:8080"
+    volumes:
+      - scene-detector-temp:/tmp/scene-detector
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  scene-detector-consumer:
+    container_name: ragspace-scene-detector-consumer
+    build:
+      context: ./scene-detector
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_consumer.py"]
+    env_file:
+      - ./scene-detector/.env.docker
+    environment:
+      PYTHONPATH: /app
+      TEMP_DIR: /tmp/scene-detector
+    volumes:
+      - scene-detector-temp:/tmp/scene-detector
+    depends_on:
+      - postgres
+      - rabbitmq
+      - scene-detector-server
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  file-embedder-server:
+    container_name: ragspace-file-embedder-server
+    build:
+      context: ./file-embedder
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_server.py"]
+    env_file:
+      - ./file-embedder/.env.docker
+    environment:
+      PYTHONPATH: /app
+      HF_HOME: /home/appuser/.cache/huggingface
+      TORCH_HOME: /home/appuser/.cache/torch
+      TESSERACT_CMD: /usr/bin/tesseract
+    ports:
+      - "8004:8080"
+    volumes:
+      - file-embedder-models:/home/appuser/.cache
+      - file-embedder-chroma:/app/chroma_data
+    depends_on:
+      - chromadb
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  file-embedder-consumer:
+    container_name: ragspace-file-embedder-consumer
+    build:
+      context: ./file-embedder
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_consumer.py"]
+    env_file:
+      - ./file-embedder/.env.docker
+    environment:
+      PYTHONPATH: /app
+      HF_HOME: /home/appuser/.cache/huggingface
+      TORCH_HOME: /home/appuser/.cache/torch
+      TESSERACT_CMD: /usr/bin/tesseract
+    volumes:
+      - file-embedder-models:/home/appuser/.cache
+      - file-embedder-chroma:/app/chroma_data
+    depends_on:
+      - chromadb
+      - rabbitmq
+      - file-embedder-server
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  chat-manager:
+    container_name: ragspace-chat-manager
+    build:
+      context: ./chat-manager
+      dockerfile: Dockerfile
+    env_file:
+      - ./chat-manager/.env.docker
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "8005:8080"
+    depends_on:
+      - postgres
+      - chromadb
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+  frontend:
+    container_name: ragspace-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - ./frontend/.env.docker
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - ragspace-network
+
+volumes:
+  postgres-data:
+    name: ragspace-postgres-data
+  rabbitmq-data:
+    name: ragspace-rabbitmq-data
+  chromadb-data:
+    name: ragspace-chromadb-data
+  scene-detector-temp:
+    name: ragspace-scene-detector-temp
+  file-embedder-models:
+    name: ragspace-file-embedder-models
+  file-embedder-chroma:
+    name: ragspace-file-embedder-chroma
+
+networks:
+  ragspace-network:
+    name: ragspace-network
+    driver: bridge

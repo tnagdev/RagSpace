@@ -16,6 +16,7 @@ import type {
 export const paymentKeys = {
     all: ['payment'] as const,
     plans: () => [...paymentKeys.all, 'plans'] as const,
+    plansWithComparison: () => [...paymentKeys.plans(), 'with-comparison'] as const,
     plan: (id: string) => [...paymentKeys.plans(), id] as const,
     subscription: () => [...paymentKeys.all, 'subscription'] as const,
     usage: () => [...paymentKeys.all, 'usage'] as const,
@@ -28,6 +29,17 @@ export const usePlans = (
     return useQuery({
         queryKey: paymentKeys.plans(),
         queryFn: paymentAPI.getPlans,
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        ...options,
+    });
+};
+
+export const usePlansWithComparison = (
+    options?: Omit<UseQueryOptions<Plan[], Error>, 'queryKey' | 'queryFn'>
+) => {
+    return useQuery({
+        queryKey: paymentKeys.plansWithComparison(),
+        queryFn: paymentAPI.getPlansWithComparison,
         staleTime: 5 * 60 * 1000, // 5 minutes
         ...options,
     });
@@ -151,6 +163,21 @@ export const useResumeSubscription = (
 
     return useMutation({
         mutationFn: paymentAPI.resumeSubscription,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
+        },
+        ...options,
+    });
+};
+
+// Cancel Scheduled Change
+export const useCancelScheduledChange = (
+    options?: UseMutationOptions<Subscription, Error, void>
+) => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: paymentAPI.cancelScheduledChange,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
         },

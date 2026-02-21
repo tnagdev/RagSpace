@@ -1,9 +1,10 @@
-import { useSubscription, usePlans, useCancelSubscription } from '@/hooks/usePayment';
+import { useSubscription, usePlans, useCancelSubscription, useCancelScheduledChange } from '@/hooks/usePayment';
 import { usePlansModal } from '@/contexts/PlansModalContext';
 import Button from '@/components/Button';
 import { Loader } from '@/components/Loader';
 import { UsageWidget } from '@/components/UsageWidget';
-import { AlertCircle, Check } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { AlertCircle, Check, CreditCard, Calendar, X } from 'lucide-react';
 import { PlanType, SubscriptionStatus } from '@/types/payment.types';
 import { useState } from 'react';
 
@@ -25,6 +26,7 @@ export const BillingSettings = () => {
     const { data: plans, isLoading: plansLoading } = usePlans();
     const { openPlansModal } = usePlansModal();
     const cancelSubscription = useCancelSubscription();
+    const cancelScheduledChange = useCancelScheduledChange();
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
     const [emailReceipts, setEmailReceipts] = useState(true);
 
@@ -48,78 +50,139 @@ export const BillingSettings = () => {
     const currentPlan = subscription?.plan;
     const isFreePlan = currentPlan?.type === PlanType.FREE;
     const isCancelled = subscription?.status === SubscriptionStatus.CANCELLED;
-    const sortedPlans = plans?.sort((a, b) => a.price - b.price) || [];
+    const hasScheduledChange = subscription?.scheduledPlanId && subscription?.scheduledChangeAt;
+    const scheduledPlan = hasScheduledChange
+        ? plans?.find(p => p.id === subscription.scheduledPlanId)
+        : null;
+    const scheduledDate = hasScheduledChange
+        ? new Date(subscription.scheduledChangeAt).toLocaleDateString()
+        : null;
+
+    const handleCancelScheduledChange = async () => {
+        try {
+            await cancelScheduledChange.mutateAsync();
+        } catch (error) {
+            console.error('Failed to cancel scheduled change:', error);
+        }
+    };
 
     return (
         <div className="space-y-8">
-            {/* Header with Manage Billing */}
-            <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Choose Your Plan</h2>
-            </div>
+            {/* Current Plan Section */}
+            <div className="space-y-4">
+                <h2 className="text-2xl font-bold">Current Plan</h2>
 
-            {/* Plan Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {sortedPlans.map((plan) => {
-                    const isCurrentPlan = plan.type === currentPlan?.type;
-                    const isPro = plan.type === PlanType.PRO;
-
-                    return (
-                        <div
-                            key={plan.id}
-                            className={`relative flex flex-col bg-gray-800/30 backdrop-blur-sm rounded-xl border-2 p-6 transition-all hover:bg-gray-800/50 ${isPro
-                                ? 'border-purple-500 shadow-lg shadow-purple-500/10'
-                                : plan.type === PlanType.BASIC
-                                    ? 'border-gray-600'
-                                    : 'border-gray-700'
-                                }`}
-                        >
-                            {isPro && (
-                                <div className="absolute -top-3 right-6 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full">
-                                    Most Popular
-                                </div>
-                            )}
-
-                            <div className="mb-6">
-                                <h3 className="text-2xl font-bold mb-3">{plan.name}</h3>
-                                {plan.price === 0 ? (
-                                    <div className="text-gray-400 text-sm">Free forever</div>
+                <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
+                    <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 bg-purple-500/10 rounded-lg">
+                                <CreditCard className="w-6 h-6 text-purple-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold mb-1">{currentPlan?.name} Plan</h3>
+                                {currentPlan?.price === 0 ? (
+                                    <p className="text-gray-400">Free forever</p>
                                 ) : (
-                                    <div className="flex items-baseline gap-1">
-                                        <span className="text-4xl font-bold">{getCurrencySymbol(plan.priceUnit)}{plan.price}</span>
-                                        <span className="text-gray-400">/month</span>
-                                    </div>
+                                    <p className="text-2xl font-bold text-purple-400">
+                                        {getCurrencySymbol(currentPlan?.priceUnit || 'USD')}{currentPlan?.price}
+                                        <span className="text-sm text-gray-400 font-normal">/month</span>
+                                    </p>
                                 )}
-                                {plan.description && (
-                                    <p className="text-sm text-gray-400 mt-2">{plan.description}</p>
+                                {subscription?.currentPeriodEnd && !isFreePlan && (
+                                    <p className="text-sm text-gray-400 mt-2">
+                                        {isCancelled ? 'Ends' : 'Renews'} on {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                                    </p>
                                 )}
                             </div>
-
-                            <ul className="space-y-3 mb-6 min-h-[120px] flex-1">
-                                {plan.features && plan.features.length > 0 ? (
-                                    plan.features.map((feature, idx) => (
-                                        <li key={idx} className="flex items-start gap-2 text-sm">
-                                            <Check className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
-                                            <span className="text-gray-300">{feature}</span>
-                                        </li>
-                                    ))
-                                ) : (
-                                    <li className="text-sm text-gray-400">Contact for custom features</li>
-                                )}
-                            </ul>
-
+                        </div>
+                        <div className="flex gap-2">
                             <Button
-                                onClick={() => openPlansModal('Upgrade your plan')}
-                                disabled={isCurrentPlan}
-                                variant={isPro ? 'primary' : 'secondary'}
-                                size="md"
-                                className="w-full"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => openPlansModal('View Plans')}
                             >
-                                {isCurrentPlan ? 'Current Plan' : plan.type === PlanType.FREE ? 'Downgrade' : 'Upgrade'}
+                                View Plans
+                            </Button>
+                            {!isFreePlan && !isCancelled && !hasScheduledChange && (
+                                <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => setShowCancelConfirm(true)}
+                                >
+                                    Cancel Subscription
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Scheduled Change Alert */}
+            {hasScheduledChange && scheduledPlan && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                        <Calendar className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                            <h4 className="font-semibold text-amber-400 mb-1">
+                                Scheduled Plan Change
+                            </h4>
+                            <p className="text-sm text-gray-300 mb-3">
+                                {subscription.scheduledChangeType === 'cancel_to_free'
+                                    ? `Your subscription will be cancelled and you'll move to the Free plan on ${scheduledDate}. You'll keep access to your current plan until then.`
+                                    : `Your plan will change to ${scheduledPlan.name} on ${scheduledDate}. You'll keep access to your current plan until then.`
+                                }
+                            </p>
+                            <Button
+                                onClick={handleCancelScheduledChange}
+                                disabled={cancelScheduledChange.isPending}
+                                variant="secondary"
+                                size="sm"
+                            >
+                                {cancelScheduledChange.isPending ? (
+                                    <>
+                                        <Loader className="w-3 h-3 mr-2" />
+                                        Cancelling...
+                                    </>
+                                ) : (
+                                    <>
+                                        <X className="w-3 h-3 mr-2" />
+                                        Cancel Scheduled Change
+                                    </>
+                                )}
                             </Button>
                         </div>
-                    );
-                })}
-            </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Cancelled Warning */}
+            {isCancelled && subscription && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <h4 className="font-semibold text-yellow-500 mb-1">
+                            Subscription Cancelled
+                        </h4>
+                        <p className="text-sm text-gray-300">
+                            Your subscription will remain active until{' '}
+                            {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Cancel Confirmation Modal */}
+            <ConfirmDialog
+                isOpen={showCancelConfirm}
+                onClose={() => setShowCancelConfirm(false)}
+                onConfirm={handleCancelSubscription}
+                title="Cancel Subscription"
+                message="Are you sure you want to cancel your subscription? Your plan will remain active until the end of the billing period, and you'll be downgraded to the Free plan after that."
+                confirmText="Yes, Cancel"
+                cancelText="No, Keep Plan"
+                variant="danger"
+                isLoading={cancelSubscription.isPending}
+            />
 
             {/* Billing Preferences */}
             <div className="space-y-4">
@@ -157,67 +220,7 @@ export const BillingSettings = () => {
                 </div>
             </div>
 
-            {/* Security Options / Cancel Subscription */}
-            {!isFreePlan && !isCancelled && (
-                <div className="space-y-4">
-                    <h3 className="text-xl font-bold">Security Options</h3>
 
-                    <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl border border-gray-700 px-6 py-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h4 className="font-medium mb-1 text-red-400">Cancel Subscription</h4>
-                                <p className="text-sm text-gray-400">
-                                    Your plan will remain active until the end of the billing period.
-                                </p>
-                            </div>
-                            {showCancelConfirm ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-gray-400 mr-2">Are you sure?</span>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setShowCancelConfirm(false)}
-                                    >
-                                        No
-                                    </Button>
-                                    <Button
-                                        variant="danger"
-                                        size="sm"
-                                        onClick={handleCancelSubscription}
-                                        disabled={cancelSubscription.isPending}
-                                    >
-                                        {cancelSubscription.isPending ? 'Cancelling...' : 'Confirm'}
-                                    </Button>
-                                </div>
-                            ) : (
-                                <Button
-                                    variant="danger"
-                                    size="sm"
-                                    onClick={() => setShowCancelConfirm(true)}
-                                >
-                                    Cancel
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Cancelled Warning */}
-            {isCancelled && subscription && (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                        <h4 className="font-semibold text-yellow-500 mb-1">
-                            Subscription Cancelled
-                        </h4>
-                        <p className="text-sm text-gray-300">
-                            Your subscription will remain active until{' '}
-                            {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
-                        </p>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

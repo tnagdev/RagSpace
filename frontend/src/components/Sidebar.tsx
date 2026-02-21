@@ -7,6 +7,8 @@ import { IconButton } from './IconButton';
 import { NavLink } from './NavLink';
 import { UsageWidget } from './UsageWidget';
 import { usePlansModal } from '@/contexts/PlansModalContext';
+import { useSubscription } from '@/hooks/usePayment';
+import { PlanType } from '@/types/payment.types';
 
 
 interface SidebarProps {
@@ -32,7 +34,10 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { openPlansModal } = usePlansModal();
+    const { data: subscription } = useSubscription();
     const [isUsageExpanded, setIsUsageExpanded] = useState(false);
+
+    const isOnPaidPlan = subscription?.plan?.type !== PlanType.FREE;
 
     const handleNavClick = async (item: any, e: React.MouseEvent) => {
         if (item?.path === '/countries') {
@@ -104,11 +109,15 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            openPlansModal('Upgrade your plan for more resources');
+                            if (isOnPaidPlan) {
+                                navigate({ to: '/settings' });
+                            } else {
+                                openPlansModal('Upgrade your plan for more resources');
+                            }
                         }}
                         className="text-xs text-accent-primary hover:text-accent-primary-hover transition-colors"
                     >
-                        Upgrade
+                        {isOnPaidPlan ? 'Manage Plan' : 'Upgrade'}
                     </button>
                     {isUsageExpanded ? (
                         <ChevronUp className="w-4 h-4 text-text-muted" />

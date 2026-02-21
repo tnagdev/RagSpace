@@ -10,6 +10,8 @@ import ChatPage from "@/pages/chat/ChatPage";
 import CollectionsPage from "@/pages/collections/CollectionsPage";
 import CollectionChatPage from "@/pages/collections/CollectionChatPage";
 import { Settings } from "@/pages/settings/Settings";
+import PaymentSuccessPage from "@/pages/payment/PaymentSuccessPage";
+import PaymentCancelledPage from "@/pages/payment/PaymentCancelledPage";
 
 
 export interface NavRoute {
@@ -97,6 +99,18 @@ const NavRoutes: Array<NavRoute> = [
         component: () => <Settings />,
         nav: false,
         icon: SettingsIcon,
+    },
+    {
+        name: 'Payment Success',
+        path: '/payment/success',
+        component: () => <PaymentSuccessPage />,
+        nav: false,
+    },
+    {
+        name: 'Payment Cancelled',
+        path: '/payment/cancelled',
+        component: () => <PaymentCancelledPage />,
+        nav: false,
     }
 ];
 

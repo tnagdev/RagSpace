@@ -1,16 +1,28 @@
 import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { PlanService } from './plan.service';
-import { Public } from '../common/decorators';
+import { SubscriptionService } from '../subscription/subscription.service';
+import { Public, CurrentUser, AuthUser } from '../common/decorators';
 import { PlanType, PlanInterval } from '@prisma/client';
 
 @Controller('/plans')
 export class PlanController {
-    constructor(private planService: PlanService) { }
+    constructor(
+        private planService: PlanService,
+        private subscriptionService: SubscriptionService,
+    ) { }
 
     @Public()
     @Get()
     async getAllPlans() {
         return this.planService.getAllPlans();
+    }
+
+    @Get('with-comparison')
+    async getPlansWithComparison(@CurrentUser() user: AuthUser) {
+        const subscription = await this.subscriptionService.getUserSubscription(user.id);
+        const currentPlanType = subscription?.plan?.type;
+
+        return this.planService.getPlansWithComparison(currentPlanType);
     }
 
     @Public()

@@ -92,6 +92,11 @@ model Subscription {
     trialStart         DateTime?
     trialEnd           DateTime?
 
+    // Scheduled plan change (takes effect at period end)
+    scheduledPlanId     String?
+    scheduledChangeAt   DateTime?
+    scheduledChangeType String? // 'upgrade', 'downgrade', 'cancel_to_free'
+
     // Payment details
     lastPaymentDate DateTime?
     nextPaymentDate DateTime?
@@ -115,8 +120,8 @@ model UsageQuota {
     metricType     UsageMetricType
 
     // Quota configuration
-    limit   Int       @default(0) // 0 means unlimited
-    used    Int       @default(0)
+    limit   BigInt    @default(0) // 0 means unlimited
+    used    BigInt    @default(0)
     resetAt DateTime? // For monthly/weekly resets
 
     createdAt DateTime @default(now())

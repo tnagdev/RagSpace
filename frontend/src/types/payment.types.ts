@@ -51,6 +51,7 @@ export interface Plan {
     features: string[];
     createdAt: string;
     updatedAt: string;
+    comparison?: 'upgrade' | 'downgrade' | 'current' | 'available';
 }
 
 export interface Subscription {
@@ -67,11 +68,15 @@ export interface Subscription {
     canceledAt?: string;
     trialStart?: string;
     trialEnd?: string;
+    scheduledPlanId?: string;
+    scheduledChangeAt?: string;
+    scheduledChangeType?: 'upgrade' | 'downgrade' | 'cancel_to_free';
     lastPaymentDate?: string;
     nextPaymentDate?: string;
     createdAt: string;
     updatedAt: string;
     plan: Plan;
+    usageQuotas?: UsageQuota[];
 }
 
 export interface UsageQuota {

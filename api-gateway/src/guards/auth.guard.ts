@@ -20,6 +20,7 @@ export class AuthGuard implements CanActivate {
         '/api/auth/signin',
         '/api/auth/google',
         '/api/auth/health',
+        '/api/webhooks/lemon-squeezy',
     ];
 
     constructor(

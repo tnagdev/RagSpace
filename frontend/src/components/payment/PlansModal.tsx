@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { Modal } from '../Modal';
 import Button from '../Button';
-import { usePlans, useSubscription, useCreateCheckout } from '@/hooks/usePayment';
+import {
+    usePlansWithComparison,
+    useCreateCheckout,
+    useDowngradeSubscription,
+} from '@/hooks/usePayment';
 import { usePlansModal } from '@/contexts/PlansModalContext';
 import { PlanType, type Plan } from '@/types/payment.types';
-import { Check, Loader, X, Zap } from 'lucide-react';
+import { Check, Loader } from 'lucide-react';
 
 const getCurrencySymbol = (priceUnit: string): string => {
     const currencyMap: Record<string, string> = {
@@ -51,29 +55,32 @@ const PLAN_COLORS = {
 
 export const PlansModal = () => {
     const { isOpen, closePlansModal } = usePlansModal();
-    const { data: plans, isLoading: plansLoading } = usePlans();
-    const { data: subscription } = useSubscription();
+    const { data: plans, isLoading: plansLoading } = usePlansWithComparison();
     const createCheckout = useCreateCheckout();
+    const downgradeSubscription = useDowngradeSubscription();
     const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
     const handleSelectPlan = async (plan: Plan) => {
-        if (plan.type === PlanType.FREE) {
-            closePlansModal();
+        if (plan.comparison === 'current') {
             return;
         }
 
         setSelectedPlanId(plan.id);
 
         try {
-            const { checkoutUrl } = await createCheckout.mutateAsync(plan.id);
-            window.location.href = checkoutUrl;
+            if (plan.comparison === 'downgrade') {
+                await downgradeSubscription.mutateAsync(plan.id);
+                closePlansModal();
+            } else {
+                const { checkoutUrl } = await createCheckout.mutateAsync(plan.id);
+                window.location.href = checkoutUrl;
+            }
         } catch (error) {
-            console.error('Failed to create checkout:', error);
+            console.error('Failed to change plan:', error);
             setSelectedPlanId(null);
         }
     };
 
-    const currentPlanType = subscription?.plan?.type || PlanType.FREE;
     const sortedPlans = plans?.sort((a, b) => a.price - b.price) || [];
 
     return (
@@ -91,71 +98,83 @@ export const PlansModal = () => {
                         <Loader className="w-8 h-8 animate-spin text-purple-500" />
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {sortedPlans.map((plan) => {
-                            const isCurrentPlan = plan.type === currentPlanType;
-                            const isLoading = selectedPlanId === plan.id && createCheckout.isPending;
-                            const features = PLAN_FEATURES[plan.type] || [];
-                            const borderColor = PLAN_COLORS[plan.type];
+                    <>
+                        {/* Plans Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {sortedPlans.map((plan) => {
+                                const isCurrentPlan = plan.comparison === 'current';
+                                const isLoading = selectedPlanId === plan.id && (
+                                    createCheckout.isPending ||
+                                    downgradeSubscription.isPending
+                                );
+                                const features = PLAN_FEATURES[plan.type] || [];
+                                const borderColor = PLAN_COLORS[plan.type];
 
-                            return (
-                                <div
-                                    key={plan.id}
-                                    className={`relative bg-gray-800/50 backdrop-blur-sm rounded-xl border-2 ${borderColor} p-6 flex flex-col transition-all hover:scale-105 hover:shadow-xl`}
-                                >
-                                    {plan.type === PlanType.PRO && (
-                                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-xs font-bold px-4 py-1 rounded-full">
-                                            POPULAR
-                                        </div>
-                                    )}
+                                // Determine button text based on comparison
+                                let buttonText = 'Select Plan';
+                                if (isCurrentPlan) {
+                                    buttonText = 'Current Plan';
+                                } else if (plan.comparison === 'upgrade') {
+                                    buttonText = 'Upgrade Now';
+                                } else if (plan.comparison === 'downgrade') {
+                                    buttonText = 'Downgrade';
+                                }
 
-                                    <div className="text-center mb-6">
-                                        <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                                        <div className="flex items-baseline justify-center gap-1">
-                                            <span className="text-4xl font-bold text-purple-400">
-                                                {getCurrencySymbol(plan.priceUnit)}{plan.price}
-                                            </span>
-                                            <span className="text-gray-400">/month</span>
-                                        </div>
-                                        {plan.description && (
-                                            <p className="text-sm text-gray-400 mt-2">
-                                                {plan.description}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <ul className="space-y-3 mb-6 flex-1">
-                                        {features.map((feature, idx) => (
-                                            <li key={idx} className="flex items-start gap-2">
-                                                <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                                                <span className="text-sm text-gray-300">{feature}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-
-                                    <Button
-                                        onClick={() => handleSelectPlan(plan)}
-                                        disabled={isCurrentPlan || isLoading}
-                                        variant={plan.type === PlanType.PRO ? 'primary' : 'secondary'}
-                                        className="w-full"
+                                return (
+                                    <div
+                                        key={plan.id}
+                                        className={`relative bg-gray-800/50 backdrop-blur-sm rounded-xl border-2 ${borderColor} p-6 flex flex-col transition-all hover:scale-105 hover:shadow-xl`}
                                     >
-                                        {isLoading ? (
-                                            <>
-                                                <Loader className="w-4 h-4 animate-spin mr-2" />
-                                                Processing...
-                                            </>
-                                        ) : isCurrentPlan ? (
-                                            'Current Plan'
-                                        ) : plan.type === PlanType.FREE ? (
-                                            'Downgrade'
-                                        ) : (
-                                            'Upgrade Now'
+                                        {plan.type === PlanType.PRO && (
+                                            <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-xs font-bold px-4 py-1 rounded-full">
+                                                POPULAR
+                                            </div>
                                         )}
-                                    </Button>
-                                </div>
-                            );
-                        })}
-                    </div>
+
+                                        <div className="text-center mb-6">
+                                            <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
+                                            <div className="flex items-baseline justify-center gap-1">
+                                                <span className="text-4xl font-bold text-purple-400">
+                                                    {getCurrencySymbol(plan.priceUnit)}{plan.price}
+                                                </span>
+                                                <span className="text-gray-400">/month</span>
+                                            </div>
+                                            {plan.description && (
+                                                <p className="text-sm text-gray-400 mt-2">
+                                                    {plan.description}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <ul className="space-y-3 mb-6 flex-1">
+                                            {features.map((feature, idx) => (
+                                                <li key={idx} className="flex items-start gap-2">
+                                                    <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                                                    <span className="text-sm text-gray-300">{feature}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+
+                                        <Button
+                                            onClick={() => handleSelectPlan(plan)}
+                                            disabled={isCurrentPlan || isLoading}
+                                            variant={!isCurrentPlan ? 'primary' : 'secondary'}
+                                            className="w-full"
+                                        >
+                                            {isLoading ? (
+                                                <>
+                                                    <Loader className="w-4 h-4 animate-spin mr-2" />
+                                                    Processing...
+                                                </>
+                                            ) : (
+                                                buttonText
+                                            )}
+                                        </Button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
 
                 <div className="text-center text-sm text-gray-400 mt-6">

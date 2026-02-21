@@ -40,14 +40,14 @@ export class UsageService {
         }
 
         // 0 means unlimited
-        if (quota.limit === 0) {
+        if (quota.limit === BigInt(0)) {
             return true;
         }
 
         // Check if usage would exceed limit
-        if (quota.used + amount > quota.limit) {
+        if (quota.used + BigInt(amount) > quota.limit) {
             this.logger.warn(
-                `Usage limit exceeded for user ${userId}, metric ${metric}: ${quota.used + amount}/${quota.limit}`,
+                `Usage limit exceeded for user ${userId}, metric ${metric}: ${quota.used + BigInt(amount)}/${quota.limit}`,
             );
             return false;
         }
@@ -161,9 +161,9 @@ export class UsageService {
             },
             quotas: quotas.map((q) => ({
                 metric: q.metricType,
-                limit: q.limit,
-                used: q.used,
-                remaining: q.limit === 0 ? Infinity : q.limit - q.used,
+                limit: Number(q.limit),
+                used: Number(q.used),
+                remaining: q.limit === BigInt(0) ? Infinity : Number(q.limit - q.used),
                 resetAt: q.resetAt,
             })),
             totalUsage: records.reduce(
@@ -264,10 +264,10 @@ export class UsageService {
             return 0;
         }
 
-        if (quota.limit === 0) {
+        if (quota.limit === BigInt(0)) {
             return Infinity;
         }
 
-        return Math.max(0, quota.limit - quota.used);
+        return Math.max(0, Number(quota.limit - quota.used));
     }
 }

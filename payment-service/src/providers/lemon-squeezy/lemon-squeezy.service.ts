@@ -9,16 +9,19 @@ import {
     getCustomer,
     listProducts,
     listVariants,
+    issueOrderRefund,
 } from '@lemonsqueezy/lemonsqueezy.js';
 
 @Injectable()
 export class LemonSqueezyService {
     private readonly logger = new Logger(LemonSqueezyService.name);
     private readonly storeId: string;
+    private readonly frontendUrl: string;
 
     constructor(private configService: ConfigService) {
         const apiKey = this.configService.get<string>('LEMON_SQUEEZY_API_KEY');
         this.storeId = this.configService.get<string>('LEMON_SQUEEZY_STORE_ID');
+        this.frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
 
         if (!apiKey) {
             this.logger.warn('Lemon Squeezy API key not configured');
@@ -36,17 +39,43 @@ export class LemonSqueezyService {
         customData?: Record<string, any>;
     }) {
         try {
+            // Redirect to files page with payment status query params
+            const successUrl = `${this.frontendUrl}/files?payment=success`;
+
             const checkout = await createCheckout(this.storeId, params.variantId, {
                 checkoutData: {
                     email: params.userEmail,
                     custom: {
-                        userId: params.userId,
+                        user_id: params.userId,  // Use snake_case to match webhook payload
                         ...params.customData,
                     },
                 },
+                checkoutOptions: {
+                    embed: false,
+                    media: true,
+                    logo: true,
+                    desc: true,
+                    discount: true,
+                    dark: false,
+                    subscriptionPreview: true,
+                },
+                productOptions: {
+                    redirectUrl: successUrl,
+                },
+                expiresAt: null,
+                preview: false,
+                testMode: false,
             });
 
-            return checkout.data;
+            const checkoutUrl = checkout.data.data.attributes.url;
+            if (!checkoutUrl || typeof checkoutUrl !== 'string') {
+                this.logger.error('Invalid checkout URL received', checkout.data);
+                throw new Error('Failed to get valid checkout URL');
+            }
+
+            this.logger.log(`Checkout URL created. Redirect URL: ${successUrl}`);
+
+            return checkoutUrl;
         } catch (error) {
             this.logger.error('Failed to create checkout', error);
             throw error;
@@ -111,10 +140,18 @@ export class LemonSqueezyService {
         }
     }
 
-    async changeSubscriptionPlan(subscriptionId: string, newVariantId: string) {
+    async changeSubscriptionPlan(
+        subscriptionId: string,
+        newVariantId: string,
+        options?: {
+            invoiceImmediately?: boolean;
+            disableProrations?: boolean;
+        }
+    ) {
         try {
             const result = await updateSubscription(subscriptionId, {
                 variantId: parseInt(newVariantId),
+                ...options,
             });
             return result.data;
         } catch (error) {
@@ -168,5 +205,20 @@ export class LemonSqueezyService {
             .digest('hex');
 
         return hash === signature;
+    }
+
+    async createRefund(orderId: string, amount?: number, reason?: string) {
+        try {
+            this.logger.log(`Creating refund for order ${orderId}. Amount: ${amount || 'full'}, Reason: ${reason || 'N/A'}`);
+            if (!amount) {
+                this.logger.warn(`Full refund requested for order ${orderId}, but amount is required. Attempting full refund by not specifying amount.`);
+            }
+            const refund = await issueOrderRefund(orderId, amount!);
+            this.logger.log(`Refund created successfully for order ${orderId}`, refund.data);
+            return refund.data;
+        } catch (error) {
+            this.logger.error(`Failed to create refund for order ${orderId}`, error);
+            throw error;
+        }
     }
 }

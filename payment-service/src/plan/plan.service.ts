@@ -112,4 +112,25 @@ export class PlanService {
     isDowngrade(currentPlanType: PlanType, newPlanType: PlanType): boolean {
         return this.comparePlans(newPlanType, currentPlanType) < 0;
     }
+
+    async getPlansWithComparison(currentPlanType?: PlanType) {
+        const plans = await this.getAllPlans();
+
+        if (!currentPlanType) {
+            return plans.map(plan => ({
+                ...plan,
+                comparison: 'available' as const,
+            }));
+        }
+
+        return plans.map(plan => {
+            if (plan.type === currentPlanType) {
+                return { ...plan, comparison: 'current' as const };
+            } else if (this.isUpgrade(currentPlanType, plan.type)) {
+                return { ...plan, comparison: 'upgrade' as const };
+            } else {
+                return { ...plan, comparison: 'downgrade' as const };
+            }
+        });
+    }
 }

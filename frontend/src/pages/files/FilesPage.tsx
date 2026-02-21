@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { RefreshCw, Grid3x3, List } from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { FileUploadZone } from './components/FileUploadZone';
 import { YouTubeLinkInput } from './components/YouTubeLinkInput';
 import { PollingFileItem } from './components/PollingFileItem';
@@ -8,6 +9,7 @@ import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import PaymentResultModal from '@/components/payment/PaymentResultModal';
 import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage } from '@/types/upload.types';
@@ -23,6 +25,9 @@ interface PollingFile {
 }
 
 const FilesPage = () => {
+    const navigate = useNavigate();
+    const searchParams = useSearch({ from: '/files' }) as { payment?: string; plan?: string; error?: string };
+
     const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file');
     const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
     const [pollingFiles, setPollingFiles] = useState<PollingFile[]>([]);
@@ -32,6 +37,27 @@ const FilesPage = () => {
     const [isCollectionPanelOpen, setIsCollectionPanelOpen] = useState(false);
     const [selectedFileForCollection, setSelectedFileForCollection] = useState<string | null>(null);
     const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentStatus, setPaymentStatus] = useState<'success' | 'error' | 'cancelled'>('success');
+    const [paymentPlanName, setPaymentPlanName] = useState<string | undefined>(undefined);
+    const [paymentErrorMessage, setPaymentErrorMessage] = useState<string | undefined>(undefined);
+
+    // Handle payment redirect params
+    useEffect(() => {
+        if (searchParams.payment) {
+            const status = searchParams.payment as 'success' | 'error' | 'cancelled';
+            setPaymentStatus(status);
+            setPaymentPlanName(searchParams.plan);
+            setPaymentErrorMessage(searchParams.error);
+            setShowPaymentModal(true);
+
+            // Clear query params after showing modal
+            navigate({
+                to: '/files',
+                replace: true,
+            });
+        }
+    }, [searchParams.payment, searchParams.plan, searchParams.error, navigate]);
 
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
@@ -430,6 +456,15 @@ const FilesPage = () => {
                 cancelText="Cancel"
                 variant="danger"
                 isLoading={deleteMutation.isPending}
+            />
+
+            {/* Payment Result Modal */}
+            <PaymentResultModal
+                isOpen={showPaymentModal}
+                onClose={() => setShowPaymentModal(false)}
+                status={paymentStatus}
+                planName={paymentPlanName}
+                errorMessage={paymentErrorMessage}
             />
         </div>
     );
