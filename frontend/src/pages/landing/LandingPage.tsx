@@ -92,18 +92,17 @@ const Hero = () => (
     <div className="relative max-w-5xl mx-auto px-6 text-center pt-32 pb-20">
       {/* Headline */}
       <h1 className="font-bold leading-tight mb-6" style={{ fontSize: 'clamp(2.4rem, 6vw, 4rem)', color: '#f8fafc', lineHeight: 1.15 }}>
-        Stop Searching.
+        Talk to Your Videos.
         <br />
         <span style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-          Start Knowing.
+          Never Rewatch Again.
         </span>
       </h1>
 
       {/* Subtext */}
       <p className="text-lg md:text-xl max-w-2xl mx-auto mb-10" style={{ color: 'rgba(203, 213, 225, 0.75)', lineHeight: 1.7 }}>
-        You uploaded a 2-hour lecture. A 60-page research paper. A recorded meeting you missed.
-        FiloRag reads all of it — then lets you just ask. Get the exact timestamp, the right paragraph,
-        or a direct answer in seconds. No scrubbing. No skimming. No guessing.
+        FiloRag understands your videos, lectures, and documents so you don't have to re-watch,
+        re-read, or spend hours searching. Just ask — and get the exact moment, page, or answer you need.
       </p>
 
       {/* CTA Buttons */}
@@ -188,10 +187,10 @@ const Stats = () => (
   <section style={{ background: 'rgba(19, 19, 46, 0.8)', borderTop: '1px solid rgba(168, 85, 247, 0.1)', borderBottom: '1px solid rgba(168, 85, 247, 0.1)' }}>
     <div className="max-w-5xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
       {[
-        { value: '10×', label: 'Faster than re-watching' },
-        { value: '< 3 min', label: 'Upload to fully searchable' },
-        { value: '100%', label: 'Based on your actual content' },
-        { value: 'Instant', label: 'Jump to any moment' },
+        { value: '10×', label: 'Faster content discovery' },
+        { value: '5+', label: 'Supported file formats' },
+        { value: '100%', label: 'Semantic understanding' },
+        { value: 'Instant', label: 'Timestamp navigation' },
       ].map((stat, i) => (
         <div key={i} className="flex flex-col gap-1">
           <span className="text-3xl font-bold" style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
@@ -278,13 +277,13 @@ const Features = () => (
           <span className="text-sm font-medium" style={{ color: '#c084fc' }}>Everything You Need</span>
         </div>
         <h2 className="text-3xl md:text-4xl font-bold mb-4" style={{ color: '#f8fafc' }}>
-          Everything You Need to<br />
+          Powerful Features,<br />
           <span style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-            Get More from Your Content
+            Zero Complexity
           </span>
         </h2>
         <p className="text-lg max-w-xl mx-auto" style={{ color: 'rgba(148, 163, 184, 0.8)' }}>
-          No more scrubbing timelines, skimming pages, or digging through notes. FiloRag does the heavy lifting — you just ask.
+          A complete intelligence layer on top of your content — built for students, researchers, and professionals.
         </p>
       </div>
 
@@ -651,7 +650,7 @@ const AppShowcase = () => {
             </span>
           </h2>
           <p className="text-base max-w-lg mx-auto" style={{ color: 'rgba(148,163,184,0.8)' }}>
-            From uploading a file to chatting with its contents — here is how FiloRag turns your media into instant, searchable knowledge.
+            Every view. Every interaction. Designed to help you learn faster and know deeper.
           </p>
         </div>
 
@@ -841,8 +840,7 @@ const steps = [
     number: '02',
     icon: Cpu,
     title: 'AI Processes Everything',
-    description: 'FiloRag deeply reads your content — transcribing speech, detecting key scenes, and understanding context — so it can answer any question you ask.',
-
+    description: 'Your content is analyzed frame-by-frame, word-by-word. Scenes are detected, audio transcribed, text embedded — ready to understand.',
   },
   {
     number: '03',
@@ -1127,10 +1125,10 @@ const Pricing = () => {
             <span className="text-sm font-medium" style={{ color: '#c084fc' }}>Simple Pricing</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-bold mb-4" style={{ color: '#f8fafc' }}>
-            Start Free. Upgrade<br />When You Need More.
+            Choose Your Plan
           </h2>
           <p className="text-base max-w-lg mx-auto mb-8" style={{ color: 'rgba(148,163,184,0.8)' }}>
-            No credit card required to get started. Upgrade only when you outgrow the free tier.
+            Start free, upgrade when you're ready. No hidden fees.
           </p>
 
           {/* billing interval toggle — only shown when yearly plans exist */}
@@ -1205,7 +1203,7 @@ const FinalCTA = () => (
             </span>
           </h2>
           <p className="text-base max-w-md" style={{ color: 'rgba(148, 163, 184, 0.8)', lineHeight: 1.7 }}>
-            Whether you are a student buried in lecture recordings, a researcher juggling dozens of papers, or a professional who needs to catch up on missed meetings — FiloRag gives you your time back.
+            Join thousands of students, researchers, and professionals who are already learning smarter with FiloRag.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
             <Link
@@ -1241,7 +1239,7 @@ const Footer = () => (
             <img src={logoImg} alt="FiloRag" style={{ height: 36, width: 'auto', objectFit: 'contain' }} />
           </div>
           <p className="text-sm max-w-xs leading-relaxed" style={{ color: 'rgba(148, 163, 184, 0.6)' }}>
-            Turn your videos, lectures, and documents into a knowledge base you can actually talk to.
+            Your personal AI knowledge base. Ask your videos, lectures, and documents anything — no rewatching required.
           </p>
         </div>
 
@@ -1260,16 +1258,7 @@ const Footer = () => (
         {/* Company links */}
         <div className="flex flex-col gap-3">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'rgba(148, 163, 184, 0.4)' }}>Company</div>
-          <Link
-            to="/about"
-            className="text-sm transition-colors duration-200"
-            style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}
-          >
-            About
-          </Link>
-          {['Blog', 'Privacy Policy', 'Terms of Service'].map(link => (
+          {['About', 'Blog', 'Privacy Policy', 'Terms of Service'].map(link => (
             <a key={link} href="#" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
               onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
