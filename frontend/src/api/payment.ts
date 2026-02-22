@@ -16,7 +16,7 @@ export const paymentAPI = {
     },
 
     getPlansWithComparison: async (): Promise<Plan[]> => {
-        const response = await privateAxios.get<Plan[]>(`${PAYMENT_BASE}/plans/with-comparison`);
+        const response = await publicAxios.get<Plan[]>(`${PAYMENT_BASE}/plans/with-comparison`);
         return response.data;
     },
 

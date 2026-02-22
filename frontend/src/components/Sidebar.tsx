@@ -54,7 +54,7 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     >
         {/* Logo Section */}
         <div className={`flex items-center justify-between p-3 ${!isOpen ? 'justify-center' : ''}`}>
-            <Logo collapsed={!isOpen} showText={isOpen} className="text-white" />
+            <Logo collapsed={!isOpen} className="text-white" />
         </div>
 
         {/* Toggle Button */}

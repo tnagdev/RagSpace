@@ -36,7 +36,7 @@ export const SERVICES: Record<string, ServiceConfig> = {
         name: 'chat-manager',
         transport: 'http',
         url: process.env.CHAT_MANAGER_URL,
-        routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*'],
+        routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*', '/api/greeting'],
     },
     PAYMENT_SERVICE: {
         name: 'payment-service',

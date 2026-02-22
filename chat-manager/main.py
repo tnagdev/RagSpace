@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from src.config import settings
-from src.routers import chat, conversations
+from src.routers import chat, conversations, greeting
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
 from src.services.PrismaService import PrismaService
 from src.common.payment_client import init_payment_client
@@ -62,6 +62,7 @@ app.add_middleware(InterServiceMiddleware)
 
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
+app.include_router(greeting.router, prefix="/greeting", tags=["greeting"])
 
 
 @app.get("/health")

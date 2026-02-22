@@ -23,6 +23,10 @@ export class AuthGuard implements CanActivate {
         '/api/webhooks/lemon-squeezy',
     ];
 
+    private publicRoutePrefixes: string[] = [
+        '/api/plans',
+    ];
+
     constructor(
         private readonly httpService: HttpService,
         private readonly reflector: Reflector,
@@ -36,7 +40,12 @@ export class AuthGuard implements CanActivate {
 
         if (isPublic) return true;
 
-        if (this.publicRoutes.includes(context.switchToHttp().getRequest<Request>().path)) {
+        const path = context.switchToHttp().getRequest<Request>().path;
+        if (this.publicRoutes.includes(path)) {
+            return true;
+        }
+
+        if (this.publicRoutePrefixes.some(prefix => path.startsWith(prefix))) {
             return true;
         }
 

@@ -21,11 +21,23 @@ export class AuthGuard implements CanActivate {
             context.getClass(),
         ]);
 
+        const request = context.switchToHttp().getRequest<Request>();
+
         if (isPublic) {
+            const userHeader = request.headers['x-user'] as string;
+            const sessionHeader = request.headers['x-session'] as string;
+            if (userHeader) {
+                try {
+                    request['user'] = JSON.parse(userHeader);
+                    if (sessionHeader) request['session'] = JSON.parse(sessionHeader);
+                } catch {
+                    // Ignore parse errors on public routes
+                }
+            }
             return true;
         }
 
-        const request = context.switchToHttp().getRequest<Request>();
+
         const userHeader = request.headers['x-user'] as string;
         const sessionHeader = request.headers['x-session'] as string;
         const serviceHeader = request.headers['x-service'] as string;

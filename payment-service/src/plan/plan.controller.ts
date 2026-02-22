@@ -17,9 +17,12 @@ export class PlanController {
         return this.planService.getAllPlans();
     }
 
+    @Public()
     @Get('with-comparison')
     async getPlansWithComparison(@CurrentUser() user: AuthUser) {
-        const subscription = await this.subscriptionService.getUserSubscription(user.id);
+        const subscription = user?.id
+            ? await this.subscriptionService.getUserSubscription(user.id)
+            : null;
         const currentPlanType = subscription?.plan?.type;
 
         return this.planService.getPlansWithComparison(currentPlanType);

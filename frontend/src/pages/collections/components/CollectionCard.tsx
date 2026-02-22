@@ -68,7 +68,7 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                         trigger={menuButtonRef}
                         className="w-48 py-1"
                     >
-                        <button
+                        {/* <button
                             onClick={(e) => {
                                 e.stopPropagation();
                                 navigate({ to: `/collections/${collection.id}/chat` });
@@ -78,7 +78,7 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                         >
                             <MessageSquare className="w-4 h-4" />
                             Chat
-                        </button>
+                        </button> */}
                         {onAddSubcollection && (
                             <button
                                 onClick={(e) => {

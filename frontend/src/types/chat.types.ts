@@ -107,3 +107,7 @@ export interface Conversation {
     updated_at: string;
     title: string | null;
 }
+
+export interface GreetingResponse {
+    greeting: string;
+}

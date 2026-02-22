@@ -1,5 +1,5 @@
 import { privateAxios, API_BASE_URL } from './apiClient';
-import type { ConversationSummary, Conversation, ChatRequest, ChatSSEEvent } from '@/types/chat.types';
+import type { ConversationSummary, Conversation, ChatRequest, ChatSSEEvent, GreetingResponse } from '@/types/chat.types';
 
 export const chatAPI = {
     // Get all conversations with optional filtering
@@ -65,5 +65,11 @@ export const chatAPI = {
                 }
             }
         }
+    },
+
+    // Get personalised AI greeting grounded in the user's file library
+    getGreeting: async (): Promise<GreetingResponse> => {
+        const response = await privateAxios.get<GreetingResponse>('/api/greeting');
+        return response.data;
     },
 };

@@ -2,6 +2,8 @@ import { createRoute, Navigate, Outlet, redirect, useLocation } from "@tanstack/
 import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
+import LandingPage from "@/pages/landing/LandingPage";
+import AboutPage from "@/pages/about/AboutPage";
 import { Folder, Search, MessageSquare, FolderTree, Settings as SettingsIcon } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
 import FileChatPage from "@/pages/files/FileChatPage";
@@ -111,6 +113,12 @@ const NavRoutes: Array<NavRoute> = [
         path: '/payment/cancelled',
         component: () => <PaymentCancelledPage />,
         nav: false,
+    },
+    {
+        name: 'About',
+        path: '/about',
+        component: () => <></>,
+        nav: false,
     }
 ];
 
@@ -128,11 +136,20 @@ const _PrivateRoute = createRoute({
     component: () => {
         const location = useLocation();
         if (location.pathname === '/') {
-            return <Navigate to="/files" />;
+            if (hasAccessToken()) {
+                return <Navigate to="/files" />;
+            }
+            return <LandingPage />;
+        }
+        if (location.pathname === '/about') {
+            return <AboutPage />;
         }
         return <RootLayout />;
     },
-    beforeLoad: async () => {
+    beforeLoad: async ({ location }) => {
+        if (location.pathname === '/' || location.pathname === '/about') {
+            return {}; // public pages
+        }
         const isValid = hasAccessToken();
         if (!isValid) {
             throw redirect({ to: '/auth/login' });
