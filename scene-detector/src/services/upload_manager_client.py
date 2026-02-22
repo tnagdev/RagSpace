@@ -6,7 +6,6 @@ from datetime import datetime
 from enum import Enum
 
 from src.config.settings import settings
-from src.decorators.singleton import singleton
 from src.services.HttpClientService import HttpClient
 from src.models.events import UpdateFileStatusParams
 

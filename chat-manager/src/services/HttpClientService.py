@@ -45,7 +45,6 @@ class HttpClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 request_headers = headers or {}
                 if self.user:
-                    # User and session are always clean dicts from chat.py
                     request_headers['x-user'] = json_dumps(self.user)
                 
                 if self.session:

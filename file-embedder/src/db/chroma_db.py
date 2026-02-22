@@ -4,18 +4,21 @@ from chromadb.config import Settings as ChromaSettings
 import numpy as np
 from typing import List, Dict, Any, Optional
 import logging
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class ChromaDatabaseManager:
+
+class ChromaDatabaseManager(metaclass=SingletonMeta):
     """Manages ChromaDB collections for video and audio embeddings."""
     
     def __init__(self):
-        if hasattr(self, 'client') and self.client is not None:
+        # Skip if already initialized (prevents duplicate initialization)
+        if hasattr(self, '_chroma_db_initialized'):
             return
+        
+        self._chroma_db_initialized = True
             
         # Use HttpClient for remote ChromaDB server
         logger.info(f"Connecting to ChromaDB at {settings.chroma_host}:{settings.chroma_port}")
@@ -293,6 +296,31 @@ class ChromaDatabaseManager:
         if image_results["ids"]:
             self.image_collection.delete(ids=image_results["ids"])
             logger.info(f"Deleted {len(image_results['ids'])} image embeddings for file: {file_id}")
+    
+    def delete_by_file_ids(self, file_ids: List[str]) -> None:
+        """Delete all embeddings associated with multiple file IDs across all collections (batch operation)."""
+        if not file_ids:
+            return
+        
+        total_text_deleted = 0
+        total_image_deleted = 0
+        text_results = self.text_collection.get(
+            where={"file_id": {"$in": file_ids}}
+        )
+        if text_results["ids"]:
+            self.text_collection.delete(ids=text_results["ids"])
+            total_text_deleted = len(text_results["ids"])
+            logger.info(f"Deleted {total_text_deleted} text embeddings for {len(file_ids)} files")
+        
+        image_results = self.image_collection.get(
+            where={"file_id": {"$in": file_ids}}
+        )
+        if image_results["ids"]:
+            self.image_collection.delete(ids=image_results["ids"])
+            total_image_deleted = len(image_results["ids"])
+            logger.info(f"Deleted {total_image_deleted} image embeddings for {len(file_ids)} files")
+        
+        logger.info(f"Batch deleted {total_text_deleted + total_image_deleted} total embeddings for {len(file_ids)} files")
     
     def delete_by_video_id(self, video_id: str) -> None:
         """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""

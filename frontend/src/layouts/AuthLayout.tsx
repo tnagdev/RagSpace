@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
-import { IoSparkles, IoChatbubbleEllipses } from "react-icons/io5";
+import logoImg from '@/assets/logo-filorag-bordered.png';
 
 export const AuthLayout = () => {
     return (
@@ -16,12 +16,7 @@ export const AuthLayout = () => {
 
             {/* Top Logo Bar - Fixed */}
             <div className="sticky top-0 left-0 right-0 p-4 sm:p-6 z-20 bg-linear-to-b from-black/20 to-transparent backdrop-blur-sm">
-                <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-xl" style={{ background: 'linear-gradient(to bottom right, #a855f7, #7c3aed)' }}>
-                        <IoSparkles size={20} className="text-white" />
-                    </div>
-                    <span className="text-xl font-bold text-white tracking-tight">RagSpace</span>
-                </div>
+                <img src={logoImg} alt="FiloRag" className="h-8 w-auto object-contain" />
             </div>
 
             {/* Main Content Area */}
@@ -35,21 +30,15 @@ export const AuthLayout = () => {
                                 <div className="absolute inset-0 rounded-full blur-3xl opacity-5" style={{ background: 'linear-gradient(to bottom right, #a855f7, #7c3aed)' }} />
                                 <div className="relative space-y-8">
                                     <div className="flex justify-center">
-                                        <div className="relative">
-                                            <div className="w-32 h-32 backdrop-blur-xl rounded-3xl rotate-45 flex items-center justify-center border border-purple-500/20" style={{ background: 'linear-gradient(to bottom right, rgba(168, 85, 247, 0.2), rgba(124, 58, 237, 0.2))' }}>
-                                                <div className="w-24 h-24 rounded-2xl -rotate-45 flex items-center justify-center shadow-2xl" style={{ background: 'linear-gradient(to bottom right, #a855f7, #7c3aed)', boxShadow: '0 20px 25px -5px rgba(168, 85, 247, 0.4)' }}>
-                                                    <IoChatbubbleEllipses size={48} className="text-white" />
-                                                </div>
-                                            </div>
-                                        </div>
+                                        {/* <img src={logoImg} alt="FiloRag" className="h-24 w-auto object-contain" /> */}
                                     </div>
                                     <div className="text-center space-y-6">
                                         <div className="space-y-3">
                                             <h1 className="text-5xl font-bold tracking-tight">
                                                 <span className="text-white">Welcome to</span>
                                             </h1>
-                                            <h2 className="text-6xl font-bold bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(to right, #a855f7, #ec4899, #f472b6)' }}>
-                                                RagSpace
+                                            <h2 className="text-6xl font-bold bg-clip-text text-transparent py-3 flex justify-center" style={{ backgroundImage: 'linear-gradient(to right, #a855f7, #ec4899, #f472b6)' }}>
+                                                <img src={logoImg} alt="FiloRag" className="h-24 w-auto object-contain" />
                                             </h2>
                                         </div>
                                         <p className="text-xl text-white/70 font-light max-w-md mx-auto leading-relaxed">
@@ -88,7 +77,7 @@ export const AuthLayout = () => {
                     <span>•</span>
                     <a href="#" className="hover:text-white/80 transition-colors">Terms</a>
                     <span>•</span>
-                    <span>© 2025 RagSpace</span>
+                    <span>© 2025 FiloRag</span>
                 </div>
             </div>
         </div>

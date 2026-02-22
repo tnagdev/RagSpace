@@ -31,7 +31,8 @@ COPY --chown=appuser:appuser . .
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh && \
     mkdir -p /home/appuser/.cache && \
-    chown -R appuser:appuser /home/appuser
+    chown -R appuser:appuser /home/appuser && \
+    chown -R appuser:appuser /home/appuser/.local
 
 USER appuser
 

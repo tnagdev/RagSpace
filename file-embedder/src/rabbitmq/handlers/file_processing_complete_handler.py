@@ -1,32 +1,24 @@
-
 import logging
 import os
 import tempfile
 import shutil
 import asyncio
-from typing import Dict, Any
 from src.models.enums import FileType, ProcessingStatus, ProcessingStage
 from src.models.events import ProcessingCompletedEventModel
 from src.config import settings
-from src.utils.background_tasks import background_task_manager
 from src.services.VideoEmbedderService import VideoEmbedderService
 from src.services.S3ClientService import S3ClientService
 from src.services.UploadManagerService import UploadManagerService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
-
-
+from src.decorators.cpu_manager import cpu_executor
 
 
 logger = logging.getLogger(__name__)
 
 
 async def _process_scenes_in_background(event_data: ProcessingCompletedEventModel):
-    """Background task for processing scenes without blocking the event handler.
-    
-    Args:
-        event_data: Validated processing completion event
-    """
+    """Process scenes with CPU-intensive operations using singleton models."""
     temp_dir = None
     try:
         s3_client = S3ClientService()
@@ -41,13 +33,11 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         original_name = event_data.fileName
 
         if not file_id:
-            logger.error("[Background] No file ID in processing completed event")
+            logger.error("No file ID in processing completed event")
             return
         
-        logger.info(f"[Background] Processing {len(scenes)} scene thumbnails for file: {file_id}")
-
         if not scenes:
-            logger.warning(f"[Background] No scenes found for file: {file_id}, marking as COMPLETED")
+            logger.warning(f"No scenes found for {file_id}, marking as COMPLETED")
             await upload_manager.update_file_status(
                 file_id=file_id,
                 processing_status=ProcessingStatus.COMPLETED.value,
@@ -72,29 +62,19 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                     logger.warning(f"No thumbnail URL for scene {i}, skipping")
                     return None, None
 
+                loop = asyncio.get_running_loop()
                 thumbnail_path = os.path.join(temp_dir, f"scene_{i}.jpg")
                 await s3_client.download(s3_url=thumbnail_url, s3_key=thumbnail_s3_key, local_path=thumbnail_path)
-                loop = asyncio.get_event_loop()
                 
-                visual_embedding = await loop.run_in_executor(
-                    None,
-                    video_embedder.embed_image,
-                    thumbnail_path
-                )
+                visual_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_image, thumbnail_path)
+                await asyncio.sleep(0)
                 
-                text = await loop.run_in_executor(
-                    None,
-                    video_embedder.extract_text,
-                    thumbnail_path
-                )
+                text = await loop.run_in_executor(cpu_executor, video_embedder.extract_text, thumbnail_path)
                 
                 text_embedding = None
                 if text:
-                    text_embedding = await loop.run_in_executor(
-                        None,
-                        video_embedder.embed_text,
-                        text
-                    )
+                    await asyncio.sleep(0)
+                    text_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_text, text)
                 
                 try:
                     description = await video_embedder.generate_image_description(thumbnail_path)
@@ -105,11 +85,9 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                             description=description,
                             scene_id=scene_id,
                         )
-                        logger.info(f"Stored metadata for scene {scene_id}")
                 except Exception as e:
-                    logger.error(f"Error generating/storing scene description for scene {i}: {e}")
+                    logger.error(f"Error generating scene description for scene {i}: {e}")
                 
-                # Visual embedding item
                 visual_item = {
                     "chunk_id": f"{file_id}#scene_{i}",
                     "scene_index": i,
@@ -128,7 +106,6 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                     "text": text
                 }
 
-                # Text embedding item (only if text was extracted)
                 text_item = None
                 if text_embedding is not None:
                     text_item = {
@@ -149,9 +126,7 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                         "text": text
                     }
 
-                logger.info(f"Successfully processed scene {i + 1}/{len(scenes)}")
                 return visual_item, text_item
-
             except Exception as e:
                 logger.error(f"Error processing scene {i} for {file_id}: {e}")
                 return None, None
@@ -169,18 +144,16 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                 if text_item:
                     text_items.append(text_item)
 
-        # Insert visual embeddings into video collection
         if visual_items:
             chroma_db.upsert_items(chroma_db.image_index_name, visual_items)
-            logger.info(f"[Background] Successfully embedded {len(visual_items)} visual embeddings for file: {file_id}")
+            logger.info(f"Successfully embedded {len(visual_items)} visual embeddings for {file_id}")
         
-        # Insert text embeddings into audio_text collection (for text-based search)
         if text_items:
             chroma_db.upsert_items(chroma_db.text_index_name, text_items)
-            logger.info(f"[Background] Successfully embedded {len(text_items)} text embeddings for file: {file_id}")
+            logger.info(f"Successfully embedded {len(text_items)} text embeddings for {file_id}")
         
         if not visual_items and not text_items:
-            logger.warning(f"[Background] No embeddings to store for file: {file_id}")
+            logger.warning(f"No embeddings to store for {file_id}")
 
         await upload_manager.update_file_status(
             file_id=file_id,
@@ -189,7 +162,7 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         )
 
     except Exception as e:
-        logger.error(f"[Background] Error processing scene detection completed event: {e}", exc_info=True)
+        logger.error(f"Error processing scenes: {e}", exc_info=True)
     finally:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -197,21 +170,15 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
 
 @rabbitmq_consumer.register_handler(FileEventType.PROCESSING_COMPLETED)
 async def handle_processing_completed(event_data: ProcessingCompletedEventModel):
-    """Handle processing completion event and launch background scene processing.
-    
-    This handler returns immediately after launching a background task to prevent
-    blocking the RabbitMQ consumer and FastAPI event loop during heavy processing.
-    
-    Args:
-        event_data: Validated processing completion event
-    """
+    """Handle processing completion event and process scenes."""
     try:
         file_id = event_data.fileId
         scene_count = len(event_data.data.scenes) if event_data.data and event_data.data.scenes else 0
-        background_task_manager.create_task(
-            _process_scenes_in_background(event_data),
-            name=f"process_scenes_{file_id}"
-        )
-        logger.info(f"✓ Launched background scene processing for file: {file_id} ({scene_count} scenes, active tasks: {background_task_manager.active_count})")
+        logger.info(f"Processing {scene_count} scenes for {file_id}")
+        
+        await _process_scenes_in_background(event_data)
+        
+        logger.info(f"✓ Completed scene processing for {file_id}")
     except Exception as e:
-        logger.error(f"Error launching background task for file {event_data.fileId}: {e}", exc_info=True)
+        logger.error(f"Error processing scenes for {event_data.fileId}: {e}", exc_info=True)
+        raise

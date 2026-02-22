@@ -3,13 +3,12 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from prisma import Prisma
 from src.config.settings import settings
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class PrismaService:
+class PrismaService(metaclass=SingletonMeta):
     """Singleton service for managing Prisma database connections."""
 
     def __init__(self) -> None:

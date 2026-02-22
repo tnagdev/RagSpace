@@ -11,6 +11,9 @@ interface FilePickerModalProps {
     onClose: () => void;
     onSelectFiles: (files: FileResponseDto[]) => void;
     selectedFileIds: string[];
+    title?: string;
+    description?: string;
+    confirmButtonText?: string;
 }
 
 const FilePickerModal: React.FC<FilePickerModalProps> = ({
@@ -18,11 +21,18 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     onClose,
     selectedFileIds,
     onSelectFiles,
+    title = 'Attach Files',
+    description = 'Select files to limit your search scope',
+    confirmButtonText = 'Attach',
 }) => {
     const [localSelected, setLocalSelected] = useState<Set<string>>(new Set(selectedFileIds));
 
     useEffect(() => {
-        setLocalSelected(new Set(selectedFileIds));
+        if (isOpen) {
+            setLocalSelected(new Set(selectedFileIds));
+        } else {
+            setLocalSelected(new Set());
+        }
     }, [selectedFileIds, isOpen]);
 
     const { data, isLoading } = useFiles(
@@ -34,6 +44,9 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     );
 
     const toggleFile = (file: FileResponseDto) => {
+        // Don't allow toggling files that are already in the collection
+        if (selectedFileIds.includes(file.id)) return;
+
         const newSelected = new Set(localSelected);
         if (newSelected.has(file.id)) {
             newSelected.delete(file.id);
@@ -98,12 +111,12 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         <Drawer
             isOpen={isOpen}
             onClose={onClose}
-            title="Attach Files"
+            title={title}
             position="right"
             width="md"
             showFooter={true}
             className="!bg-bg-secondary"
-            contentClassName="!p-5 !pb-0"
+            contentClassName="!p-5 !pb-0 !flex !flex-col !h-full"
             footer={
                 <div className="flex gap-2 justify-end p-4 bg-bg-secondary">
                     <Button variant="secondary" onClick={onClose} size="sm">
@@ -115,18 +128,18 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                         onClick={handleConfirm}
                         disabled={localSelected.size === 0}
                     >
-                        Attach {localSelected.size > 0 ? `${localSelected.size} ${localSelected.size === 1 ? 'File' : 'Files'}` : 'Files'}
+                        {confirmButtonText} {localSelected.size > 0 ? `${localSelected.size} ${localSelected.size === 1 ? 'File' : 'Files'}` : 'Files'}
                     </Button>
                 </div>
             }
         >
-            <div className="mb-4">
+            <div className="mb-4 flex-shrink-0">
                 <p className="text-sm text-text-secondary">
-                    Select files to limit your search scope
+                    {description}
                 </p>
             </div>
 
-            <div className="overflow-y-auto pr-2 custom-scrollbar" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-32">
                         <div className="flex flex-col items-center gap-3">
@@ -139,18 +152,22 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                         {data.files.map((file) => {
                             const config = fileTypeConfig[file.fileType];
                             const Icon = config.icon;
+                            const isAlreadyAdded = selectedFileIds.includes(file.id);
                             const isSelected = localSelected.has(file.id);
 
                             return (
                                 <button
                                     key={file.id}
                                     onClick={() => toggleFile(file)}
+                                    disabled={isAlreadyAdded}
                                     className={cn(
                                         "w-full flex items-center gap-3 p-3 rounded-lg transition-all text-left group",
                                         "border",
-                                        isSelected
-                                            ? "bg-accent-primary/10 border-accent-primary"
-                                            : "bg-bg-tertiary/30 border-border-input hover:border-accent-primary/50"
+                                        isAlreadyAdded
+                                            ? "bg-bg-tertiary/50 border-border-input opacity-60 cursor-not-allowed"
+                                            : isSelected
+                                                ? "bg-accent-primary/10 border-accent-primary"
+                                                : "bg-bg-tertiary/30 border-border-input hover:border-accent-primary/50"
                                     )}
                                 >
                                     {/* Thumbnail or Icon */}
@@ -186,20 +203,26 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                                         </div>
                                     </div>
 
-                                    {/* Checkbox */}
+                                    {/* Checkbox or Added Badge */}
                                     <div className="shrink-0">
-                                        <div
-                                            className={cn(
-                                                "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
-                                                isSelected
-                                                    ? "bg-accent-primary border-accent-primary"
-                                                    : "border-border-input group-hover:border-accent-primary/50"
-                                            )}
-                                        >
-                                            {isSelected && (
-                                                <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                                            )}
-                                        </div>
+                                        {isAlreadyAdded ? (
+                                            <div className="px-2 py-1 rounded bg-surface-tertiary border border-divider text-xs text-text-muted font-medium">
+                                                Added
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className={cn(
+                                                    "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                                                    isSelected
+                                                        ? "bg-accent-primary border-accent-primary"
+                                                        : "border-border-input group-hover:border-accent-primary/50"
+                                                )}
+                                            >
+                                                {isSelected && (
+                                                    <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </button>
                             );

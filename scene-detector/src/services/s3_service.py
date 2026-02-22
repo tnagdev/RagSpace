@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class S3Service:
+
+class S3Service(metaclass=SingletonMeta):
     """AWS S3 service for file operations with connection pooling."""
     
     def __init__(self) -> None:
@@ -252,6 +252,53 @@ class S3Service:
         except Exception as e:
             logger.error(f"Delete error: {e}", exc_info=True)
             return False
+    
+    async def delete_files_batch(
+        self,
+        s3_keys: list[str],
+        bucket: Optional[str] = None
+    ) -> int:
+        """Delete multiple files from S3 individually.
+        
+        Args:
+            s3_keys: List of S3 object keys to delete
+            bucket: Optional bucket name (uses default if not provided)
+            
+        Returns:
+            Number of files successfully deleted
+        """
+        if not s3_keys:
+            return 0
+        
+        delete_bucket = bucket or self.bucket
+        deleted_count = 0
+        
+        try:
+            logger.info(f"Deleting {len(s3_keys)} files from S3")
+            
+            async with self._get_client() as s3_client:
+                for key in s3_keys:
+                    try:
+                        await s3_client.delete_object(
+                            Bucket=delete_bucket,
+                            Key=key
+                        )
+                        deleted_count += 1
+                    except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                        if error_code == 'NoSuchKey':
+                            deleted_count += 1  # Consider missing files as successfully deleted
+                        else:
+                            logger.warning(f"Failed to delete {key}: {error_code}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete {key}: {e}")
+            
+            logger.info(f"✓ Deleted {deleted_count}/{len(s3_keys)} files from S3")
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Delete operation error: {e}", exc_info=True)
+            return deleted_count
     
     async def get_signed_url(
         self,

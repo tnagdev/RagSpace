@@ -8,14 +8,14 @@ import cv2
 import logging
 import pytesseract
 from torch import Tensor, cuda
-from src.decorators import singleton
+from src.decorators.singleton import SingletonMeta
 from src.services.TextEmbedderService import TextEmbedderService
 from src.services.LLMService import LLMService, ImageDescription
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class ImageEmbedderService(TextEmbedderService):
+
+class ImageEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
     
     def __init__(self, image_model_name: str = "ViT-B-32", text_model_name: str = "BAAI/bge-base-en-v1.5", **kwargs):
         """
@@ -25,10 +25,11 @@ class ImageEmbedderService(TextEmbedderService):
             image_model_name: Name of the CLIP model
             device: Device to run model on ('cuda' or 'cpu')
         """
-        # Skip if already initialized (prevents duplicate model loading in inheritance)
-        if hasattr(self, 'model') and self.model is not None:
+        # Skip if already initialized (prevents duplicate model loading)
+        if hasattr(self, '_image_embedder_initialized'):
             return
-            
+        
+        self._image_embedder_initialized = True    
         self.device = "cuda" if cuda.is_available() else "cpu"
         logger.info(f"Loading CLIP model: {image_model_name} on {self.device}")
 

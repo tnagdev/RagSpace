@@ -1,7 +1,7 @@
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
-from src.common.enums import EventType
+from src.models.enums import EventType
 
 
 class Settings(BaseSettings):
@@ -39,7 +39,8 @@ class Settings(BaseSettings):
     
     # Processing
     temp_dir: str = "/tmp/file-embedder"
-    max_concurrent_jobs: int = 2
+    # Dynamic: max(2, min(cpu_count // 2, 6)) - defaults to 2 if env override not set
+    max_concurrent_jobs: int = max(2, min((os.cpu_count() or 4) // 2, 6))
     
     class Config:
         env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"

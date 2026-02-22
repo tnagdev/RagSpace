@@ -9,7 +9,7 @@ from typing import Optional
 from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel, ValidationError
 from src.config import settings
-from src.decorators import singleton
+from src.decorators.singleton import SingletonMeta
 from src.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,8 @@ def get_llm_semaphore() -> asyncio.Semaphore:
     return _llm_semaphore
 
 
-@singleton
-class LLMService:
+
+class LLMService(metaclass=SingletonMeta):
     """Service for handling LLM interactions with NVIDIA API via OpenAI SDK."""
     
     MIME_TYPES = {
@@ -48,8 +48,11 @@ class LLMService:
     }
     
     def __init__(self) -> None:
-        if hasattr(self, 'client'):
+        # Skip if already initialized (prevents duplicate initialization)
+        if hasattr(self, '_llm_service_initialized'):
             return
+        
+        self._llm_service_initialized = True
         
         if not settings.nvidia_api_key:
             logger.warning("NVIDIA API key not configured - LLM features disabled")
@@ -110,13 +113,15 @@ class LLMService:
     async def generate_image_description(
         self,
         image_path: str,
-        max_retries: int = 3
+        max_retries: int = 3,
+        json_retry_count: int = 1
     ) -> Optional[ImageDescription]:
         """Generate a structured text description for an image using vision LLM.
         
         Args:
             image_path: Path to the image file
             max_retries: Maximum number of retries on rate limit errors
+            json_retry_count: Number of times to retry if JSON parsing fails
             
         Returns:
             ImageDescription object or None if generation failed
@@ -159,7 +164,43 @@ class LLMService:
                     
                     if data is None:
                         logger.warning(f"Could not parse JSON from LLM response: {response_text[:100]}")
-                        return None
+                        
+                        # Retry with explicit JSON formatting request
+                        for json_attempt in range(json_retry_count):
+                            try:
+                                logger.info(f"Retrying with JSON formatting request (attempt {json_attempt + 1}/{json_retry_count})")
+                                
+                                retry_response = await self.client.chat.completions.create(
+                                    model=self.model,
+                                    messages=[
+                                        {"role": "system", "content": system_prompt},
+                                        {"role": "user", "content": user_content},
+                                        {"role": "assistant", "content": response_text},
+                                        {
+                                            "role": "user", 
+                                            "content": "Please reformat your previous response as valid JSON only, with no additional text or markdown formatting. Use this exact structure: {\"summary\": \"...\", \"objects\": [...], \"setting\": \"...\", \"style\": \"...\", \"colors\": [...]}"
+                                        }
+                                    ],
+                                    max_tokens=512,
+                                    temperature=0.1
+                                )
+                                
+                                retry_text = retry_response.choices[0].message.content.strip()
+                                data = self._extract_json(retry_text)
+                                
+                                if data is not None:
+                                    logger.info("Successfully parsed JSON after retry")
+                                    break
+                                else:
+                                    logger.warning(f"JSON parsing failed again on retry {json_attempt + 1}: {retry_text[:100]}")
+                                    
+                            except Exception as retry_error:
+                                logger.error(f"Error during JSON retry: {retry_error}")
+                                continue
+                        
+                        if data is None:
+                            logger.error(f"Skipping image after {json_retry_count} JSON parsing retries")
+                            return None
                     
                     try:
                         description = ImageDescription(**data)

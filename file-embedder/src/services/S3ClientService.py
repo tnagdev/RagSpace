@@ -5,13 +5,13 @@ import httpx
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError, BotoCoreError
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-@singleton
-class S3ClientService:
+
+class S3ClientService(metaclass=SingletonMeta):
     """S3/MinIO client for downloading and managing files."""
     
     def __init__(
@@ -21,9 +21,11 @@ class S3ClientService:
         secret_key: Optional[str] = None,
         bucket_name: Optional[str] = None
     ) -> None:
-        # Singleton check - skip if already initialized
-        if hasattr(self, 's3_client'):
+        # Skip if already initialized (prevents duplicate initialization)
+        if hasattr(self, '_s3_client_initialized'):
             return
+        
+        self._s3_client_initialized = True
         
         # Use provided values or fall back to settings
         self.endpoint = (endpoint or settings.aws_s3_endpoint or '').rstrip('/')

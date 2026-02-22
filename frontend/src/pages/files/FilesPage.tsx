@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { RefreshCw, Grid3x3, List } from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { FileUploadZone } from './components/FileUploadZone';
 import { YouTubeLinkInput } from './components/YouTubeLinkInput';
 import { PollingFileItem } from './components/PollingFileItem';
@@ -7,9 +8,12 @@ import { FileCard } from './components/FileCard';
 import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import PaymentResultModal from '@/components/payment/PaymentResultModal';
 import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage } from '@/types/upload.types';
+import { CollectionSidePanel } from '@/components/CollectionSidePanel';
 
 interface UploadProgress {
     [fileId: string]: number;
@@ -21,12 +25,39 @@ interface PollingFile {
 }
 
 const FilesPage = () => {
+    const navigate = useNavigate();
+    const searchParams = useSearch({ from: '/files' }) as { payment?: string; plan?: string; error?: string };
+
     const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file');
     const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
     const [pollingFiles, setPollingFiles] = useState<PollingFile[]>([]);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+    const [isCollectionPanelOpen, setIsCollectionPanelOpen] = useState(false);
+    const [selectedFileForCollection, setSelectedFileForCollection] = useState<string | null>(null);
+    const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentStatus, setPaymentStatus] = useState<'success' | 'error' | 'cancelled'>('success');
+    const [paymentPlanName, setPaymentPlanName] = useState<string | undefined>(undefined);
+    const [paymentErrorMessage, setPaymentErrorMessage] = useState<string | undefined>(undefined);
+
+    // Handle payment redirect params
+    useEffect(() => {
+        if (searchParams.payment) {
+            const status = searchParams.payment as 'success' | 'error' | 'cancelled';
+            setPaymentStatus(status);
+            setPaymentPlanName(searchParams.plan);
+            setPaymentErrorMessage(searchParams.error);
+            setShowPaymentModal(true);
+
+            // Clear query params after showing modal
+            navigate({
+                to: '/files',
+                replace: true,
+            });
+        }
+    }, [searchParams.payment, searchParams.plan, searchParams.error, navigate]);
 
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
@@ -172,16 +203,25 @@ const FilesPage = () => {
     );
 
     const handleDeleteFile = useCallback(
-        async (id: string) => {
+        (id: string) => {
+            setFileToDelete(id);
+        },
+        []
+    );
+
+    const confirmDeleteFile = useCallback(
+        async () => {
+            if (!fileToDelete) return;
             try {
-                await deleteMutation.mutateAsync(id);
+                await deleteMutation.mutateAsync(fileToDelete);
                 refetchCompleted();
                 refetchProcessing();
+                setFileToDelete(null);
             } catch (error) {
                 console.error('Failed to delete file:', error);
             }
         },
-        [deleteMutation, refetchCompleted, refetchProcessing]
+        [fileToDelete, deleteMutation, refetchCompleted, refetchProcessing]
     );
 
     const handleYouTubeSubmit = useCallback(
@@ -261,7 +301,6 @@ const FilesPage = () => {
                     </Button>
                 </div>
 
-                {/* Upload Zone or YouTube Input */}
                 {uploadMode === 'file' ? (
                     <FileUploadZone onFilesSelected={handleFilesSelected} />
                 ) : (
@@ -361,6 +400,10 @@ const FilesPage = () => {
                                     key={file.id}
                                     file={file}
                                     onDelete={handleDeleteFile}
+                                    onAddToCollection={(fileId) => {
+                                        setSelectedFileForCollection(fileId);
+                                        setIsCollectionPanelOpen(true);
+                                    }}
                                 />
                             ))}
                         </div>
@@ -389,6 +432,40 @@ const FilesPage = () => {
                     />
                 )}
             </div>
+
+            {/* Collection Side Panel */}
+            {selectedFileForCollection && (
+                <CollectionSidePanel
+                    isOpen={isCollectionPanelOpen}
+                    onClose={() => {
+                        setIsCollectionPanelOpen(false);
+                        setSelectedFileForCollection(null);
+                    }}
+                    fileIds={[selectedFileForCollection]}
+                />
+            )}
+
+            {/* Delete Confirmation Dialog */}
+            <ConfirmDialog
+                isOpen={fileToDelete !== null}
+                onClose={() => setFileToDelete(null)}
+                onConfirm={confirmDeleteFile}
+                title="Delete File"
+                message="Are you sure you want to delete this file? This action cannot be undone and the file cannot be recovered."
+                confirmText="Delete"
+                cancelText="Cancel"
+                variant="danger"
+                isLoading={deleteMutation.isPending}
+            />
+
+            {/* Payment Result Modal */}
+            <PaymentResultModal
+                isOpen={showPaymentModal}
+                onClose={() => setShowPaymentModal(false)}
+                status={paymentStatus}
+                planName={paymentPlanName}
+                errorMessage={paymentErrorMessage}
+            />
         </div>
     );
 };

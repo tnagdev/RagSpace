@@ -6,12 +6,14 @@ from datetime import datetime
 from src.config.settings import settings
 from src.rabbitmq.rabbitmq_producer import RabbitMQProducer
 from src.services.upload_manager_client import UploadManagerClient
-from src.common.enums import EventType, ProcessingStage, ProcessingStatus
+from src.models.enums import EventType, ProcessingStage, ProcessingStatus
 from src.models.events import UploadCompletedEventModel, UpdateFileStatusParams
 from src.services.s3_service import S3Service
 from src.services.prisma_service import PrismaService
 from src.services.scene_detection_service import SceneDetectionService
 from src.services.youtube_downloader_service import YouTubeDownloaderService
+from src.decorators.cpu_manager import cpu_executor
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +71,15 @@ class SceneProcessor:
             file_type = file_record.get('fileType', '').upper()
             filename = os.path.basename(file_record['s3Key'])
             file_path = os.path.join(work_dir, filename)
+            
+            loop = asyncio.get_event_loop()
 
             # Check if this is a YouTube video
             youtube_url = file_record.get('youtubeUrl')
             if youtube_url:
                 logger.info(f"Downloading YouTube video: {youtube_url}")
                 try:
+                    
                     download_result = await self.youtube_downloader.download_video(
                         youtube_url,
                         file_path,
@@ -172,9 +177,16 @@ class SceneProcessor:
 
             if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
                 logger.info(f"Skipping scene detection for non-video file type: {file_type}")
-                return
+                return await self.upload_manager_client.update_file_status(
+                    file_id,
+                    UpdateFileStatusParams(
+                        processingStatus=ProcessingStatus.COMPLETED.value,
+                        processingStage=ProcessingStage.COMPLETED.value,
+                        processingCompletedAt=datetime.utcnow()
+                    )
+                )
             
-            scenes_data = await self.scene_detection_service.detect_scenes(file_path)
+            scenes_data = await loop.run_in_executor(cpu_executor, self.scene_detection_service.detect_scenes, file_path)
             
             if not scenes_data:
                 logger.warning(f"No scenes detected in file: {file_id}")
@@ -182,7 +194,7 @@ class SceneProcessor:
                     file_id,
                     UpdateFileStatusParams(
                         processingStatus=ProcessingStatus.COMPLETED.value,
-                        processingStage=ProcessingStage.INDEXING.value,
+                        processingStage=ProcessingStage.COMPLETED.value,
                         processingCompletedAt=datetime.utcnow(),
                         metadata={'scenes_detected': 0}
                     )
@@ -249,7 +261,6 @@ class SceneProcessor:
                     )
                     return None
             
-            import asyncio
             results = await asyncio.gather(*[process_scene(scene_data) for scene_data in scenes_data])
             scenes_to_create = [scene for scene in results if scene is not None]
 
@@ -285,7 +296,7 @@ class SceneProcessor:
                 {
                     'type': EventType.PROCESSING_COMPLETED.value,
                     'fileId': file_id,
-                    'fileName': file_record.get('filename'),
+                    'fileName': file_record.get('originalFilename') or file_record.get('filename'),
                     'fileType': file_record.get('fileType'),
                     'user': user.model_dump() if hasattr(user, 'model_dump') else user,
                     'timestamp': datetime.utcnow().isoformat(),

@@ -1,13 +1,16 @@
 import { type FC, useState } from 'react';
-import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube } from 'lucide-react';
+import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube, FolderPlus, FolderMinus, MessageSquare } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import moment from 'moment';
 import type { FileResponseDto, FileType } from '@/types/upload.types';
-import Button from '@/components/Button';
-import { cn } from '@/lib/utils';
+import Popover from '@/components/Popover';
 
 interface FileCardProps {
     file: FileResponseDto;
     onDelete?: (id: string) => void;
+    onAddToCollection?: (fileId: string) => void;
+    onRemoveFromCollection?: (fileId: string) => void;
+    showRemoveFromCollection?: boolean;
 }
 
 const fileTypeConfig: Record<FileType, {
@@ -66,8 +69,10 @@ const formatDuration = (seconds: number): string => {
     return `${minutes}:${String(secs).padStart(2, '0')}`;
 };
 
-export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
+export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection, onRemoveFromCollection, showRemoveFromCollection }) => {
     const [showMenu, setShowMenu] = useState(false);
+    const [menuButtonRef, setMenuButtonRef] = useState<HTMLElement | null>(null);
+    const navigate = useNavigate();
     const config = fileTypeConfig[file.fileType];
     const Icon = config.icon;
 
@@ -104,47 +109,90 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete }) => {
                     </div>
 
                     {/* Actions Menu */}
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowMenu(!showMenu)}
-                            className="p-2 rounded-lg hover:bg-sidebar-hover transition-colors"
-                        >
-                            <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
-                        </button>
+                    <button
+                        ref={setMenuButtonRef}
+                        onClick={() => setShowMenu(!showMenu)}
+                        className="p-2 rounded-lg hover:bg-sidebar-hover transition-colors"
+                    >
+                        <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
+                    </button>
 
-                        {showMenu && (
-                            <>
-                                <div
-                                    className="fixed inset-0 z-10"
-                                    onClick={() => setShowMenu(false)}
-                                />
-                                <div className="absolute right-0 top-full mt-2 w-44 bg-bg-secondary border border-sidebar-border rounded-xl shadow-2xl z-20 overflow-hidden backdrop-blur-xl">
-                                    <button
-                                        onClick={() => {
-                                            if (file.s3Url) window.open(file.s3Url, '_blank');
-                                            setShowMenu(false);
-                                        }}
-                                        className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                        Download
-                                    </button>
-                                    {onDelete && (
-                                        <button
-                                            onClick={() => {
-                                                onDelete(file.id);
-                                                setShowMenu(false);
-                                            }}
-                                            className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all flex items-center gap-3"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            </>
+                    <Popover
+                        isOpen={showMenu}
+                        onClose={() => setShowMenu(false)}
+                        trigger={menuButtonRef}
+                        className="w-48 py-1"
+                    >
+                        <button
+                            onClick={() => {
+                                navigate({ to: `/files/${file.id}/chat` });
+                                setShowMenu(false);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                        >
+                            <MessageSquare className="w-4 h-4" />
+                            Chat
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (file.fileType === 'YOUTUBE_VIDEO' && file.youtubeUrl) {
+                                    window.open(file.youtubeUrl, '_blank');
+                                } else if (file.s3Url) {
+                                    window.open(file.s3Url, '_blank');
+                                }
+                                setShowMenu(false);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                        >
+                            {file.fileType === 'YOUTUBE_VIDEO' ? (
+                                <>
+                                    <Youtube className="w-4 h-4" />
+                                    Open in YouTube
+                                </>
+                            ) : (
+                                <>
+                                    <Download className="w-4 h-4" />
+                                    Download
+                                </>
+                            )}
+                        </button>
+                        {onAddToCollection && (
+                            <button
+                                onClick={() => {
+                                    onAddToCollection(file.id);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                            >
+                                <FolderPlus className="w-4 h-4" />
+                                Add to Collection
+                            </button>
                         )}
-                    </div>
+                        {showRemoveFromCollection && onRemoveFromCollection && (
+                            <button
+                                onClick={() => {
+                                    onRemoveFromCollection(file.id);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
+                            >
+                                <FolderMinus className="w-4 h-4" />
+                                Remove from Collection
+                            </button>
+                        )}
+                        {onDelete && (
+                            <button
+                                onClick={() => {
+                                    onDelete(file.id);
+                                    setShowMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all flex items-center gap-3"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                            </button>
+                        )}
+                    </Popover>
                 </div>
 
                 {/* File Name */}

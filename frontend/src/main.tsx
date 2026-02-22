@@ -5,6 +5,8 @@ import './styles.css'
 import reportWebVitals from './reportWebVitals.ts'
 import RootRouter from './routes/index.tsx'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { PlansModalProvider } from './contexts/PlansModalContext'
+import { PlansModal } from './components/payment'
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -20,7 +22,10 @@ if (rootElement && !rootElement.innerHTML) {
     root.render(
         <StrictMode>
             <QueryClientProvider client={queryClient}>
-                <RouterProvider router={RootRouter} />
+                <PlansModalProvider>
+                    <RouterProvider router={RootRouter} />
+                    <PlansModal />
+                </PlansModalProvider>
             </QueryClientProvider>
         </StrictMode>,
     )

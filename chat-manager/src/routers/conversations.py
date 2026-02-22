@@ -1,7 +1,7 @@
 """Conversation management routes"""
 import logging
-from fastapi import APIRouter, Request, HTTPException
-from typing import List, Dict, Any
+from fastapi import APIRouter, Request, HTTPException, Query
+from typing import List, Dict, Any, Optional
 from src.models.chat import Conversation, ConversationSummary, SearchResult, ChatMessage
 from src.services.ConversationService import ConversationService
 from src.services.S3Service import S3Service
@@ -65,9 +65,14 @@ async def generate_signed_urls_for_results(search_results: List[SearchResult]) -
 
 
 @router.get("", response_model=List[ConversationSummary])
-async def list_conversations(request: Request):
+async def list_conversations(
+    request: Request,
+    file_id: Optional[str] = Query(None, description="Filter by file ID"),
+    collection_id: Optional[str] = Query(None, description="Filter by collection ID")
+):
     """
     List all conversations for the authenticated user.
+    Optionally filter by file_id or collection_id.
     
     Returns:
         List of conversation summaries
@@ -77,7 +82,11 @@ async def list_conversations(request: Request):
         user_id = user.get("id") if user else None
         conversation_service = ConversationService()
         
-        conversations = await conversation_service.list_user_conversations(user_id)
+        conversations = await conversation_service.list_user_conversations(
+            user_id,
+            file_id=file_id,
+            collection_id=collection_id
+        )
         return conversations
         
     except Exception as e:
@@ -166,4 +175,114 @@ async def delete_conversation(conversation_id: str, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error deleting conversation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/file/{file_id}")
+async def delete_conversations_by_file(file_id: str, request: Request):
+    """
+    Delete all conversations for a specific file.
+    
+    Args:
+        file_id: File ID
+    
+    Returns:
+        Number of deleted conversations
+    """
+    try:
+        user_id = request.state.user.get("id") if request.state.user else None
+        conversation_service = ConversationService()
+        
+        count = await conversation_service.delete_conversations_by_file_id(file_id, user_id)
+        
+        return {"message": f"Deleted {count} conversations", "count": count}
+        
+    except Exception as e:
+        logger.error(f"Error deleting conversations for file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/collection/{collection_id}")
+async def delete_conversations_by_collection(collection_id: str, request: Request):
+    """
+    Delete all conversations for a specific collection.
+    
+    Args:
+        collection_id: Collection ID
+    
+    Returns:
+        Number of deleted conversations
+    """
+    try:
+        user_id = request.state.user.get("id") if request.state.user else None
+        conversation_service = ConversationService()
+        
+        count = await conversation_service.delete_conversations_by_collection_id(collection_id, user_id)
+        
+        return {"message": f"Deleted {count} conversations", "count": count}
+        
+    except Exception as e:
+        logger.error(f"Error deleting conversations for collection: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch/files/delete")
+async def batch_delete_conversations_by_files(request: Request):
+    """
+    Delete all conversations for multiple files in batch.
+    
+    Body:
+        file_ids: List of file IDs
+    
+    Returns:
+        Number of deleted conversations
+    """
+    try:
+        user_id = request.state.user.get("id") if request.state.user else None
+        body = await request.json()
+        file_ids = body.get("file_ids", [])
+        
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="file_ids is required")
+        
+        conversation_service = ConversationService()
+        count = await conversation_service.delete_conversations_by_file_ids(file_ids, user_id)
+        
+        return {"message": f"Deleted {count} conversations", "count": count}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error batch deleting conversations for files: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch/collections/delete")
+async def batch_delete_conversations_by_collections(request: Request):
+    """
+    Delete all conversations for multiple collections in batch.
+    
+    Body:
+        collection_ids: List of collection IDs
+    
+    Returns:
+        Number of deleted conversations
+    """
+    try:
+        user_id = request.state.user.get("id") if request.state.user else None
+        body = await request.json()
+        collection_ids = body.get("collection_ids", [])
+        
+        if not collection_ids:
+            raise HTTPException(status_code=400, detail="collection_ids is required")
+        
+        conversation_service = ConversationService()
+        count = await conversation_service.delete_conversations_by_collection_ids(collection_ids, user_id)
+        
+        return {"message": f"Deleted {count} conversations", "count": count}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error batch deleting conversations for collections: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

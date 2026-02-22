@@ -58,7 +58,8 @@ class RabbitMQConsumer:
             self.connection = await aio_pika.connect_robust(
                 self.rabbitmq_url,
                 reconnect_interval=5,
-                fail_fast=False
+                fail_fast=False,
+                heartbeat=15
             )
             
             self.connection.reconnect_callbacks.add(self._on_reconnect)

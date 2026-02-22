@@ -5,14 +5,13 @@ import json
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from openai import AsyncOpenAI
 from src.config import settings
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 from src.models.chat import ChatMessage
 
 logger = logging.getLogger(__name__)
 
 
-@singleton
-class LLMService:
+class LLMService(metaclass=SingletonMeta):
     """Service for handling LLM interactions with NVIDIA API via OpenAI SDK"""
     
     def __init__(self):

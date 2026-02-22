@@ -18,7 +18,7 @@ export const SERVICES: Record<string, ServiceConfig> = {
         name: 'upload-manager',
         transport: 'http',
         url: process.env.UPLOAD_MANAGER_URL,
-        routes: ['/api/upload', '/api/upload/*'],
+        routes: ['/api/upload', '/api/upload/*', '/api/collections', '/api/collections/*'],
     },
     SCENE_DETECTOR: {
         name: 'scene-detector',
@@ -36,6 +36,12 @@ export const SERVICES: Record<string, ServiceConfig> = {
         name: 'chat-manager',
         transport: 'http',
         url: process.env.CHAT_MANAGER_URL,
-        routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*'],
+        routes: ['/api/chat', '/api/chat/*', '/api/conversations', '/api/conversations/*', '/api/greeting'],
+    },
+    PAYMENT_SERVICE: {
+        name: 'payment-service',
+        transport: 'http',
+        url: process.env.PAYMENT_SERVICE_URL,
+        routes: ['/api/plans', '/api/plans/*', '/api/subscriptions', '/api/subscriptions/*', '/api/usage', '/api/usage/*', '/api/validation', '/api/validation/*', '/api/webhooks/*'],
     },
 };

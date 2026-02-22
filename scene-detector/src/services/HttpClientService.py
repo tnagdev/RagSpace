@@ -37,12 +37,10 @@ class HttpClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 headers = headers or {}
                 
-                # Serialize user data
                 if self.user:
                     user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
                     headers['x-user'] = json_dumps(user_data) if isinstance(user_data, dict) else str(user_data)
                 
-                # Serialize session data
                 if self.session:
                     session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
                     headers['x-session'] = json_dumps(session_data) if isinstance(session_data, dict) else str(session_data)

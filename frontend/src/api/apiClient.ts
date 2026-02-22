@@ -39,9 +39,17 @@ privateAxios.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
+// Usage error handler callback (set by PlansModalProvider)
+let usageErrorHandler: ((errorData: any) => void) | null = null;
+
+export const setUsageErrorHandler = (handler: (errorData: any) => void) => {
+    usageErrorHandler = handler;
+};
+
 privateAxios.interceptors.response.use(
     (response) => response,
     (error) => {
+        // Handle 401 Unauthorized
         if (error?.response?.status === 401) {
             const isAuthPage = window.location.pathname.includes("/auth");
             clearAuthData();
@@ -49,6 +57,12 @@ privateAxios.interceptors.response.use(
                 window.location.href = "/auth/login";
             }
         }
+
+        // Handle 402 Payment Required (usage limit errors)
+        if (error?.response?.status === 402 && usageErrorHandler) {
+            usageErrorHandler(error.response.data);
+        }
+
         return Promise.reject(error);
     }
 );

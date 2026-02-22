@@ -52,6 +52,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User's chat message")
     conversation_id: Optional[str] = Field(None, description="Conversation ID for context")
     file_ids: Optional[List[str]] = Field(None, description="Filter to specific files")
+    file_id: Optional[str] = Field(None, description="Associate conversation with a specific file")
+    collection_id: Optional[str] = Field(None, description="Associate conversation with a specific collection")
     max_results: int = Field(5, ge=1, le=20, description="Maximum search results")
     include_context: bool = Field(True, description="Include conversation context")
     use_agent: bool = Field(True, description="Use agentic mode with tool calling")
@@ -76,6 +78,8 @@ class Conversation(BaseModel):
     updated_at: datetime
     title: Optional[str] = None
     summary: Optional[str] = Field(None, description="Summary of earlier conversation")
+    file_id: Optional[str] = Field(None, description="Associated file ID")
+    collection_id: Optional[str] = Field(None, description="Associated collection ID")
 
 
 class ConversationSummary(BaseModel):
@@ -86,6 +90,8 @@ class ConversationSummary(BaseModel):
     message_count: int
     created_at: datetime
     updated_at: datetime
+    file_id: Optional[str] = None
+    collection_id: Optional[str] = None
 
 
 class AgentEvent(BaseModel):

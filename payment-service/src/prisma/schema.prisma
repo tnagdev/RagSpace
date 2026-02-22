@@ -1,0 +1,208 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    schemas  = ["payment"]
+}
+
+enum PlanType {
+    FREE
+    BASIC
+    PRO
+
+    @@schema("payment")
+}
+
+enum PlanInterval {
+    MONTHLY
+    YEARLY
+
+    @@schema("payment")
+}
+
+enum SubscriptionStatus {
+    ACTIVE
+    CANCELLED
+    EXPIRED
+    PAST_DUE
+    PAUSED
+    TRIALING
+
+    @@schema("payment")
+}
+
+enum UsageMetricType {
+    CONVERSATIONS
+    STORAGE
+    FILE_CONVERSATIONS
+    YOUTUBE_VIDEOS
+    MAX_VIDEO_LENGTH
+    MAX_AUDIO_DURATION
+
+    @@schema("payment")
+}
+
+model Plan {
+    id          String       @id @default(uuid())
+    name        String
+    description String?
+    type        PlanType     @unique
+    interval    PlanInterval
+    price       Float
+    priceUnit   String       @default("USD")
+    isActive    Boolean      @default(true)
+
+    // Lemon Squeezy Integration
+    lemonSqueezyVariantId String? @unique
+    lemonSqueezyProductId String?
+
+    // Plan limits configuration (flexible JSON for scalability)
+    limits Json @default("{}")
+
+    // Features
+    features String[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    subscriptions Subscription[]
+
+    @@map("plans")
+    @@schema("payment")
+}
+
+model Subscription {
+    id     String             @id @default(uuid())
+    userId String
+    planId String
+    status SubscriptionStatus @default(ACTIVE)
+
+    // Lemon Squeezy Integration
+    lemonSqueezySubscriptionId String? @unique
+    lemonSqueezyCustomerId     String?
+    lemonSqueezyOrderId        String?
+
+    // Subscription details
+    currentPeriodStart DateTime
+    currentPeriodEnd   DateTime
+    cancelAtPeriodEnd  Boolean   @default(false)
+    canceledAt         DateTime?
+    trialStart         DateTime?
+    trialEnd           DateTime?
+
+    // Scheduled plan change (takes effect at period end)
+    scheduledPlanId     String?
+    scheduledChangeAt   DateTime?
+    scheduledChangeType String? // 'upgrade', 'downgrade', 'cancel_to_free'
+
+    // Payment details
+    lastPaymentDate DateTime?
+    nextPaymentDate DateTime?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    plan         Plan          @relation(fields: [planId], references: [id])
+    usageRecords UsageRecord[]
+    usageQuotas  UsageQuota[]
+
+    @@index([userId])
+    @@index([status])
+    @@map("subscriptions")
+    @@schema("payment")
+}
+
+model UsageQuota {
+    id             String          @id @default(uuid())
+    subscriptionId String
+    metricType     UsageMetricType
+
+    // Quota configuration
+    limit   BigInt    @default(0) // 0 means unlimited
+    used    BigInt    @default(0)
+    resetAt DateTime? // For monthly/weekly resets
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+    @@unique([subscriptionId, metricType])
+    @@index([subscriptionId])
+    @@map("usage_quotas")
+    @@schema("payment")
+}
+
+model UsageRecord {
+    id             String          @id @default(uuid())
+    userId         String
+    subscriptionId String
+    metricType     UsageMetricType
+
+    // Usage details
+    amount   Int   @default(1)
+    metadata Json? // Additional context (fileId, conversationId, etc.)
+
+    // Request information
+    endpoint  String?
+    ipAddress String?
+    userAgent String?
+
+    timestamp DateTime @default(now())
+
+    subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([subscriptionId])
+    @@index([metricType])
+    @@index([timestamp])
+    @@map("usage_records")
+    @@schema("payment")
+}
+
+model WebhookEvent {
+    id             String    @id @default(uuid())
+    eventType      String
+    lemonSqueezyId String    @unique
+    payload        Json
+    processed      Boolean   @default(false)
+    processedAt    DateTime?
+    error          String?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([processed])
+    @@index([eventType])
+    @@map("webhook_events")
+    @@schema("payment")
+}
+
+model PaymentHistory {
+    id             String  @id @default(uuid())
+    userId         String
+    subscriptionId String?
+
+    // Payment details
+    amount   Float
+    currency String @default("USD")
+    status   String
+
+    // Lemon Squeezy details
+    lemonSqueezyOrderId   String? @unique
+    lemonSqueezyInvoiceId String?
+
+    // Additional information
+    description String?
+    metadata    Json?
+
+    paidAt    DateTime?
+    createdAt DateTime  @default(now())
+
+    @@index([userId])
+    @@index([subscriptionId])
+    @@map("payment_history")
+    @@schema("payment")
+}

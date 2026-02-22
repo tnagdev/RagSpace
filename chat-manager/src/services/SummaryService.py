@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from openai import AsyncOpenAI
 from src.config import settings
 from src.models.chat import ChatMessage
-from src.decorators.singleton import singleton
+from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,7 @@ Create a summary that captures:
 Keep the summary concise but informative. Focus on information that would be useful for continuing the conversation."""
 
 
-@singleton
-class SummaryService:
+class SummaryService(metaclass=SingletonMeta):
     """Service for generating and managing conversation summaries."""
     
     def __init__(self):

@@ -8,11 +8,11 @@ export const chatKeys = {
     conversation: (id: string) => [...chatKeys.conversations(), id] as const,
 };
 
-export const useConversations = () => {
+export const useConversations = (params?: { file_id?: string; collection_id?: string }) => {
     return useQuery({
-        queryKey: chatKeys.conversations(),
+        queryKey: [...chatKeys.conversations(), params],
         queryFn: async () => {
-            const response = await chatAPI.getConversations();
+            const response = await chatAPI.getConversations(params);
             return response.data;
         },
     });

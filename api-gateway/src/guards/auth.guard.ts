@@ -20,6 +20,11 @@ export class AuthGuard implements CanActivate {
         '/api/auth/signin',
         '/api/auth/google',
         '/api/auth/health',
+        '/api/webhooks/lemon-squeezy',
+    ];
+
+    private publicRoutePrefixes: string[] = [
+        '/api/plans',
     ];
 
     constructor(
@@ -35,7 +40,12 @@ export class AuthGuard implements CanActivate {
 
         if (isPublic) return true;
 
-        if (this.publicRoutes.includes(context.switchToHttp().getRequest<Request>().path)) {
+        const path = context.switchToHttp().getRequest<Request>().path;
+        if (this.publicRoutes.includes(path)) {
+            return true;
+        }
+
+        if (this.publicRoutePrefixes.some(prefix => path.startsWith(prefix))) {
             return true;
         }
 

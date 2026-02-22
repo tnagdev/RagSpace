@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     file_embedder_url: str
     upload_manager_url: str
     scene_detector_url: str
+    payment_service_url: str = "http://localhost:3006"
     
     # S3 Configuration
     aws_access_key_id: Optional[str] = None

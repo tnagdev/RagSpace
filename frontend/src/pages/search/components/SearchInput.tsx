@@ -6,13 +6,14 @@ import { cn } from '@/lib/utils';
 
 interface SearchInputProps {
     onSearch: (query: string) => void;
-    onAttachFiles?: () => void;
+    onAttachFiles?: (buttonRef: HTMLElement) => void;
     isLoading?: boolean;
 }
 
 const SearchInput: React.FC<SearchInputProps> = ({ onSearch, onAttachFiles, isLoading }) => {
     const [query, setQuery] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const attachButtonRef = useRef<HTMLButtonElement>(null);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,10 +60,15 @@ const SearchInput: React.FC<SearchInputProps> = ({ onSearch, onAttachFiles, isLo
                 <div className="px-4 pb-3 flex justify-between items-center">
                     {onAttachFiles && (
                         <IconButton
+                            ref={attachButtonRef}
                             variant="ghost"
                             size="sm"
                             icon={<Paperclip size={16} />}
-                            onClick={onAttachFiles}
+                            onClick={() => {
+                                if (attachButtonRef.current) {
+                                    onAttachFiles(attachButtonRef.current);
+                                }
+                            }}
                             className="text-text-muted hover:text-accent-primary"
                         />
                     )}

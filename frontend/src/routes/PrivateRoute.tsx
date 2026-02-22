@@ -2,10 +2,18 @@ import { createRoute, Navigate, Outlet, redirect, useLocation } from "@tanstack/
 import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
 import { hasAccessToken } from "@/api/auth";
-import { Folder, Search, MessageSquare } from 'lucide-react';
+import LandingPage from "@/pages/landing/LandingPage";
+import AboutPage from "@/pages/about/AboutPage";
+import { Folder, Search, MessageSquare, FolderTree, Settings as SettingsIcon } from 'lucide-react';
 import FilesPage from "@/pages/files/FilesPage";
+import FileChatPage from "@/pages/files/FileChatPage";
 import SearchPage from "@/pages/search/SearchPage";
 import ChatPage from "@/pages/chat/ChatPage";
+import CollectionsPage from "@/pages/collections/CollectionsPage";
+import CollectionChatPage from "@/pages/collections/CollectionChatPage";
+import { Settings } from "@/pages/settings/Settings";
+import PaymentSuccessPage from "@/pages/payment/PaymentSuccessPage";
+import PaymentCancelledPage from "@/pages/payment/PaymentCancelledPage";
 
 
 export interface NavRoute {
@@ -32,6 +40,30 @@ const NavRoutes: Array<NavRoute> = [
                 name: 'Files',
                 path: '/',
                 component: () => <FilesPage />,
+            },
+            {
+                name: 'File Chat',
+                path: '$id/chat',
+                component: () => <FileChatPage />,
+            }
+        ],
+    },
+    {
+        name: 'Collections',
+        path: '/collections',
+        component: () => <CollectionsPage />,
+        icon: FolderTree,
+        nav: true,
+        children: [
+            {
+                name: 'Collection Details',
+                path: '$id',
+                component: () => <></>,
+            },
+            {
+                name: 'Collection Chat',
+                path: '$id/chat',
+                component: () => <CollectionChatPage />,
             }
         ],
     },
@@ -62,6 +94,31 @@ const NavRoutes: Array<NavRoute> = [
                 component: () => <ChatPage />,
             }
         ],
+    },
+    {
+        name: 'Settings',
+        path: '/settings',
+        component: () => <Settings />,
+        nav: false,
+        icon: SettingsIcon,
+    },
+    {
+        name: 'Payment Success',
+        path: '/payment/success',
+        component: () => <PaymentSuccessPage />,
+        nav: false,
+    },
+    {
+        name: 'Payment Cancelled',
+        path: '/payment/cancelled',
+        component: () => <PaymentCancelledPage />,
+        nav: false,
+    },
+    {
+        name: 'About',
+        path: '/about',
+        component: () => <></>,
+        nav: false,
     }
 ];
 
@@ -79,11 +136,20 @@ const _PrivateRoute = createRoute({
     component: () => {
         const location = useLocation();
         if (location.pathname === '/') {
-            return <Navigate to="/files" />;
+            if (hasAccessToken()) {
+                return <Navigate to="/files" />;
+            }
+            return <LandingPage />;
+        }
+        if (location.pathname === '/about') {
+            return <AboutPage />;
         }
         return <RootLayout />;
     },
-    beforeLoad: async () => {
+    beforeLoad: async ({ location }) => {
+        if (location.pathname === '/' || location.pathname === '/about') {
+            return {}; // public pages
+        }
         const isValid = hasAccessToken();
         if (!isValid) {
             throw redirect({ to: '/auth/login' });

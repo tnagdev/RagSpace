@@ -44,8 +44,14 @@ async def main():
         S3ClientService()
         logger.info("✓ Core services initialized")
         
+        # Pre-initialize all embedding services to load models once at startup
+        logger.info("Loading embedding models...")
+        AudioEmbedderService()
+        logger.info("✓ Audio embedding service initialized")
+        ImageEmbedderService()
+        logger.info("✓ Image embedding service initialized")
         VideoEmbedderService()
-        logger.info("✓ Embedding services initialized")
+        logger.info("✓ Video embedding service initialized")
         
         logger.info("Initializing ChromaDB collections...")
         chroma_db.get_text_collection()
