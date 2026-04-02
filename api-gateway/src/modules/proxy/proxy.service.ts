@@ -41,7 +41,7 @@ export class ProxyService {
         query?: any,
         files?: any,
     ): Promise<any> {
-        let servicePath = path.replace(/^\/api/, '');
+        let servicePath = path.startsWith('/api') ? path.replace(/^\/api/, '') : path;
 
         if (!servicePath.startsWith('/')) {
             servicePath = '/' + servicePath;

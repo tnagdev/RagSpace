@@ -111,6 +111,10 @@ const LoginPage = () => {
                     size="md"
                     icon={<IoLogoGoogle size={20} />}
                     type="button"
+                    onClick={() => {
+                        const callbackURL = `${window.location.origin}/auth/callback`;
+                        window.location.href = `/api/auth/google/login?callbackURL=${encodeURIComponent(callbackURL)}`;
+                    }}
                 >
                     Google
                 </Button>

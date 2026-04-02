@@ -20,7 +20,7 @@ const prisma = new PrismaClient({
 
 const trustedOrigins = process.env.TRUSTED_ORIGINS
     ? process.env.TRUSTED_ORIGINS.split(',').map(origin => origin.trim())
-    : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:8080"];
+    : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"];
 
 const authConfig = {
     baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:8001',
@@ -59,7 +59,7 @@ const authConfig = {
         },
     },
     advanced: {
-        useSecureCookies: true,
+        useSecureCookies: process.env.NODE_ENV === 'production',
         crossSubDomainCookies: {
             enabled: false,
         },

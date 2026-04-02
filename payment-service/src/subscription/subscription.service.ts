@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { LemonSqueezyService } from '../providers/lemon-squeezy/lemon-squeezy.service';
+import { PaymentProviderFactory } from '../providers/payment-provider.factory';
 import { PlanService } from '../plan/plan.service';
 import { SubscriptionStatus, UsageMetricType } from '@prisma/client';
 
@@ -16,9 +16,33 @@ export class SubscriptionService {
 
     constructor(
         private prisma: PrismaService,
-        private lemonSqueezy: LemonSqueezyService,
+        private paymentFactory: PaymentProviderFactory,
         private planService: PlanService,
     ) { }
+
+    private getExternalSubscriptionId(subscription: any): string | null {
+        if (this.paymentFactory.getProviderName() === 'razorpay') {
+            return subscription.razorpaySubscriptionId ?? null;
+        }
+        return subscription.lemonSqueezySubscriptionId ?? null;
+    }
+
+    private getExternalPlanVariantId(plan: any): string | null {
+        if (this.paymentFactory.getProviderName() === 'razorpay') {
+            return plan.razorpayPlanId ?? null;
+        }
+        return plan.lemonSqueezyVariantId ?? null;
+    }
+
+    private clearProviderFields() {
+        return {
+            lemonSqueezySubscriptionId: null,
+            lemonSqueezyCustomerId: null,
+            lemonSqueezyOrderId: null,
+            razorpaySubscriptionId: null,
+            razorpayCustomerId: null,
+        };
+    }
 
     async getUserSubscription(userId: string) {
         const subscription = await this.prisma.subscription.findFirst({
@@ -49,6 +73,8 @@ export class SubscriptionService {
         planId: string;
         lemonSqueezySubscriptionId?: string;
         lemonSqueezyCustomerId?: string;
+        razorpaySubscriptionId?: string;
+        razorpayCustomerId?: string;
         currentPeriodStart: Date;
         currentPeriodEnd: Date;
         status?: SubscriptionStatus;
@@ -61,9 +87,19 @@ export class SubscriptionService {
                 where: { lemonSqueezySubscriptionId: data.lemonSqueezySubscriptionId },
                 include: { plan: true },
             });
-
             if (existing) {
                 this.logger.log(`Subscription already exists for LemonSqueezy ID ${data.lemonSqueezySubscriptionId}`);
+                return existing;
+            }
+        }
+
+        if (data.razorpaySubscriptionId) {
+            const existing = await this.prisma.subscription.findUnique({
+                where: { razorpaySubscriptionId: data.razorpaySubscriptionId },
+                include: { plan: true },
+            });
+            if (existing) {
+                this.logger.log(`Subscription already exists for Razorpay ID ${data.razorpaySubscriptionId}`);
                 return existing;
             }
         }
@@ -88,12 +124,15 @@ export class SubscriptionService {
             }
         }
 
+
         const subscription = await this.prisma.subscription.create({
             data: {
                 userId: data.userId,
                 planId: data.planId,
                 lemonSqueezySubscriptionId: data.lemonSqueezySubscriptionId,
                 lemonSqueezyCustomerId: data.lemonSqueezyCustomerId,
+                razorpaySubscriptionId: data.razorpaySubscriptionId,
+                razorpayCustomerId: data.razorpayCustomerId,
                 currentPeriodStart: data.currentPeriodStart,
                 currentPeriodEnd: data.currentPeriodEnd,
                 status: data.status || SubscriptionStatus.ACTIVE,
@@ -103,8 +142,6 @@ export class SubscriptionService {
 
         await this.initializeUsageQuotas(subscription.id, limits, existingUsageMap);
         if (existingSubscription) {
-            const oldLsSubId = existingSubscription.lemonSqueezySubscriptionId;
-
             await this.prisma.subscription.update({
                 where: { id: existingSubscription.id },
                 data: {
@@ -113,19 +150,18 @@ export class SubscriptionService {
                     scheduledChangeAt: null,
                     scheduledChangeType: null,
                     cancelAtPeriodEnd: false,
-                    lemonSqueezySubscriptionId: null,
-                    lemonSqueezyCustomerId: null,
-                    lemonSqueezyOrderId: null,
+                    ...this.clearProviderFields(),
                 },
             });
             this.logger.log(`Deactivated old subscription ${existingSubscription.id}`);
 
-            if (oldLsSubId) {
+            const externalSubId = this.getExternalSubscriptionId(existingSubscription);
+            if (externalSubId) {
                 try {
-                    await this.lemonSqueezy.cancelSubscriptionImmediately(oldLsSubId);
-                    this.logger.log(`Cancelled old LS subscription ${oldLsSubId}`);
+                    await this.paymentFactory.getProvider().cancelSubscriptionImmediately(externalSubId);
+                    this.logger.log(`Cancelled old provider subscription ${externalSubId}`);
                 } catch (error) {
-                    this.logger.warn(`Failed to cancel old LS subscription ${oldLsSubId}: ${error.message}`);
+                    this.logger.warn(`Failed to cancel old provider subscription ${externalSubId}: ${error.message}`);
                 }
             }
         }
@@ -179,19 +215,37 @@ export class SubscriptionService {
 
     async createCheckoutSession(userId: string, planId: string, userEmail: string) {
         const plan = await this.planService.getPlanById(planId);
+        const variantId = this.getExternalPlanVariantId(plan);
 
-        if (!plan.lemonSqueezyVariantId) {
-            throw new BadRequestException('Plan not configured for checkout');
+        if (!variantId) {
+            throw new BadRequestException(
+                `Plan not configured for checkout with provider: ${this.paymentFactory.getProviderName()}`,
+            );
         }
 
-        const checkoutUrl = await this.lemonSqueezy.createCheckoutSession({
-            variantId: plan.lemonSqueezyVariantId,
+        const result = await this.paymentFactory.getProvider().createCheckoutSession({
+            variantId,
             userId,
             userEmail,
-            customData: { plan_id: planId },  // Use snake_case to match webhook payload
+            customData: { plan_id: planId },
         });
 
-        return { checkoutUrl };
+        if (this.paymentFactory.getProviderName() === 'razorpay' && result.providerSubscriptionId) {
+            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+            await this.prisma.pendingCheckout.upsert({
+                where: { razorpaySubscriptionId: result.providerSubscriptionId },
+                create: {
+                    userId,
+                    planId,
+                    razorpaySubscriptionId: result.providerSubscriptionId,
+                    expiresAt,
+                },
+                update: { expiresAt, attempts: 0 },
+            });
+            this.logger.log(`Stored pending checkout for Razorpay subscription ${result.providerSubscriptionId}`);
+        }
+
+        return { checkoutUrl: result.checkoutUrl };
     }
 
     async upgradeSubscription(userId: string, newPlanId: string) {
@@ -210,11 +264,12 @@ export class SubscriptionService {
             throw new BadRequestException('This is not an upgrade');
         }
 
-        // For upgrades, apply immediately via Lemon Squeezy with proration
-        if (subscription.lemonSqueezySubscriptionId && newPlan.lemonSqueezyVariantId) {
-            await this.lemonSqueezy.changeSubscriptionPlan(
-                subscription.lemonSqueezySubscriptionId,
-                newPlan.lemonSqueezyVariantId,
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        const newVariantId = this.getExternalPlanVariantId(newPlan);
+        if (externalSubId && newVariantId) {
+            await this.paymentFactory.getProvider().changeSubscriptionPlan(
+                externalSubId,
+                newVariantId,
                 { invoiceImmediately: true },
             );
         }
@@ -251,9 +306,6 @@ export class SubscriptionService {
             throw new BadRequestException('This is not a downgrade');
         }
 
-        // Set scheduled change FIRST to prevent webhook race condition
-        // (LS fires subscription_updated when we change the variant, and the webhook
-        // must see the scheduled change so it doesn't apply the plan change immediately)
         const updated = await this.prisma.subscription.update({
             where: { id: subscription.id },
             data: {
@@ -264,17 +316,16 @@ export class SubscriptionService {
             include: { plan: true },
         });
 
-        // Lock in new pricing in LemonSqueezy (without proration)
-        // This changes the variant so at renewal the lower price is charged
-        if (subscription.lemonSqueezySubscriptionId && newPlan.lemonSqueezyVariantId) {
+        const downgradeExternalSubId = this.getExternalSubscriptionId(subscription);
+        const downgradeNewVariantId = this.getExternalPlanVariantId(newPlan);
+        if (downgradeExternalSubId && downgradeNewVariantId) {
             try {
-                await this.lemonSqueezy.changeSubscriptionPlan(
-                    subscription.lemonSqueezySubscriptionId,
-                    newPlan.lemonSqueezyVariantId,
+                await this.paymentFactory.getProvider().changeSubscriptionPlan(
+                    downgradeExternalSubId,
+                    downgradeNewVariantId,
                     { disableProrations: true },
                 );
             } catch (error) {
-                // Revert scheduled change if LS API call fails
                 await this.prisma.subscription.update({
                     where: { id: subscription.id },
                     data: {
@@ -283,7 +334,7 @@ export class SubscriptionService {
                         scheduledChangeType: null,
                     },
                 });
-                this.logger.error(`Failed to change plan in LemonSqueezy, reverted scheduled change: ${error.message}`);
+                this.logger.error(`Failed to change plan via provider, reverted scheduled change: ${error.message}`);
                 throw error;
             }
         }
@@ -303,15 +354,12 @@ export class SubscriptionService {
 
         this.logger.log(`Cancelling subscription ${subscription.id} (immediate: ${immediate})`);
 
-        if (subscription.lemonSqueezySubscriptionId) {
+        const cancelExternalSubId = this.getExternalSubscriptionId(subscription);
+        if (cancelExternalSubId) {
             if (immediate) {
-                await this.lemonSqueezy.cancelSubscriptionImmediately(
-                    subscription.lemonSqueezySubscriptionId,
-                );
+                await this.paymentFactory.getProvider().cancelSubscriptionImmediately(cancelExternalSubId);
             } else {
-                await this.lemonSqueezy.cancelSubscriptionAtPeriodEnd(
-                    subscription.lemonSqueezySubscriptionId,
-                );
+                await this.paymentFactory.getProvider().cancelSubscriptionAtPeriodEnd(cancelExternalSubId);
             }
         }
 
@@ -339,10 +387,9 @@ export class SubscriptionService {
             throw new NotFoundException('No active subscription found');
         }
 
-        if (subscription.lemonSqueezySubscriptionId) {
-            await this.lemonSqueezy.pauseSubscription(
-                subscription.lemonSqueezySubscriptionId,
-            );
+        const pauseExternalSubId = this.getExternalSubscriptionId(subscription);
+        if (pauseExternalSubId) {
+            await this.paymentFactory.getProvider().pauseSubscription(pauseExternalSubId);
         }
 
         return this.prisma.subscription.update({
@@ -362,10 +409,9 @@ export class SubscriptionService {
             throw new NotFoundException('No paused subscription found');
         }
 
-        if (subscription.lemonSqueezySubscriptionId) {
-            await this.lemonSqueezy.resumeSubscription(
-                subscription.lemonSqueezySubscriptionId,
-            );
+        const resumeExternalSubId = this.getExternalSubscriptionId(subscription);
+        if (resumeExternalSubId) {
+            await this.paymentFactory.getProvider().resumeSubscription(resumeExternalSubId);
         }
 
         return this.prisma.subscription.update({
@@ -447,14 +493,16 @@ export class SubscriptionService {
             throw new BadRequestException('No scheduled changes found');
         }
 
-        if (subscription.scheduledChangeType === 'cancel_to_free' && subscription.lemonSqueezySubscriptionId) {
-            await this.lemonSqueezy.resumeSubscription(subscription.lemonSqueezySubscriptionId);
+        const schedExternalSubId = this.getExternalSubscriptionId(subscription);
+        if (subscription.scheduledChangeType === 'cancel_to_free' && schedExternalSubId) {
+            await this.paymentFactory.getProvider().uncancelSubscription(schedExternalSubId);
         }
 
-        if (subscription.scheduledChangeType === 'downgrade' && subscription.lemonSqueezySubscriptionId) {
-            await this.lemonSqueezy.changeSubscriptionPlan(
-                subscription.lemonSqueezySubscriptionId,
-                subscription.plan.lemonSqueezyVariantId,
+        const currentVariantId = this.getExternalPlanVariantId(subscription.plan);
+        if (subscription.scheduledChangeType === 'downgrade' && schedExternalSubId && currentVariantId) {
+            await this.paymentFactory.getProvider().changeSubscriptionPlan(
+                schedExternalSubId,
+                currentVariantId,
                 { invoiceImmediately: false },
             );
         }
@@ -531,9 +579,7 @@ export class SubscriptionService {
                         ...(isCancelToFree && {
                             status: SubscriptionStatus.EXPIRED,
                             cancelAtPeriodEnd: false,
-                            lemonSqueezySubscriptionId: null,
-                            lemonSqueezyCustomerId: null,
-                            lemonSqueezyOrderId: null,
+                            ...this.clearProviderFields(),
                         }),
                     },
                 });
@@ -541,6 +587,67 @@ export class SubscriptionService {
                 this.logger.log(`Applied scheduled ${sub.scheduledChangeType} for subscription ${sub.id} from ${sub.plan.name} to ${newPlan.name}`);
             } catch (error) {
                 this.logger.error(`Failed to apply scheduled change for subscription ${sub.id}:`, error);
+            }
+        }
+    }
+
+    @Cron(CronExpression.EVERY_30_SECONDS)
+    async pollPendingRazorpayCheckouts() {
+        if (this.paymentFactory.getProviderName() !== 'razorpay') return;
+
+        const pending = await this.prisma.pendingCheckout.findMany({
+            where: { expiresAt: { gt: new Date() } },
+        });
+
+        if (pending.length === 0) return;
+
+        this.logger.log(`Polling ${pending.length} pending Razorpay checkout(s)`);
+        const razorpay = this.paymentFactory.getProvider() as any;
+
+        for (const checkout of pending) {
+            try {
+                const rzSub = await razorpay.fetchSubscription(checkout.razorpaySubscriptionId);
+                this.logger.log(`Pending checkout ${checkout.razorpaySubscriptionId} → Razorpay status: ${rzSub.status}`);
+
+                const activatable = ['authenticated', 'active'];
+
+                if (activatable.includes(rzSub.status)) {
+                    await this.createSubscription({
+                        userId: checkout.userId,
+                        planId: checkout.planId,
+                        razorpaySubscriptionId: String(rzSub.id),
+                        razorpayCustomerId: rzSub.customer_id ? String(rzSub.customer_id) : undefined,
+                        currentPeriodStart: rzSub.current_start
+                            ? new Date(rzSub.current_start * 1000)
+                            : new Date(),
+                        currentPeriodEnd: rzSub.current_end
+                            ? new Date(rzSub.current_end * 1000)
+                            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                        status: rzSub.status === 'active'
+                            ? SubscriptionStatus.ACTIVE
+                            : SubscriptionStatus.TRIALING,
+                    });
+                    await this.prisma.pendingCheckout.delete({ where: { id: checkout.id } });
+                    this.logger.log(
+                        `✅ Activated Razorpay subscription ${checkout.razorpaySubscriptionId} ` +
+                        `for user ${checkout.userId} via polling (status: ${rzSub.status})`,
+                    );
+                } else if (['cancelled', 'expired', 'completed'].includes(rzSub.status)) {
+                    await this.prisma.pendingCheckout.delete({ where: { id: checkout.id } });
+                    this.logger.warn(
+                        `Removed dead pending checkout ${checkout.razorpaySubscriptionId} (status: ${rzSub.status})`,
+                    );
+                } else {
+                    await this.prisma.pendingCheckout.update({
+                        where: { id: checkout.id },
+                        data: { attempts: { increment: 1 } },
+                    });
+                }
+            } catch (error) {
+                this.logger.error(
+                    `Failed to poll pending checkout ${checkout.razorpaySubscriptionId}:`,
+                    error.message,
+                );
             }
         }
     }

@@ -19,8 +19,14 @@ export class AuthGuard implements CanActivate {
         '/api/auth/signup',
         '/api/auth/signin',
         '/api/auth/google',
+        '/api/auth/google/login',
+        '/api/auth/google/callback',
+        '/api/auth/session',
         '/api/auth/health',
         '/api/webhooks/lemon-squeezy',
+        '/api/webhooks/razorpay',
+        '/webhooks/lemon-squeezy',
+        '/webhooks/razorpay',
     ];
 
     private publicRoutePrefixes: string[] = [

@@ -5,7 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
-import { LemonSqueezyModule } from './providers/lemon-squeezy/lemon-squeezy.module';
+import { ProvidersModule } from './providers/providers.module';
 import { PlanModule } from './plan/plan.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { UsageModule } from './usage/usage.module';
@@ -21,7 +21,7 @@ import { AuthGuard } from './common/guards/auth.guard';
         }),
         ScheduleModule.forRoot(),
         PrismaModule,
-        LemonSqueezyModule,
+        ProvidersModule,
         PlanModule,
         SubscriptionModule,
         UsageModule,

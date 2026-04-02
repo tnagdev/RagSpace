@@ -6,6 +6,7 @@ import {
     listProducts,
     listVariants,
 } from '@lemonsqueezy/lemonsqueezy.js';
+import Razorpay = require('razorpay');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -14,12 +15,20 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// Initialize LemonSqueezy
 const LEMON_SQUEEZY_API_KEY = process.env.LEMON_SQUEEZY_API_KEY;
 const LEMON_SQUEEZY_STORE_ID = process.env.LEMON_SQUEEZY_STORE_ID;
+const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || 'lemon-squeezy';
 
 if (LEMON_SQUEEZY_API_KEY) {
     lemonSqueezySetup({ apiKey: LEMON_SQUEEZY_API_KEY });
+}
+
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+
+let razorpay: Razorpay | null = null;
+if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
+    razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
 }
 
 interface PlanDefinition {
@@ -30,7 +39,8 @@ interface PlanDefinition {
     price: number;
     limits: Record<string, number>;
     features: string[];
-    syncWithLemonSqueezy: boolean; // Whether to link with LemonSqueezy
+    syncWithLemonSqueezy: boolean;
+    razorpayPlanId?: string;
 }
 
 const planDefinitions: PlanDefinition[] = [
@@ -60,6 +70,7 @@ const planDefinitions: PlanDefinition[] = [
     },
     {
         name: 'Basic',
+
         description: 'For individuals and small teams',
         type: PlanType.BASIC,
         interval: PlanInterval.MONTHLY,
@@ -81,6 +92,7 @@ const planDefinitions: PlanDefinition[] = [
             'Advanced semantic search',
             'Priority processing',
         ],
+        razorpayPlanId: 'plan_SJgdHqrZ1r7fBj',
         syncWithLemonSqueezy: true,
     },
     {
@@ -104,9 +116,33 @@ const planDefinitions: PlanDefinition[] = [
             'Unlimited YouTube videos',
             'No video length limits'
         ],
+        razorpayPlanId: 'plan_SJgdfyTsf0aCiD',
         syncWithLemonSqueezy: true,
     },
 ];
+
+async function fetchRazorpayPlan(planId: string): Promise<{ price: number; currency: string } | null> {
+    if (!razorpay) {
+        console.warn('  ├─ ⚠️  Razorpay credentials not set — cannot fetch plan pricing');
+        return null;
+    }
+
+    try {
+        const plan = await razorpay.plans.fetch(planId) as any;
+        const amount = plan?.item?.amount ?? plan?.item?.unit_amount;
+        const currency = plan?.item?.currency ?? 'INR';
+
+        if (amount == null) {
+            console.warn(`  ├─ ⚠️  No amount found in Razorpay plan ${planId}`);
+            return null;
+        }
+
+        return { price: amount / 100, currency };
+    } catch (error) {
+        console.error(`  ├─ ❌ Failed to fetch Razorpay plan ${planId}:`, error.message);
+        return null;
+    }
+}
 
 async function findLemonSqueezyProduct(planName: string) {
     if (!LEMON_SQUEEZY_API_KEY || !LEMON_SQUEEZY_STORE_ID) {
@@ -150,6 +186,7 @@ async function findLemonSqueezyProduct(planName: string) {
 
 async function main() {
     console.log('🌱 Seeding database...');
+    console.log(`💳 Active payment provider: ${PAYMENT_PROVIDER}`);
     console.log('');
 
     const createdPlans = [];
@@ -157,54 +194,83 @@ async function main() {
     for (const planDef of planDefinitions) {
         console.log(`📋 Processing ${planDef.name} plan...`);
 
-        // Step 1: Find or sync with LemonSqueezy
-        let lemonSqueezyData = null;
-        if (planDef.syncWithLemonSqueezy) {
-            console.log(`  ├─ Checking LemonSqueezy for "${planDef.name}"...`);
-            lemonSqueezyData = await findLemonSqueezyProduct(planDef.name);
+        let lemonSqueezyData: { productId: string; variantId: string; price: number | null } | null = null;
+        let resolvedRazorpayPlanId: string | undefined;
+        let razorpayData: { price: number; currency: string } | null = null;
 
-            if (lemonSqueezyData?.variantId) {
-                console.log(`  ├─ ✅ Found in LemonSqueezy (Variant ID: ${lemonSqueezyData.variantId})`);
-                if (lemonSqueezyData.price !== null && lemonSqueezyData.price !== planDef.price) {
-                    console.log(`  ├─ ⚠️  Price mismatch: DB=$${planDef.price}, LemonSqueezy=$${lemonSqueezyData.price}`);
-                    console.log(`  ├─    Using LemonSqueezy price: $${lemonSqueezyData.price}`);
+        if (PAYMENT_PROVIDER === 'razorpay') {
+            // ── Razorpay: use the hardcoded plan ID and fetch pricing from API ─
+            resolvedRazorpayPlanId = planDef.razorpayPlanId;
+            if (resolvedRazorpayPlanId) {
+                console.log(`  ├─ Fetching Razorpay plan: ${resolvedRazorpayPlanId}...`);
+                const rzPlan = await fetchRazorpayPlan(resolvedRazorpayPlanId);
+                if (rzPlan) {
+                    razorpayData = rzPlan;
+                    console.log(`  ├─ ✅ Razorpay price: ${rzPlan.currency} ${rzPlan.price}`);
                 }
             } else {
-                console.log(`  ├─ ⚠️  Not found in LemonSqueezy`);
-                console.log(`  ├─    Create product named "${planDef.name}" in LemonSqueezy dashboard`);
-                console.log(`  ├─    Then run: npm run prisma:seed`);
+                console.log(`  ├─ ℹ️  No Razorpay plan ID configured (free/local plan)`);
             }
         } else {
-            console.log(`  ├─ Local plan (not synced with LemonSqueezy)`);
+            // ── LemonSqueezy: fetch product/variant from the API ──────────────
+            if (planDef.syncWithLemonSqueezy) {
+                console.log(`  ├─ Checking LemonSqueezy for "${planDef.name}"...`);
+                lemonSqueezyData = await findLemonSqueezyProduct(planDef.name);
+
+                if (lemonSqueezyData?.variantId) {
+                    console.log(`  ├─ ✅ Found in LemonSqueezy (Variant ID: ${lemonSqueezyData.variantId})`);
+                    if (lemonSqueezyData.price !== null && lemonSqueezyData.price !== planDef.price) {
+                        console.log(`  ├─ ⚠️  Price mismatch: DB=$${planDef.price}, LemonSqueezy=$${lemonSqueezyData.price}`);
+                        console.log(`  ├─    Using LemonSqueezy price: $${lemonSqueezyData.price}`);
+                    }
+                } else {
+                    console.log(`  ├─ ⚠️  Not found in LemonSqueezy`);
+                    console.log(`  ├─    Create product named "${planDef.name}" in LemonSqueezy dashboard`);
+                    console.log(`  ├─    Then run: npm run prisma:seed`);
+                }
+            } else {
+                console.log(`  ├─ Local plan (not synced with LemonSqueezy)`);
+            }
         }
 
         // Step 2: Create or update plan in database
+        const resolvedPrice = razorpayData?.price ?? lemonSqueezyData?.price ?? planDef.price;
+        const resolvedCurrency = razorpayData?.currency ?? 'INR';
+
         const plan = await prisma.plan.upsert({
             where: { type: planDef.type },
             update: {
                 name: planDef.name,
                 description: planDef.description,
                 interval: planDef.interval,
-                price: lemonSqueezyData?.price ?? planDef.price,
-                priceUnit: 'INR',
+                price: resolvedPrice,
+                priceUnit: resolvedCurrency,
                 isActive: true,
                 limits: planDef.limits,
                 features: planDef.features,
-                lemonSqueezyVariantId: lemonSqueezyData?.variantId || undefined,
-                lemonSqueezyProductId: lemonSqueezyData?.productId || undefined,
+                ...(PAYMENT_PROVIDER === 'razorpay'
+                    ? { razorpayPlanId: resolvedRazorpayPlanId || undefined }
+                    : {
+                        lemonSqueezyVariantId: lemonSqueezyData?.variantId || undefined,
+                        lemonSqueezyProductId: lemonSqueezyData?.productId || undefined,
+                    }),
             },
             create: {
                 name: planDef.name,
                 description: planDef.description,
                 type: planDef.type,
                 interval: planDef.interval,
-                price: lemonSqueezyData?.price ?? planDef.price,
-                priceUnit: 'INR',
+                price: resolvedPrice,
+                priceUnit: resolvedCurrency,
                 isActive: true,
                 limits: planDef.limits,
                 features: planDef.features,
-                lemonSqueezyVariantId: lemonSqueezyData?.variantId,
-                lemonSqueezyProductId: lemonSqueezyData?.productId,
+                ...(PAYMENT_PROVIDER === 'razorpay'
+                    ? { razorpayPlanId: resolvedRazorpayPlanId }
+                    : {
+                        lemonSqueezyVariantId: lemonSqueezyData?.variantId,
+                        lemonSqueezyProductId: lemonSqueezyData?.productId,
+                    }),
             },
         });
 
@@ -214,19 +280,26 @@ async function main() {
         createdPlans.push({
             type: planDef.type,
             id: plan.id,
-            synced: !!lemonSqueezyData?.variantId,
+            lemonSqueezyVariantId: lemonSqueezyData?.variantId,
+            razorpayPlanId: resolvedRazorpayPlanId,
         });
     }
 
     console.log('');
     console.log('✅ Seeded plans:');
     createdPlans.forEach((p) => {
-        const status = p.synced ? '🔗 Synced with LemonSqueezy' : '📍 Local only';
-        console.log(`   ${p.type}: ${p.id} ${status}`);
+        console.log(`   ${p.type}: ${p.id}`);
+        if (PAYMENT_PROVIDER === 'razorpay') {
+            const rzStatus = p.razorpayPlanId ? `🔗 Razorpay: ${p.razorpayPlanId}` : '📍 Razorpay not configured';
+            console.log(`       ${rzStatus}`);
+        } else {
+            const lsStatus = p.lemonSqueezyVariantId ? `🔗 LemonSqueezy variant: ${p.lemonSqueezyVariantId}` : '📍 LemonSqueezy not synced';
+            console.log(`       ${lsStatus}`);
+        }
     });
     console.log('');
 
-    if (!LEMON_SQUEEZY_API_KEY) {
+    if (PAYMENT_PROVIDER !== 'razorpay' && !LEMON_SQUEEZY_API_KEY) {
         console.log('⚠️  LEMON_SQUEEZY_API_KEY not set - skipped LemonSqueezy sync');
         console.log('   Set in .env.development to enable sync');
     }

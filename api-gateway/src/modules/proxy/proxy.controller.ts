@@ -82,7 +82,7 @@ export class ProxyController {
         res.setHeaders(new Headers(result.headers));
 
         if (result?.data?.redirect && result?.data?.url) {
-            return res.status(result.status).redirect(result.data.url);
+            return res.redirect(302, result.data.url);
         }
 
         return res.status(result.status).send(result.data);
