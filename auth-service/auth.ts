@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
-import { Logger } from "@nestjs/common";
+import { sendPasswordResetEmail } from './src/email/email.service';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -32,6 +32,10 @@ const authConfig = {
     emailAndPassword: {
         enabled: true,
         autoSignIn: true,
+        resetPasswordTokenExpiresIn: 3600, // 1 hour in seconds; token is deleted after use (single-use)
+        sendResetPassword: async ({ user, url }) => {
+            await sendPasswordResetEmail(user.email, url);
+        },
     },
     user: {
         additionalFields: {

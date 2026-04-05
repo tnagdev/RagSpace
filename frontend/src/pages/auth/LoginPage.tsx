@@ -69,13 +69,23 @@ const LoginPage = () => {
                             required
                         />
 
-                        <FormInput
-                            name="password"
-                            type="password"
-                            placeholder="Enter your password"
-                            icon={<IoLockClosedOutline size={20} />}
-                            required
-                        />
+                        <div>
+                            <FormInput
+                                name="password"
+                                type="password"
+                                placeholder="Enter your password"
+                                icon={<IoLockClosedOutline size={20} />}
+                                required
+                            />
+                            <div className="mt-1.5 text-right">
+                                <Link
+                                    to="/auth/forgot-password"
+                                    className="text-xs text-text-muted hover:text-accent-primary transition-colors"
+                                >
+                                    Forgot password?
+                                </Link>
+                            </div>
+                        </div>
 
                         <FormCheckbox
                             name="rememberMe"

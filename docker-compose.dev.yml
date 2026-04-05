@@ -144,6 +144,8 @@ services:
       - rabbitmq
       - scene-detector-server
     restart: unless-stopped
+    healthcheck:
+      disable: true
     networks:
       - ragspace-network
 

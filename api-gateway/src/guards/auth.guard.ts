@@ -23,6 +23,8 @@ export class AuthGuard implements CanActivate {
         '/api/auth/google/callback',
         '/api/auth/session',
         '/api/auth/health',
+        '/api/auth/forget-password',
+        '/api/auth/forgot-password',
         '/api/webhooks/lemon-squeezy',
         '/api/webhooks/razorpay',
         '/webhooks/lemon-squeezy',
@@ -31,6 +33,7 @@ export class AuthGuard implements CanActivate {
 
     private publicRoutePrefixes: string[] = [
         '/api/plans',
+        '/api/auth/reset-password',
     ];
 
     constructor(

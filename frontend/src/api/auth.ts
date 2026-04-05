@@ -38,3 +38,29 @@ export const hasAccessToken = (): string | null => {
 export const clearAuthData = () => {
     sessionStorage.removeItem('accessToken');
 }
+
+export const updateProfile = async (data: { name?: string; username?: string }) => {
+    const response = await privateAxios.patch<{ user: AuthUser }>(ENDPOINTS.UPDATE_PROFILE, data);
+    return response.data;
+}
+
+export const changePassword = async (data: { currentPassword: string; newPassword: string }) => {
+    const response = await privateAxios.post<{ message: string }>(ENDPOINTS.CHANGE_PASSWORD, data);
+    return response.data;
+}
+
+export const deleteAccount = async () => {
+    const response = await privateAxios.delete<{ message: string }>(ENDPOINTS.DELETE_ACCOUNT);
+    return response.data;
+}
+
+export const forgotPassword = async (email: string) => {
+    const redirectTo = `${window.location.origin}/auth/reset-password`;
+    const response = await publicAxios.post<{ status: boolean }>(ENDPOINTS.FORGOT_PASSWORD, { email, redirectTo });
+    return response.data;
+}
+
+export const resetPassword = async (token: string, newPassword: string) => {
+    const response = await publicAxios.post<{ message: string }>(ENDPOINTS.RESET_PASSWORD, { token, newPassword });
+    return response.data;
+}

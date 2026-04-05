@@ -11,6 +11,7 @@ from src.config import settings
 from src.services.AdvancedRetrieverService import AdvancedRetrieverService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.routers import Search
+from src.routers import Admin
 from src.services.LLMService import LLMService
 from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
 from src.services.TextEmbedderService import TextEmbedderService
@@ -78,6 +79,7 @@ app = FastAPI(
 
 app.add_middleware(InterServiceMiddleware)
 app.include_router(router=Search.router, prefix='/embed')
+app.include_router(router=Admin.router, prefix='/embed')
 
 
 @app.get("/")

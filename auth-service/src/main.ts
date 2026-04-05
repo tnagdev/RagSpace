@@ -29,6 +29,11 @@ async function bootstrap() {
     if (req.path.startsWith('/api/auth')) {
       return authHandler(req, res);
     }
+    const betterAuthProxiedRoutes = ['/auth/forget-password', '/auth/reset-password'];
+    if (betterAuthProxiedRoutes.some(route => req.path.startsWith(route))) {
+      req.url = `/api${req.url}`;
+      return authHandler(req, res);
+    }
     next();
   });
 

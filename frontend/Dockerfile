@@ -17,14 +17,14 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 RUN printf '#!/bin/sh\n\
-set -e\n\
-\n\
-export API_GATEWAY_URL=${VITE_API_URL:-http://localhost:3000}\n\
-\n\
-# envsubst only these specific variables to avoid touching nginx variables\n\
-envsubst '"'"'$API_GATEWAY_URL'"'"' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf\n\
-\n\
-cat /etc/nginx/conf.d/default.conf\n' > /docker-entrypoint.d/40-envsubst-on-templates.sh && \
+    set -e\n\
+    \n\
+    export API_GATEWAY_URL=${VITE_API_URL:-http://localhost:3000}\n\
+    \n\
+    # envsubst only these specific variables to avoid touching nginx variables\n\
+    envsubst '"'"'$API_GATEWAY_URL'"'"' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf\n\
+    \n\
+    cat /etc/nginx/conf.d/default.conf\n' > /docker-entrypoint.d/40-envsubst-on-templates.sh && \
     chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
 
 EXPOSE 80
@@ -32,4 +32,4 @@ EXPOSE 80
 ENV PORT=80
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1/health || exit 1

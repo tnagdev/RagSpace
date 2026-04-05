@@ -1,8 +1,9 @@
 import { Formik, Form } from 'formik';
 import { FormInput } from '../../components/form';
 import { Link } from '@tanstack/react-router';
-import { IoArrowBack, IoMail } from 'react-icons/io5';
+import { IoArrowBack, IoMail, IoWarning } from 'react-icons/io5';
 import { useState } from 'react';
+import { useForgotPassword } from '@/hooks/auth';
 
 interface ForgotPasswordValues {
     email: string;
@@ -10,15 +11,28 @@ interface ForgotPasswordValues {
 
 const ForgotPasswordPage = () => {
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [submittedEmail, setSubmittedEmail] = useState('');
+    const [error, setError] = useState('');
+    const forgotPassword = useForgotPassword();
 
     const initialValues: ForgotPasswordValues = {
         email: '',
     };
 
-    const handleSubmit = (values: ForgotPasswordValues) => {
-        console.log('Password reset requested for:', values.email);
-        // Handle forgot password logic here
-        setIsSubmitted(true);
+    const handleSubmit = async (values: ForgotPasswordValues) => {
+        setError('');
+        try {
+            await forgotPassword.mutateAsync(values.email);
+            setSubmittedEmail(values.email);
+            setIsSubmitted(true);
+        } catch (err: any) {
+            const msg = err?.response?.data?.error;
+            if (err?.response?.status === 404 || msg?.toLowerCase().includes('no account')) {
+                setError('No account found with this email address.');
+            } else {
+                setError('Something went wrong. Please try again.');
+            }
+        }
     };
 
     if (isSubmitted) {
@@ -34,7 +48,7 @@ const ForgotPasswordPage = () => {
                     Check your email
                 </h1>
                 <p className="text-text-secondary mb-8 max-w-md mx-auto">
-                    We've sent password reset instructions to your email address. Please check your inbox and follow the link to reset your password.
+                    We've sent password reset instructions to <strong className="text-text-primary">{submittedEmail}</strong>. Please check your inbox and follow the link to reset your password.
                 </p>
 
                 {/* Actions */}
@@ -103,12 +117,19 @@ const ForgotPasswordPage = () => {
                             required
                         />
 
+                        {error && (
+                            <div className="flex items-center gap-2 px-4 py-3 rounded-lg text-sm bg-red-500/10 border border-red-500/30 text-red-400">
+                                <IoWarning size={16} className="shrink-0" />
+                                {error}
+                            </div>
+                        )}
+
                         <button
                             type="submit"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || forgotPassword.isPending}
                             className="w-full bg-accent-primary hover:bg-accent-primary-hover text-white font-medium py-3 px-4 rounded-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            {isSubmitting ? 'Sending...' : 'Send reset instructions'}
+                            {forgotPassword.isPending ? 'Sending...' : 'Send reset instructions'}
                         </button>
                     </Form>
                 )}

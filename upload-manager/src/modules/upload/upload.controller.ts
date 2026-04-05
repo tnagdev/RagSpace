@@ -118,6 +118,11 @@ export class UploadController {
         return this.uploadService.deleteFile(id, user);
     }
 
+    @Delete('user-data')
+    async deleteAllUserFiles(@CurrentUser() user: AuthUser) {
+        return this.uploadService.deleteAllUserFiles(user.id);
+    }
+
     @Post('multipart/init')
     @ValidateFileUpload({
         checkStorage: true,

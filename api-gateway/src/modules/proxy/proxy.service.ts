@@ -87,6 +87,7 @@ export class ProxyService {
             timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
+            maxRedirects: 0,
             validateStatus: () => true,
             responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
         };

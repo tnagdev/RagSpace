@@ -1,8 +1,8 @@
-import { Controller, Get, Logger, Req, Res, Post, Body } from '@nestjs/common';
+import { Controller, Get, Logger, Req, Res, Post, Body, Patch, Delete } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { auth } from '../../auth';
 import { AuthenticationService } from './authentication.service';
-import { SignInDto, SignUpDto } from './dto';
+import { SignInDto, SignUpDto, ChangePasswordDto, UpdateProfileDto } from './dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -244,5 +244,114 @@ export class AuthenticationController {
             env: process.env.NODE_ENV || 'development',
             port: Number(process.env.PORT) || 8001,
         });
+    }
+
+    @Patch('/profile')
+    async updateProfile(
+        @CurrentUser() user: any,
+        @Body() body: UpdateProfileDto,
+        @Req() req: Request,
+        @Res() res: Response,
+    ) {
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { name, username } = body;
+
+        if (username && username !== user.username) {
+            const existing = await this.authService.findUserByUsername(username);
+            if (existing && existing.id !== user.id) {
+                return res.status(400).json({ error: 'Username already taken' });
+            }
+        }
+
+        if (name) {
+            await auth.api.updateUser({
+                body: { name },
+                headers: req.headers as any,
+            });
+        }
+
+        if (username) {
+            await this.authService.updateUserUsername(user.id, username);
+        }
+
+        const updatedUser = await this.authService.findUserById(user.id);
+        return res.json({ user: updatedUser });
+    }
+
+    @Post('/change-password')
+    async changePassword(
+        @CurrentUser() user: any,
+        @Body() body: ChangePasswordDto,
+        @Req() req: Request,
+        @Res() res: Response,
+    ) {
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+        try {
+            const result = await auth.api.changePassword({
+                body: {
+                    currentPassword: body.currentPassword,
+                    newPassword: body.newPassword,
+                    revokeOtherSessions: false,
+                },
+                headers: req.headers as any,
+            });
+
+            if (!result) {
+                return res.status(400).json({ error: 'Failed to change password' });
+            }
+
+            return res.json({ message: 'Password changed successfully' });
+        } catch (error) {
+            this.logger.error('Error changing password:', error);
+            const message = error?.message?.includes('incorrect') || error?.message?.includes('invalid')
+                ? 'Current password is incorrect'
+                : 'Failed to change password';
+            return res.status(400).json({ error: message });
+        }
+    }
+
+    @Public()
+    @Post('/forgot-password')
+    async forgotPassword(@Body() body: { email: string }, @Req() req: Request, @Res() res: Response) {
+        try {
+            const { email } = body;
+            if (!email) {
+                return res.status(400).json({ error: 'Email is required' });
+            }
+
+            const user = await this.authService.findUserByEmail(email);
+            if (!user) {
+                return res.status(404).json({ error: 'No account found with this email address' });
+            }
+
+            const redirectTo = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password`;
+            await auth.api.forgetPassword({
+                body: { email, redirectTo },
+            });
+
+            return res.json({ status: true });
+        } catch (error) {
+            this.logger.error('Error in forgot password:', error);
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+
+    @Delete('/account')
+    async deleteAccount(
+        @CurrentUser() user: any,
+        @Req() req: Request,
+        @Res() res: Response,
+    ) {
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+        try {
+            await this.authService.deleteUserAccount(user.id, user);
+            return res.json({ message: 'Account deleted successfully' });
+        } catch (error) {
+            this.logger.error('Error deleting account:', error);
+            return res.status(500).json({ error: 'Failed to delete account', details: error.message });
+        }
     }
 }
