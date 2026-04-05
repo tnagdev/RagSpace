@@ -108,8 +108,11 @@ export class AuthenticationController {
             if (result.status === 302 || result.status === 301) {
                 const url = result.headers.get('location');
                 if (url) {
-                    // Return as JSON so the API Gateway proxy can redirect the browser
-                    // (if we did res.redirect here, axios in the proxy would follow it → 502)
+                    const setCookies = (result.headers as any).getSetCookie?.() ||
+                        [result.headers.get('set-cookie')].filter(Boolean) as string[];
+                    if (setCookies.length > 0) {
+                        res.setHeader('Set-Cookie', setCookies);
+                    }
                     return res.status(200).json({ redirect: true, url });
                 }
             }
@@ -118,6 +121,11 @@ export class AuthenticationController {
             let data: any;
             try { data = await result.json(); } catch { /* ignore */ }
             if (data?.url) {
+                const setCookies = (result.headers as any).getSetCookie?.() ||
+                    [result.headers.get('set-cookie')].filter(Boolean) as string[];
+                if (setCookies.length > 0) {
+                    res.setHeader('Set-Cookie', setCookies);
+                }
                 return res.status(200).json({ redirect: true, url: data.url });
             }
 
@@ -132,7 +140,8 @@ export class AuthenticationController {
     @Get('/google/callback')
     async googleCallback(@Req() req: Request, @Res() res: Response) {
         try {
-            const url = new URL('http://localhost:8001/better-auth/callback/google');
+            const selfPort = process.env.PORT || '8001';
+            const url = new URL(`http://localhost:${selfPort}/api/auth/callback/google`);
             url.search = new URLSearchParams(req.query as any).toString();
 
             this.logger.log(`Proxying Google callback to better-auth: ${url.toString()}`);
@@ -157,31 +166,44 @@ export class AuthenticationController {
             }
 
             if (response.status === 302 || response.status === 301) {
+                const cookieHeader = setCookies.map(c => c.split(';')[0]).join('; ');
+                try {
+                    const session = await auth.api.getSession({
+                        headers: { cookie: cookieHeader } as any,
+                    });
+                    if (session?.user?.id) {
+                        await this.authService.createFreeSubscription(session.user.id);
+                        this.logger.log(`Ensured free subscription for OAuth user ${session.user.id}`);
+                    }
+                } catch (err) {
+                    this.logger.warn('Could not ensure subscription after OAuth:', err?.message);
+                }
+
                 const location = response.headers.get('location');
                 this.logger.log(`Redirecting to: ${location}`);
-                return res.redirect(
-                    location || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`,
-                );
+                return res.status(200).json({
+                    redirect: true,
+                    url: location || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`,
+                });
             }
 
             // better-auth returned an error response — surface it for debugging
             const contentType = response.headers.get('content-type');
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
             if (contentType?.includes('application/json')) {
                 const data = await response.json();
                 this.logger.error('better-auth callback error response:', data);
-                const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
                 const message = encodeURIComponent(data?.message || data?.error || 'oauth_failed');
-                return res.redirect(`${frontendUrl}/auth/login?error=${message}`);
+                return res.status(200).json({ redirect: true, url: `${frontendUrl}/auth/login?error=${message}` });
             }
 
             const text = await response.text();
             this.logger.error(`better-auth callback non-redirect response (${response.status}):`, text.slice(0, 200));
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-            return res.redirect(`${frontendUrl}/auth/login?error=oauth_failed`);
+            return res.status(200).json({ redirect: true, url: `${frontendUrl}/auth/login?error=oauth_failed` });
         } catch (error) {
             this.logger.error('Error in Google callback:', error);
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-            return res.redirect(`${frontendUrl}/auth/login?error=oauth_failed`);
+            return res.status(200).json({ redirect: true, url: `${frontendUrl}/auth/login?error=oauth_failed` });
         }
     }
 

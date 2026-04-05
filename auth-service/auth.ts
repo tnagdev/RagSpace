@@ -23,7 +23,7 @@ const trustedOrigins = process.env.TRUSTED_ORIGINS
     : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"];
 
 const authConfig = {
-    baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:8001',
+    baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || 8001}`,
     trustedOrigins,
     database: prismaAdapter(prisma, {
         provider: "postgresql",
@@ -49,7 +49,7 @@ const authConfig = {
             clientSecret: "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",
             scope: ["openid", "email", "profile"],
             prompt: "select_account",
-            redirectURI: "http://localhost:8001/auth/google/callback"
+            redirectURI: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/google/callback"
         }
     },
     session: {

@@ -15,6 +15,7 @@ interface LoginValues {
 const LoginPage = () => {
     const { mutateAsync, isPending, isError } = useLogin();
     const navigate = useNavigate();
+    const oauthError = new URLSearchParams(window.location.search).get('error');
     const initialValues: LoginValues = {
         email: '',
         password: '',
@@ -42,6 +43,15 @@ const LoginPage = () => {
                 </h1>
                 <p className="text-text-secondary text-sm">Sign in to your account to continue</p>
             </div>
+
+            {/* OAuth error */}
+            {oauthError && (
+                <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {oauthError === 'oauth_failed'
+                        ? 'Google sign-in failed. Please try again.'
+                        : decodeURIComponent(oauthError)}
+                </div>
+            )}
 
             {/* Login Form */}
             <Formik

@@ -26,7 +26,7 @@ async function bootstrap() {
 
   const authHandler = toNodeHandler(auth);
   app.use((req, res, next) => {
-    if (req.path.startsWith('/better-auth')) {
+    if (req.path.startsWith('/api/auth')) {
       return authHandler(req, res);
     }
     next();
