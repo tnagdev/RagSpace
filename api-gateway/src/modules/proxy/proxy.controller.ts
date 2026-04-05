@@ -79,12 +79,20 @@ export class ProxyController {
             return;
         }
 
-        res.setHeaders(new Headers(result.headers));
-
-        if (result?.data?.redirect && result?.data?.url) {
-            return res.status(result.status).redirect(result.data.url);
+        res.status(result.status);
+        for (const [key, value] of Object.entries(result.headers || {})) {
+            if (value === undefined || value === null) continue;
+            if (key.toLowerCase() === 'set-cookie') {
+                res.setHeader('set-cookie', Array.isArray(value) ? value : [value]);
+            } else if (!['transfer-encoding', 'content-encoding'].includes(key.toLowerCase())) {
+                res.setHeader(key, value as string);
+            }
         }
 
-        return res.status(result.status).send(result.data);
+        if (result?.data?.redirect && result?.data?.url) {
+            return res.redirect(302, result.data.url);
+        }
+
+        return res.send(result.data);
     }
 }

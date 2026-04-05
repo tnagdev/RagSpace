@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import Tabs, { type TabConfig } from '@/components/Tabs';
 import { BillingSettings } from './components/BillingSettings';
+import { AccountSettings } from './components/AccountSettings';
 import { Settings as SettingsIcon } from 'lucide-react';
 
 const TAB_CONFIG: TabConfig[] = [
@@ -12,32 +12,7 @@ const TAB_CONFIG: TabConfig[] = [
     {
         label: 'Account',
         value: 'account',
-        component: (
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                <h2 className="text-xl font-semibold mb-4">Account Settings</h2>
-                <p className="text-gray-400">Account settings coming soon...</p>
-            </div>
-        ),
-    },
-    {
-        label: 'Notifications',
-        value: 'notifications',
-        component: (
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                <h2 className="text-xl font-semibold mb-4">Notification Preferences</h2>
-                <p className="text-gray-400">Notification settings coming soon...</p>
-            </div>
-        ),
-    },
-    {
-        label: 'Security',
-        value: 'security',
-        component: (
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                <h2 className="text-xl font-semibold mb-4">Security Options</h2>
-                <p className="text-gray-400">Security settings coming soon...</p>
-            </div>
-        ),
+        component: <AccountSettings />,
     },
 ];
 

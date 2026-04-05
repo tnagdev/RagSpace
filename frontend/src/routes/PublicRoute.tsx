@@ -4,6 +4,9 @@ import { AuthLayout } from "../layouts/AuthLayout";
 import { RedirectOutlet, type NavRoute } from "./PrivateRoute";
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
+import AuthCallbackPage from "@/pages/auth/AuthCallbackPage";
+import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import { hasAccessToken } from "@/api/auth";
 
 
@@ -22,12 +25,22 @@ const NavRoutes: NavRoute[] = [
         name: 'signup',
         path: 'signup',
         component: () => <SignupPage />,
-    }
-    // {
-    //     name: 'callback',
-    //     path: 'callback',
-    //     component: () => <AuthCallbackPage />,
-    // }
+    },
+    {
+        name: 'callback',
+        path: 'callback',
+        component: () => <AuthCallbackPage />,
+    },
+    {
+        name: 'forgot-password',
+        path: 'forgot-password',
+        component: () => <ForgotPasswordPage />,
+    },
+    {
+        name: 'reset-password',
+        path: 'reset-password',
+        component: () => <ResetPasswordPage />,
+    },
 ];
 
 const _PublicRoute = createRoute({

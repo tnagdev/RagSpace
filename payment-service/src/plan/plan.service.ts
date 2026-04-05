@@ -27,6 +27,7 @@ export class PlanService {
         features: string[];
         lemonSqueezyVariantId?: string;
         lemonSqueezyProductId?: string;
+        razorpayPlanId?: string;
     }) {
         return this.prisma.plan.create({
             data: {

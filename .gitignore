@@ -100,6 +100,7 @@ docker-compose.override.yml
 
 # ============== Environment Variables ==============
 .env
+.env.*
 .env.local
 .env.development
 .env.development.local
@@ -108,7 +109,7 @@ docker-compose.override.yml
 .env.production
 .env.production.local
 *.env
-*.env.docker
+*.env.*
 .envrc
 
 # ============== IDEs and Editors ==============

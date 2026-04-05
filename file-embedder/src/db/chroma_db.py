@@ -326,7 +326,18 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""
         logger.warning("delete_by_video_id is deprecated, use delete_by_file_id instead")
         self.delete_by_file_id(video_id)
-    
+
+    def delete_by_user_id(self, user_id: str) -> int:
+        """Delete all embeddings for a user across all collections."""
+        total_deleted = 0
+        for collection in [self.text_collection, self.image_collection]:
+            results = collection.get(where={"user_id": user_id})
+            if results["ids"]:
+                collection.delete(ids=results["ids"])
+                total_deleted += len(results["ids"])
+        logger.info(f"Deleted {total_deleted} total embeddings for user: {user_id}")
+        return total_deleted
+
     def get_all_content_for_file(self, file_id: str) -> Dict[str, Any]:
         """
         Retrieve ALL embeddings (text + image) for a specific file.

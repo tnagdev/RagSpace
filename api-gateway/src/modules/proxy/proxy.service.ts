@@ -41,7 +41,7 @@ export class ProxyService {
         query?: any,
         files?: any,
     ): Promise<any> {
-        let servicePath = path.replace(/^\/api/, '');
+        let servicePath = path.startsWith('/api') ? path.replace(/^\/api/, '') : path;
 
         if (!servicePath.startsWith('/')) {
             servicePath = '/' + servicePath;
@@ -87,6 +87,7 @@ export class ProxyService {
             timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
+            maxRedirects: 0,
             validateStatus: () => true,
             responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
         };

@@ -325,6 +325,39 @@ export class UploadService {
         };
     }
 
+    async deleteAllUserFiles(userId: string): Promise<{ deletedCount: number; fileIds: string[] }> {
+        const files = await this.prisma.file.findMany({
+            where: { userId },
+            select: { id: true, s3Key: true, thumbnailPath: true, uploadStatus: true },
+        });
+
+        if (files.length === 0) {
+            return { deletedCount: 0, fileIds: [] };
+        }
+
+        for (const file of files) {
+            if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
+                try {
+                    await this.s3Service.deleteFile(file.s3Key);
+                } catch (error) {
+                    this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
+                }
+            }
+            if ((file as any).thumbnailPath) {
+                try {
+                    await this.s3Service.deleteFile((file as any).thumbnailPath);
+                } catch (error) {
+                    this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
+                }
+            }
+        }
+
+        const fileIds = files.map(f => f.id);
+        await this.prisma.file.deleteMany({ where: { userId } });
+        this.logger.log(`Deleted ${files.length} files for user ${userId}`);
+        return { deletedCount: files.length, fileIds };
+    }
+
     async deleteFile(id: string, user: AuthUser) {
         const file = await this.getFileById(id, user.id);
         try {

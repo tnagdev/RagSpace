@@ -42,6 +42,13 @@ export const SERVICES: Record<string, ServiceConfig> = {
         name: 'payment-service',
         transport: 'http',
         url: process.env.PAYMENT_SERVICE_URL,
-        routes: ['/api/plans', '/api/plans/*', '/api/subscriptions', '/api/subscriptions/*', '/api/usage', '/api/usage/*', '/api/validation', '/api/validation/*', '/api/webhooks/*'],
+        routes: [
+            '/api/plans', '/api/plans/*',
+            '/api/subscriptions', '/api/subscriptions/*',
+            '/api/usage', '/api/usage/*',
+            '/api/validation', '/api/validation/*',
+            '/api/webhooks/*',
+            '/webhooks/*',
+        ],
     },
 };

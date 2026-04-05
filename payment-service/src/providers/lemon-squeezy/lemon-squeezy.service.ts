@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IPaymentProvider, CheckoutParams, PlanChangeOptions } from '../payment-provider.interface';
 import {
     lemonSqueezySetup,
     createCheckout,
@@ -13,7 +14,7 @@ import {
 } from '@lemonsqueezy/lemonsqueezy.js';
 
 @Injectable()
-export class LemonSqueezyService {
+export class LemonSqueezyService implements IPaymentProvider {
     private readonly logger = new Logger(LemonSqueezyService.name);
     private readonly storeId: string;
     private readonly frontendUrl: string;
@@ -32,12 +33,11 @@ export class LemonSqueezyService {
         this.logger.log('✅ Lemon Squeezy initialized');
     }
 
-    async createCheckoutSession(params: {
-        variantId: string;
-        userId: string;
-        userEmail: string;
-        customData?: Record<string, any>;
-    }) {
+    getProviderName(): string {
+        return 'lemon-squeezy';
+    }
+
+    async createCheckoutSession(params: CheckoutParams): Promise<import('../payment-provider.interface').CheckoutResult> {
         try {
             // Redirect to files page with payment status query params
             const successUrl = `${this.frontendUrl}/files?payment=success`;
@@ -75,7 +75,7 @@ export class LemonSqueezyService {
 
             this.logger.log(`Checkout URL created. Redirect URL: ${successUrl}`);
 
-            return checkoutUrl;
+            return { checkoutUrl };
         } catch (error) {
             this.logger.error('Failed to create checkout', error);
             throw error;
@@ -140,13 +140,22 @@ export class LemonSqueezyService {
         }
     }
 
+    async uncancelSubscription(subscriptionId: string) {
+        try {
+            const result = await updateSubscription(subscriptionId, {
+                cancelled: false,
+            });
+            return result.data;
+        } catch (error) {
+            this.logger.error('Failed to uncancel LemonSqueezy subscription', error);
+            throw error;
+        }
+    }
+
     async changeSubscriptionPlan(
         subscriptionId: string,
         newVariantId: string,
-        options?: {
-            invoiceImmediately?: boolean;
-            disableProrations?: boolean;
-        }
+        options?: PlanChangeOptions,
     ) {
         try {
             const result = await updateSubscription(subscriptionId, {

@@ -57,6 +57,7 @@ model Plan {
     // Lemon Squeezy Integration
     lemonSqueezyVariantId String? @unique
     lemonSqueezyProductId String?
+    razorpayPlanId        String? @unique
 
     // Plan limits configuration (flexible JSON for scalability)
     limits Json @default("{}")
@@ -83,6 +84,8 @@ model Subscription {
     lemonSqueezySubscriptionId String? @unique
     lemonSqueezyCustomerId     String?
     lemonSqueezyOrderId        String?
+    razorpaySubscriptionId     String? @unique
+    razorpayCustomerId         String?
 
     // Subscription details
     currentPeriodStart DateTime
@@ -140,15 +143,11 @@ model UsageRecord {
     userId         String
     subscriptionId String
     metricType     UsageMetricType
-
-    // Usage details
-    amount   Int   @default(1)
-    metadata Json? // Additional context (fileId, conversationId, etc.)
-
-    // Request information
-    endpoint  String?
-    ipAddress String?
-    userAgent String?
+    amount         Int             @default(1)
+    metadata       Json?
+    endpoint       String?
+    ipAddress      String?
+    userAgent      String?
 
     timestamp DateTime @default(now())
 
@@ -180,6 +179,23 @@ model WebhookEvent {
     @@schema("payment")
 }
 
+model PendingCheckout {
+    id                     String   @id @default(uuid())
+    userId                 String
+    planId                 String
+    razorpaySubscriptionId String   @unique
+    attempts               Int      @default(0)
+    expiresAt              DateTime
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([userId])
+    @@index([expiresAt])
+    @@map("pending_checkouts")
+    @@schema("payment")
+}
+
 model PaymentHistory {
     id             String  @id @default(uuid())
     userId         String
@@ -193,6 +209,8 @@ model PaymentHistory {
     // Lemon Squeezy details
     lemonSqueezyOrderId   String? @unique
     lemonSqueezyInvoiceId String?
+    razorpayOrderId       String? @unique
+    razorpayPaymentId     String?
 
     // Additional information
     description String?

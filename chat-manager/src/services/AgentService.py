@@ -119,7 +119,8 @@ class AgentService:
         else:
             self.client = AsyncOpenAI(
                 api_key=settings.nvidia_api_key,
-                base_url=settings.nvidia_base_url
+                base_url=settings.nvidia_base_url,
+                timeout=120.0
             )
     
     async def run(
@@ -359,15 +360,44 @@ class AgentService:
             iteration += 1
             
             try:
-                # After tools have been executed, force a text response
-                current_tool_choice = "none" if tools_executed_this_session else "auto"
+                # After tools have been executed, skip non-streaming check and go straight
+                # to streaming. The non-streaming check would generate a full response and
+                # discard it, wasting a round-trip and causing the flow to hang.
+                if tools_executed_this_session:
+                    logger.info("Generating final streaming response after tool execution")
+                    stream = await self.client.chat.completions.create(
+                        model=settings.agent_model,
+                        messages=api_messages,
+                        max_tokens=settings.max_tokens,
+                        temperature=settings.temperature,
+                        stream=True
+                    )
+                    
+                    async for chunk in stream:
+                        if chunk.choices and len(chunk.choices) > 0:
+                            delta = chunk.choices[0].delta
+                            if delta.content:
+                                yield {
+                                    "type": "content",
+                                    "content": delta.content
+                                }
+                    
+                    yield {
+                        "type": "done",
+                        "search_results": all_search_results,
+                        "tools_used": tools_used,
+                        "summary_updated": summary_updated,
+                        "new_summary": summary if summary_updated else None
+                    }
+                    return
                 
-                # First, check if tools are needed (non-streaming call)
+                # Check if tools are needed (non-streaming call)
+                logger.info(f"Agent iteration {iteration}: checking for tool calls")
                 response = await self.client.chat.completions.create(
                     model=settings.agent_model,
                     messages=api_messages,
-                    tools=TOOLS if not tools_executed_this_session else None,
-                    tool_choice=current_tool_choice if not tools_executed_this_session else None,
+                    tools=TOOLS,
+                    tool_choice="auto",
                     max_tokens=settings.max_tokens,
                     temperature=settings.temperature,
                     stream=False
@@ -375,8 +405,8 @@ class AgentService:
                 
                 message = response.choices[0].message
                 
-                if message.tool_calls and not tools_executed_this_session:
-                    # Process tools (same as non-streaming)
+                if message.tool_calls:
+                    # Process tools
                     tool_results = []
                     
                     for tool_call in message.tool_calls:
@@ -439,27 +469,17 @@ class AgentService:
                             "content": json.dumps(result.result)
                         })
                     
-                    # Mark that tools have been executed - next iteration will force text response
+                    # Mark that tools have been executed - next iteration goes straight to streaming
                     tools_executed_this_session = True
                     continue
                 
-                # No tool calls - now stream the final response
-                stream = await self.client.chat.completions.create(
-                    model=settings.agent_model,
-                    messages=api_messages,
-                    max_tokens=settings.max_tokens,
-                    temperature=settings.temperature,
-                    stream=True
-                )
-                
-                async for chunk in stream:
-                    if chunk.choices and len(chunk.choices) > 0:
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            yield {
-                                "type": "content",
-                                "content": delta.content
-                            }
+                # No tool calls - model responded directly; use the content already received
+                # to avoid a redundant second LLM call
+                if message.content:
+                    yield {
+                        "type": "content",
+                        "content": message.content
+                    }
                 
                 yield {
                     "type": "done",

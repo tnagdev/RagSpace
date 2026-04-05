@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
-import { Logger } from "@nestjs/common";
+import { sendPasswordResetEmail } from './src/email/email.service';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -20,10 +20,10 @@ const prisma = new PrismaClient({
 
 const trustedOrigins = process.env.TRUSTED_ORIGINS
     ? process.env.TRUSTED_ORIGINS.split(',').map(origin => origin.trim())
-    : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:8080"];
+    : ["http://localhost:8000", "http://localhost:8001", "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"];
 
 const authConfig = {
-    baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:8001',
+    baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || 8001}`,
     trustedOrigins,
     database: prismaAdapter(prisma, {
         provider: "postgresql",
@@ -32,6 +32,10 @@ const authConfig = {
     emailAndPassword: {
         enabled: true,
         autoSignIn: true,
+        resetPasswordTokenExpiresIn: 3600, // 1 hour in seconds; token is deleted after use (single-use)
+        sendResetPassword: async ({ user, url }) => {
+            await sendPasswordResetEmail(user.email, url);
+        },
     },
     user: {
         additionalFields: {
@@ -49,7 +53,7 @@ const authConfig = {
             clientSecret: "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",
             scope: ["openid", "email", "profile"],
             prompt: "select_account",
-            redirectURI: "http://localhost:8001/auth/google/callback"
+            redirectURI: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/google/callback"
         }
     },
     session: {
@@ -59,7 +63,7 @@ const authConfig = {
         },
     },
     advanced: {
-        useSecureCookies: true,
+        useSecureCookies: process.env.NODE_ENV === 'production',
         crossSubDomainCookies: {
             enabled: false,
         },

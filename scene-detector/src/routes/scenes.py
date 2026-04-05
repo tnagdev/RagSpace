@@ -215,3 +215,28 @@ async def get_scene_by_id(
     except Exception as e:
         logger.error(f"Error fetching scene: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/user/{user_id}")
+async def delete_user_scenes(user_id: str):
+    """Delete all scenes and their S3 thumbnails for a user. Called by auth-service on account deletion."""
+    try:
+        prisma_service = PrismaService()
+        scenes = await prisma_service.prisma.scene.find_many(
+            where={"userId": user_id},
+            include={}
+        )
+
+        if scenes:
+            thumbnail_keys = [s.thumbnailS3Key for s in scenes if s.thumbnailS3Key]
+            if thumbnail_keys:
+                s3_service = S3Service()
+                await s3_service.delete_files_batch(thumbnail_keys)
+
+            await prisma_service.prisma.scene.delete_many(where={"userId": user_id})
+
+        logger.info(f"Deleted {len(scenes)} scenes for user {user_id}")
+        return {"deletedCount": len(scenes), "userId": user_id}
+    except Exception as e:
+        logger.error(f"Failed to delete scenes for user {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

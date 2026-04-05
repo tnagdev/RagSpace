@@ -146,7 +146,7 @@ export const BillingSettings = () => {
                                 ) : (
                                     <>
                                         <X className="w-3 h-3 mr-2" />
-                                        Cancel Scheduled Change
+                                        Rollback to current plan
                                     </>
                                 )}
                             </Button>

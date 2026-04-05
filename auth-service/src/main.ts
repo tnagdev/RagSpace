@@ -26,7 +26,12 @@ async function bootstrap() {
 
   const authHandler = toNodeHandler(auth);
   app.use((req, res, next) => {
-    if (req.path.startsWith('/better-auth')) {
+    if (req.path.startsWith('/api/auth')) {
+      return authHandler(req, res);
+    }
+    const betterAuthProxiedRoutes = ['/auth/forget-password', '/auth/reset-password'];
+    if (betterAuthProxiedRoutes.some(route => req.path.startsWith(route))) {
+      req.url = `/api${req.url}`;
       return authHandler(req, res);
     }
     next();
