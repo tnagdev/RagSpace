@@ -1,4 +1,4 @@
-import { Outlet } from "@tanstack/react-router";
+import { Link, Outlet } from "@tanstack/react-router";
 import logoImg from '@/assets/logo-filorag-bordered.png';
 
 export const AuthLayout = () => {
@@ -73,11 +73,11 @@ export const AuthLayout = () => {
             {/* Footer - Fixed */}
             <div className="z-10 py-4 pointer-events-none">
                 <div className="flex items-center justify-center gap-4 text-xs text-white/50 pointer-events-auto">
-                    <a href="#" className="hover:text-white/80 transition-colors">Privacy</a>
+                    <Link to="/privacy" className="hover:text-white/80 transition-colors" style={{ textDecoration: 'none', color: 'inherit' }}>Privacy</Link>
                     <span>•</span>
-                    <a href="#" className="hover:text-white/80 transition-colors">Terms</a>
+                    <Link to="/terms" className="hover:text-white/80 transition-colors" style={{ textDecoration: 'none', color: 'inherit' }}>Terms</Link>
                     <span>•</span>
-                    <span>© 2025 FiloRag</span>
+                    <span>© {new Date().getFullYear()} FiloRag</span>
                 </div>
             </div>
         </div>

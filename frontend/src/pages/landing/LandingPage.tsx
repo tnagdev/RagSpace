@@ -986,9 +986,9 @@ const UseCases = () => (
 // ─── Pricing ────────────────────────────────────────────────────────────────────
 
 const planMeta: Record<string, { highlight: boolean; badge?: string; ctaLabel: string; checkColor: string }> = {
-  [PlanType.FREE]:  { highlight: false, ctaLabel: 'Get Started Free',  checkColor: '#34d399' },
-  [PlanType.BASIC]: { highlight: false, ctaLabel: 'Start Basic Plan',  checkColor: '#60a5fa' },
-  [PlanType.PRO]:   { highlight: true,  badge: 'Most Popular', ctaLabel: 'Start Pro Trial', checkColor: '#a855f7' },
+  [PlanType.FREE]: { highlight: false, ctaLabel: 'Get Started Free', checkColor: '#34d399' },
+  [PlanType.BASIC]: { highlight: false, ctaLabel: 'Start Basic Plan', checkColor: '#60a5fa' },
+  [PlanType.PRO]: { highlight: true, badge: 'Most Popular', ctaLabel: 'Start Pro Trial', checkColor: '#a855f7' },
 };
 
 const formatPrice = (price: number, priceUnit: string): string => {
@@ -998,9 +998,9 @@ const formatPrice = (price: number, priceUnit: string): string => {
   const symbol = priceUnit.length === 3
     ? (priceUnit.toUpperCase() === 'USD' ? '$'
       : priceUnit.toUpperCase() === 'EUR' ? '€'
-      : priceUnit.toUpperCase() === 'GBP' ? '£'
-      : priceUnit.toUpperCase() === 'INR' ? '₹'
-      : priceUnit)
+        : priceUnit.toUpperCase() === 'GBP' ? '£'
+          : priceUnit.toUpperCase() === 'INR' ? '₹'
+            : priceUnit)
     : priceUnit;
   return `${symbol}${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 };
@@ -1246,11 +1246,15 @@ const Footer = () => (
         {/* Product links */}
         <div className="flex flex-col gap-3">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'rgba(148, 163, 184, 0.4)' }}>Product</div>
-          {['Features', 'How it Works', 'Pricing', 'Changelog'].map(link => (
-            <a key={link} href="#" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
+          {([
+            { label: 'Features', href: '#features' },
+            { label: 'How it Works', href: '#how-it-works' },
+            { label: 'Pricing', href: '#pricing' },
+          ] as const).map(({ label, href }) => (
+            <a key={label} href={href} className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
               onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
-              {link}
+              {label}
             </a>
           ))}
         </div>
@@ -1258,13 +1262,21 @@ const Footer = () => (
         {/* Company links */}
         <div className="flex flex-col gap-3">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'rgba(148, 163, 184, 0.4)' }}>Company</div>
-          {['About', 'Blog', 'Privacy Policy', 'Terms of Service'].map(link => (
-            <a key={link} href="#" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
-              {link}
-            </a>
-          ))}
+          <Link to="/about" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
+            About
+          </Link>
+          <Link to="/privacy" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
+            Privacy Policy
+          </Link>
+          <Link to="/terms" className="text-sm transition-colors duration-200" style={{ color: 'rgba(148, 163, 184, 0.65)', textDecoration: 'none' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#a855f7')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(148, 163, 184, 0.65)')}>
+            Terms of Service
+          </Link>
         </div>
       </div>
 

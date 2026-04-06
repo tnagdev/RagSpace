@@ -14,6 +14,8 @@ import CollectionChatPage from "@/pages/collections/CollectionChatPage";
 import { Settings } from "@/pages/settings/Settings";
 import PaymentSuccessPage from "@/pages/payment/PaymentSuccessPage";
 import PaymentCancelledPage from "@/pages/payment/PaymentCancelledPage";
+import TermsPage from "@/pages/terms/TermsPage";
+import PrivacyPage from "@/pages/privacy/PrivacyPage";
 
 
 export interface NavRoute {
@@ -119,7 +121,19 @@ const NavRoutes: Array<NavRoute> = [
         path: '/about',
         component: () => <></>,
         nav: false,
-    }
+    },
+    {
+        name: 'Terms',
+        path: '/terms',
+        component: () => <></>,
+        nav: false,
+    },
+    {
+        name: 'Privacy',
+        path: '/privacy',
+        component: () => <></>,
+        nav: false,
+    },
 ];
 
 
@@ -144,10 +158,16 @@ const _PrivateRoute = createRoute({
         if (location.pathname === '/about') {
             return <AboutPage />;
         }
+        if (location.pathname === '/terms') {
+            return <TermsPage />;
+        }
+        if (location.pathname === '/privacy') {
+            return <PrivacyPage />;
+        }
         return <RootLayout />;
     },
     beforeLoad: async ({ location }) => {
-        if (location.pathname === '/' || location.pathname === '/about') {
+        if (['/', '/about', '/terms', '/privacy'].includes(location.pathname)) {
             return {}; // public pages
         }
         const isValid = hasAccessToken();
