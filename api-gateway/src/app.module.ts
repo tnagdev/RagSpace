@@ -6,7 +6,6 @@ import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProxyModule } from './modules/proxy/proxy.module';
-import { PrismaModule } from './prisma/prisma.module';
 import { AuthGuard } from './guards/auth.guard';
 import { CustomThrottlerGuard } from './guards/throttler.guard';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -29,7 +28,6 @@ import { RATE_LIMIT_CONFIG } from './config/rate-limit.config';
         limit: RATE_LIMIT_CONFIG.limit,
       },
     ]),
-    PrismaModule,
     ProxyModule,
   ],
   controllers: [AppController],
