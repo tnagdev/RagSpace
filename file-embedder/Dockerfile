@@ -46,7 +46,11 @@ ENV PORT=8080
 ENV TESSERACT_CMD=/usr/bin/tesseract
 ENV HF_HOME=/home/appuser/.cache/huggingface
 ENV TORCH_HOME=/home/appuser/.cache/torch
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${PORT:-8080}/health')" || exit 1
 
 CMD ["./docker-entrypoint.sh"]

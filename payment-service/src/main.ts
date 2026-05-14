@@ -1,15 +1,21 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    const logger = new Logger('PaymentService');
+    const app = await NestFactory.create(AppModule, {
+        logger: process.env.NODE_ENV === 'production'
+            ? ['error', 'warn', 'log']
+            : ['error', 'warn', 'log', 'debug', 'verbose'],
+    });
+
+    app.enableShutdownHooks();
 
     const configService = app.get(ConfigService);
     const port = configService.get('PORT', 3006);
 
-    // Enable validation
     app.useGlobalPipes(
         new ValidationPipe({
             whitelist: true,
@@ -18,14 +24,21 @@ async function bootstrap() {
         }),
     );
 
-    // Enable CORS
     app.enableCors({
         origin: true,
         credentials: true,
     });
 
     await app.listen(port);
-    console.log(`🚀 Payment Service is running on: http://localhost:${port}`);
+    logger.log(`Payment Service is running on: http://localhost:${port}`);
+
+    process.on('SIGTERM', () => {
+        logger.log('SIGTERM received — starting graceful shutdown');
+        setTimeout(() => {
+            logger.error('Graceful shutdown timed out — forcing exit');
+            process.exit(1);
+        }, 30_000).unref();
+    });
 }
 
 bootstrap();

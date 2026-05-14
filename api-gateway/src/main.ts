@@ -5,12 +5,18 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 const logger = new Logger('API-Gateway');
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  
-  const allowedOrigins = process.env.CORS_ORIGIN 
+  const app = await NestFactory.create(AppModule, {
+    logger: process.env.NODE_ENV === 'production'
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
+
+  app.enableShutdownHooks();
+
+  const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
     : ['http://localhost:3000', 'http://localhost:8080'];
-  
+
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
@@ -35,6 +41,13 @@ async function bootstrap() {
   await app.listen(port);
   logger.log(`HTTP API Gateway is running on http://localhost:${port}`);
   logger.log(`Health check: http://localhost:${port}/api/health`);
+  process.on('SIGTERM', () => {
+    logger.log('SIGTERM received — starting graceful shutdown');
+    setTimeout(() => {
+      logger.error('Graceful shutdown timed out — forcing exit');
+      process.exit(1);
+    }, 30_000).unref();
+  });
 }
 
 bootstrap();

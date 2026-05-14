@@ -3,11 +3,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-COPY prisma.config.* ./
-COPY src/prisma ./src/prisma/
 
 RUN npm ci
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
 COPY . .
 RUN npm run build
@@ -15,16 +12,13 @@ RUN npm run build
 FROM node:20-alpine
 
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+  adduser -S nodejs -u 1001
 
 WORKDIR /app
 
 COPY --chown=nodejs:nodejs package*.json ./
-COPY --chown=nodejs:nodejs prisma.config.* ./
-COPY --chown=nodejs:nodejs src/prisma ./src/prisma/
 
 RUN npm ci --omit=dev
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 COPY --chown=nodejs:nodejs docker-entrypoint.sh ./
@@ -32,6 +26,8 @@ RUN chmod +x docker-entrypoint.sh
 
 USER nodejs
 
+ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=384"
 ENV PORT=8080
 
 EXPOSE 8080

@@ -75,20 +75,36 @@ class RabbitMQConsumer:
             raise RuntimeError("Connection not established")
         
         self.channel = await self.connection.channel()
-        await self.channel.set_qos(prefetch_count=10)
-        
+        # Process one message at a time — embedding is memory/GPU heavy
+        await self.channel.set_qos(prefetch_count=1)
+
         self.exchange = await self.channel.declare_exchange(
             self.exchange_name,
             aio_pika.ExchangeType.TOPIC,
             durable=True
         )
-        
-        self.queue = await self.channel.declare_queue(
-            self.queue_name,
+
+        # Dead-letter exchange: failed messages are routed here instead of dropped
+        dlx_name = f"{self.exchange_name}.dlx"
+        dlq_name = f"{self.queue_name}.dead-letter"
+        dlx = await self.channel.declare_exchange(
+            dlx_name,
+            aio_pika.ExchangeType.TOPIC,
             durable=True
         )
-        
-        logger.info(f"✓ Channel setup complete - Queue: {self.queue_name}")
+        dlq = await self.channel.declare_queue(dlq_name, durable=True)
+        await dlq.bind(dlx, routing_key="#")
+
+        self.queue = await self.channel.declare_queue(
+            self.queue_name,
+            durable=True,
+            arguments={
+                "x-dead-letter-exchange": dlx_name,
+                "x-message-ttl": 86_400_000,  # 24 h
+            }
+        )
+
+        logger.info(f"✓ Channel setup complete - Queue: {self.queue_name} (DLX: {dlx_name})")
     
     async def _on_reconnect(self, connection: AbstractRobustConnection) -> None:
         """Callback when connection is restored - reestablish channel and resume consuming."""

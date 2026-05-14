@@ -7,10 +7,20 @@ yarn-error.log
 dist/
 build/
 
+# Git
+.git/
+.gitignore
+
+# Tests
+test/
+**/*.spec.ts
+**/*.test.ts
+coverage/
+
 # Environment files
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
 # IDE
 .vscode/

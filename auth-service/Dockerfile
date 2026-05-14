@@ -33,6 +33,8 @@ RUN chmod +x docker-entrypoint.sh
 
 USER nodejs
 
+ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=384"
 ENV PORT=8080
 
 EXPOSE 8080

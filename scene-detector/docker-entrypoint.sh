@@ -8,7 +8,7 @@ echo "Generating Prisma client..."
 prisma generate --schema ./prisma/schema.prisma
 
 echo "Running database migrations..."
-prisma db push --schema ./prisma/schema.prisma --skip-generate
+prisma migrate deploy --schema ./prisma/schema.prisma
 
 echo "Starting Scene Detector Service: $SERVICE_MODE"
 exec python "$SERVICE_MODE"

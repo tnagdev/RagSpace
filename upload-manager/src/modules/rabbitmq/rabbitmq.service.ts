@@ -86,18 +86,31 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
             this.channelWrapper = this.connection.createChannel({
                 setup: async (channel: Channel) => {
+                    // Main exchange
                     await channel.assertExchange(this.exchange, 'topic', {
                         durable: true,
                     });
 
+                    // Dead-letter exchange — receives messages that fail processing
+                    const dlxName = `${this.exchange}.dlx`;
+                    const dlqName = `${this.queue}.dead-letter`;
+                    await channel.assertExchange(dlxName, 'topic', { durable: true });
+                    await channel.assertQueue(dlqName, { durable: true });
+                    await channel.bindQueue(dlqName, dlxName, '#');
+
+                    // Main queue with DLX routing and 24-hour message TTL
                     await channel.assertQueue(this.queue, {
                         durable: true,
+                        arguments: {
+                            'x-dead-letter-exchange': dlxName,
+                            'x-message-ttl': 86_400_000, // 24 h
+                        },
                     });
 
                     await channel.bindQueue(this.queue, this.exchange, 'file.*');
 
                     this.logger.log(
-                        `Exchange "${this.exchange}" and queue "${this.queue}" are ready`,
+                        `Exchange "${this.exchange}" and queue "${this.queue}" are ready (DLX: ${dlxName})`,
                     );
                 },
             });

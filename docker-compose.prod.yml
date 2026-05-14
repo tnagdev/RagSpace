@@ -1,0 +1,338 @@
+name: ragspace
+
+# ─── Reusable fragments ────────────────────────────────────────────────────────
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-node-env: &node-env
+  NODE_ENV: production
+  NODE_OPTIONS: "--max-old-space-size=384"
+
+x-python-env: &python-env
+  PYTHONUNBUFFERED: "1"
+
+# ─── Services ─────────────────────────────────────────────────────────────────
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  # NOTE: No local postgres — database is hosted on Supabase.
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: ragspace-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?RABBITMQ_PASS is required}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - ragspace-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 128m
+    logging: *default-logging
+
+  chromadb:
+    # Pin the version — "latest" breaks reproducible builds
+    image: chromadb/chroma:0.6.3
+    container_name: ragspace-chromadb
+    environment:
+      IS_PERSISTENT: "true"
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    restart: unless-stopped
+    networks:
+      - ragspace-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 256m
+    logging: *default-logging
+
+  # ── Application services ────────────────────────────────────────────────────
+
+  api-gateway:
+    container_name: ragspace-api-gateway
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    env_file:
+      - ./api-gateway/.env.prod
+    environment:
+      <<: *node-env
+    ports:
+      - "${GATEWAY_PORT:-8000}:8080"
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+    logging: *default-logging
+
+  auth-service:
+    container_name: ragspace-auth-service
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./auth-service/.env.prod
+    environment:
+      <<: *node-env
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+    logging: *default-logging
+
+  upload-manager:
+    container_name: ragspace-upload-manager
+    build:
+      context: ./upload-manager
+      dockerfile: Dockerfile
+    env_file:
+      - ./upload-manager/.env.prod
+    environment:
+      <<: *node-env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+    logging: *default-logging
+
+  payment-service:
+    container_name: ragspace-payment-service
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./payment-service/.env.prod
+    environment:
+      <<: *node-env
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+    logging: *default-logging
+
+  scene-detector-server:
+    container_name: ragspace-scene-detector-server
+    build:
+      context: ./scene-detector
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_server.py"]
+    env_file:
+      - ./scene-detector/.env.prod
+    environment:
+      <<: *python-env
+      PYTHONPATH: /app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    volumes:
+      - scene-detector-temp:/tmp/scene-detector
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2.0"
+        reservations:
+          memory: 256m
+    logging: *default-logging
+
+  scene-detector-consumer:
+    container_name: ragspace-scene-detector-consumer
+    build:
+      context: ./scene-detector
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_consumer.py"]
+    env_file:
+      - ./scene-detector/.env.prod
+    environment:
+      <<: *python-env
+      PYTHONPATH: /app
+      TEMP_DIR: /tmp/scene-detector
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    volumes:
+      - scene-detector-temp:/tmp/scene-detector
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f main_consumer.py > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+        reservations:
+          memory: 512m
+    logging: *default-logging
+
+  file-embedder-server:
+    container_name: ragspace-file-embedder-server
+    build:
+      context: ./file-embedder
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_server.py"]
+    env_file:
+      - ./file-embedder/.env.prod
+    environment:
+      <<: *python-env
+      PYTHONPATH: /app
+      HF_HOME: /home/appuser/.cache/huggingface
+      TORCH_HOME: /home/appuser/.cache/torch
+      TESSERACT_CMD: /usr/bin/tesseract
+    volumes:
+      - file-embedder-models:/home/appuser/.cache
+      - file-embedder-chroma:/app/chroma_data
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+          cpus: "2.0"
+        reservations:
+          memory: 1g
+    logging: *default-logging
+
+  file-embedder-consumer:
+    container_name: ragspace-file-embedder-consumer
+    build:
+      context: ./file-embedder
+      dockerfile: Dockerfile
+    command: ["./docker-entrypoint.sh", "main_consumer.py"]
+    env_file:
+      - ./file-embedder/.env.prod
+    environment:
+      <<: *python-env
+      PYTHONPATH: /app
+      HF_HOME: /home/appuser/.cache/huggingface
+      TORCH_HOME: /home/appuser/.cache/torch
+      TESSERACT_CMD: /usr/bin/tesseract
+    volumes:
+      - file-embedder-models:/home/appuser/.cache
+      - file-embedder-chroma:/app/chroma_data
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f main_consumer.py > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+          cpus: "2.0"
+        reservations:
+          memory: 1g
+    logging: *default-logging
+
+  chat-manager:
+    container_name: ragspace-chat-manager
+    build:
+      context: ./chat-manager
+      dockerfile: Dockerfile
+    env_file:
+      - ./chat-manager/.env.prod
+    environment:
+      <<: *python-env
+      PYTHONPATH: /app
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+        reservations:
+          memory: 256m
+    logging: *default-logging
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  ragspace-net:
+    driver: bridge
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  rabbitmq-data:
+  chromadb-data:
+  scene-detector-temp:
+  file-embedder-models:
+  file-embedder-chroma:

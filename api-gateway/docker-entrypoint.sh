@@ -1,8 +1,5 @@
 #!/bin/sh
 set -e
 
-echo "Running database migrations..."
-npx prisma migrate deploy --schema ./src/prisma/schema.prisma
-
 echo "Starting API Gateway..."
-exec node dist/src/main
+exec node dist/main

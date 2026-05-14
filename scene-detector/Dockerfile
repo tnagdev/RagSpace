@@ -51,10 +51,11 @@ USER appuser
 
 ENV PYTHONPATH=/app
 ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://127.0.0.1:8080/health').read()" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://127.0.0.1:8080/health').read()" || exit 1
 
 CMD ["./docker-entrypoint.sh"]

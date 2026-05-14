@@ -16,7 +16,7 @@ RUN npm run build
 FROM node:20-alpine
 
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+  adduser -S nodejs -u 1001
 
 WORKDIR /app
 
@@ -33,6 +33,8 @@ RUN chmod +x docker-entrypoint.sh
 
 USER nodejs
 
+ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=384"
 ENV PORT=8080
 EXPOSE 8080
 

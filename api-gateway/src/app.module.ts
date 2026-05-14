@@ -19,8 +19,8 @@ import { RATE_LIMIT_CONFIG } from './config/rate-limit.config';
       envFilePath: `${process.env.NODE_ENV ? `.env.${process.env.NODE_ENV}` : '.env'}`,
     }),
     HttpModule.register({
-      timeout: 5000,
-      maxRedirects: 5,
+      timeout: 30_000,   // 30 s — internal service calls can be slow during processing
+      maxRedirects: 3,
     }),
     ThrottlerModule.forRoot([
       {

@@ -10,6 +10,10 @@ env/
 ENV/
 .venv
 
+# Git
+.git/
+.gitignore
+
 # IDE
 .vscode/
 .idea/
@@ -22,12 +26,20 @@ Thumbs.db
 
 # Environment files
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+
+# Docker compose files
+docker-compose*.yml
 
 # Documentation
 README.md
 *.md
+
+# Tests
+tests/
+**/*_test.py
+**/*_spec.py
 
 # Git
 .git/

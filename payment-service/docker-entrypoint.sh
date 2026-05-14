@@ -8,6 +8,6 @@ echo "🔄 Running database migrations..."
 npx prisma migrate deploy --schema ./src/prisma/schema.prisma
 
 # Start application
-echo "✅ Starting application..."
+echo "Starting application..."
 exec node dist/src/main
 

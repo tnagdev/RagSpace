@@ -8,7 +8,13 @@ import { auth } from 'auth';
 const logger = new Logger('AuthService');
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: process.env.NODE_ENV === 'production'
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
+
+  app.enableShutdownHooks();
 
   const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
@@ -40,5 +46,13 @@ async function bootstrap() {
   const port = parseInt(process.env.PORT as string, 10) || 8001;
   await app.listen(port);
   logger.log(`Auth Service is running on http://localhost:${port}`);
+
+  process.on('SIGTERM', () => {
+    logger.log('SIGTERM received — starting graceful shutdown');
+    setTimeout(() => {
+      logger.error('Graceful shutdown timed out — forcing exit');
+      process.exit(1);
+    }, 30_000).unref();
+  });
 }
 bootstrap();

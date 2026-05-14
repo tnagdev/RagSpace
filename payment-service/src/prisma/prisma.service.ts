@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(PrismaService.name);
@@ -12,19 +14,22 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         if (!PrismaService.pool) {
             PrismaService.pool = new Pool({
                 connectionString: process.env.DATABASE_URL,
-                idleTimeoutMillis: 30000,
-                connectionTimeoutMillis: 10000
+                max: 10,
+                idleTimeoutMillis: 30_000,
+                connectionTimeoutMillis: 10_000,
             });
 
             PrismaService.pool.on('error', (err) => {
-                this.logger.error('Unexpected database pool error', err);
+                new Logger(PrismaService.name).error('Unexpected pg pool error', err.message);
             });
         }
 
         const adapter = new PrismaPg(PrismaService.pool);
         super({
             adapter,
-            log: ['query', 'info', 'warn', 'error'],
+            log: isProduction
+                ? [{ emit: 'event', level: 'warn' }, { emit: 'event', level: 'error' }]
+                : ['query', 'info', 'warn', 'error'],
         });
     }
 

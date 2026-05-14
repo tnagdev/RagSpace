@@ -1,7 +1,7 @@
 import { Formik, Form } from 'formik';
 import { FormInput, FormCheckbox } from '../../components/form';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { IoMailOutline, IoLockClosedOutline, IoLogoGoogle, IoLogoGithub } from 'react-icons/io5';
+import { IoMailOutline, IoLockClosedOutline, IoLogoGoogle } from 'react-icons/io5';
 import { loginSchema } from '@/lib/validationSchemas';
 import { useLogin } from '@/hooks/auth';
 import Button from '@/components/Button';
@@ -125,28 +125,19 @@ const LoginPage = () => {
             </div>
 
             {/* Social Login */}
-            <div className="grid grid-cols-2 gap-3">
-                <Button
-                    variant="social"
-                    size="md"
-                    icon={<IoLogoGoogle size={20} />}
-                    type="button"
-                    onClick={() => {
-                        const callbackURL = `${window.location.origin}/auth/callback`;
-                        window.location.href = `/api/auth/google/login?callbackURL=${encodeURIComponent(callbackURL)}`;
-                    }}
-                >
-                    Google
-                </Button>
-                <Button
-                    variant="social"
-                    size="md"
-                    icon={<IoLogoGithub size={20} />}
-                    type="button"
-                >
-                    GitHub
-                </Button>
-            </div>
+            <Button
+                variant="social"
+                size="md"
+                icon={<IoLogoGoogle size={20} />}
+                type="button"
+                fullWidth
+                onClick={() => {
+                    const callbackURL = `${window.location.origin}/auth/callback`;
+                    window.location.href = `/api/auth/google/login?callbackURL=${encodeURIComponent(callbackURL)}`;
+                }}
+            >
+                Google
+            </Button>
         </div>
     );
 };

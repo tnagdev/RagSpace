@@ -3,7 +3,7 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 aio-pika
-chromadb
+chromadb==0.6.3
 sentence-transformers
 open-clip-torch
 torch
