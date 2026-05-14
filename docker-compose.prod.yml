@@ -262,6 +262,7 @@ services:
       HF_HOME: /home/appuser/.cache/huggingface
       TORCH_HOME: /home/appuser/.cache/torch
       TESSERACT_CMD: /usr/bin/tesseract
+      HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - file-embedder-models:/home/appuser/.cache
       - file-embedder-chroma:/app/chroma_data
@@ -296,6 +297,7 @@ services:
       HF_HOME: /home/appuser/.cache/huggingface
       TORCH_HOME: /home/appuser/.cache/torch
       TESSERACT_CMD: /usr/bin/tesseract
+      HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - file-embedder-models:/home/appuser/.cache
       - file-embedder-chroma:/app/chroma_data

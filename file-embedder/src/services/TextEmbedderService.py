@@ -31,7 +31,7 @@ class TextEmbedderService(metaclass=SingletonMeta):
         
         self._text_embedder_initialized = True    
         logger.info(f"Loading text embedding model: {text_model_name}")
-        self.text_model = SentenceTransformer(text_model_name)
+        self.text_model = self._load_sentence_transformer(text_model_name)
         
         # Load Contriever for better retrieval performance
         self.contriever_model = None
@@ -39,12 +39,32 @@ class TextEmbedderService(metaclass=SingletonMeta):
         if use_contriever:
             try:
                 logger.info("Loading Contriever model for retrieval optimization")
-                self.contriever_tokenizer = AutoTokenizer.from_pretrained('facebook/contriever')
-                self.contriever_model = AutoModel.from_pretrained('facebook/contriever')
+                self.contriever_tokenizer, self.contriever_model = self._load_hf_model('facebook/contriever')
                 self.contriever_model.eval()
                 logger.info("Contriever model loaded successfully")
             except Exception as e:
                 logger.warning(f"Failed to load Contriever model: {e}. Falling back to base model.")
+
+    @staticmethod
+    def _load_sentence_transformer(model_name: str) -> 'SentenceTransformer':
+        """Load SentenceTransformer from cache if available, otherwise download."""
+        try:
+            return SentenceTransformer(model_name, local_files_only=True)
+        except Exception:
+            logger.info(f"Model {model_name} not cached — downloading from HuggingFace")
+            return SentenceTransformer(model_name)
+
+    @staticmethod
+    def _load_hf_model(model_name: str):
+        """Load HuggingFace tokenizer+model from cache if available, otherwise download."""
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            model = AutoModel.from_pretrained(model_name, local_files_only=True)
+        except OSError:
+            logger.info(f"Model {model_name} not cached — downloading from HuggingFace")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModel.from_pretrained(model_name)
+        return tokenizer, model
 
     @validate_call
     def embed_text(self, text: str, use_contriever: bool = False) -> np.ndarray:
