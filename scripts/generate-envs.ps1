@@ -191,7 +191,8 @@ VITE_API_URL=$($Env.PUBLIC_URL)
 Write-Env "$RepoRoot\.env" @"
 RABBITMQ_USER=$($Env.RABBITMQ_USER)
 RABBITMQ_PASS=$($Env.RABBITMQ_PASS)
-GATEWAY_PORT=$($Env.GATEWAY_PORT)
+HTTP_PORT=$($Env.HTTP_PORT)
+PUBLIC_URL=$($Env.PUBLIC_URL)
 "@
 
 Write-Host "`nDone. All service .env.prod files have been generated."

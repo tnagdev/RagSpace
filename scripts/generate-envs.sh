@@ -208,7 +208,8 @@ echo "  ✓ frontend/.env.prod"
 cat > "$REPO_ROOT/.env" << EOF
 RABBITMQ_USER=${RABBITMQ_USER}
 RABBITMQ_PASS=${RABBITMQ_PASS}
-GATEWAY_PORT=${GATEWAY_PORT}
+HTTP_PORT=${HTTP_PORT}
+PUBLIC_URL=${PUBLIC_URL}
 EOF
 echo "  ✓ .env (docker-compose vars)"
 

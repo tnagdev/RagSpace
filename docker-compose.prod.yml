@@ -82,8 +82,6 @@ services:
       - ./api-gateway/.env.prod
     environment:
       <<: *node-env
-    ports:
-      - "${GATEWAY_PORT:-8000}:8080"
     restart: on-failure
     networks:
       - ragspace-net
@@ -94,6 +92,31 @@ services:
           cpus: "1.0"
         reservations:
           memory: 128m
+    logging: *default-logging
+
+  frontend:
+    container_name: ragspace-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_URL}
+    environment:
+      API_GATEWAY_URL: http://api-gateway:8080
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - api-gateway
+    restart: on-failure
+    networks:
+      - ragspace-net
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+          cpus: "0.5"
+        reservations:
+          memory: 16m
     logging: *default-logging
 
   auth-service:
