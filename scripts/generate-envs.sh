@@ -20,11 +20,20 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Load root env (strip comments and blank lines)
-set -a
-# shellcheck disable=SC1090
-source <(grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$')
-set +a
+# Load root env — safe parser: splits on first = only, exports value as-is
+# (avoids bash misinterpreting <, >, `, $() etc. in values like SMTP_FROM)
+while IFS= read -r line; do
+  # Skip blank lines and comments
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${line//[[:space:]]/}" ]] && continue
+  key="${line%%=*}"
+  value="${line#*=}"
+  # Strip surrounding quotes if present ("value" or 'value')
+  if [[ "$value" =~ ^\"(.*)\"$ ]] || [[ "$value" =~ ^\'(.*)\'$ ]]; then
+    value="${BASH_REMATCH[1]}"
+  fi
+  export "$key=$value"
+done < "$ENV_FILE"
 
 # ── Derived values ─────────────────────────────────────────────────────────────
 DB_BASE_URL="postgresql://postgres.${SUPABASE_PROJECT_REF}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:5432/postgres"
