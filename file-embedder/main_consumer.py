@@ -6,6 +6,7 @@ Handles event-driven processing of file uploads and processing completion.
 import logging
 import os
 import asyncio
+from pathlib import Path
 from src.config import settings
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.VideoEmbedderService import VideoEmbedderService
@@ -71,9 +72,11 @@ async def main():
         logger.info("=== File Embedder Consumer READY ===")
         logger.info("Listening for file events...")
         
+        _heartbeat = Path("/tmp/consumer-health")
         try:
             while True:
-                await asyncio.sleep(1)
+                await asyncio.sleep(10)
+                _heartbeat.touch()
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
         

@@ -5,6 +5,7 @@ Handles event-driven processing of video scene detection.
 
 import logging
 import asyncio
+from pathlib import Path
 from src.config.settings import settings
 from src.rabbitmq.rabbitmq_consumer import rabbitmq_consumer
 from src.rabbitmq.rabbitmq_producer import RabbitMQProducer
@@ -55,9 +56,11 @@ async def main():
         logger.info("Listening for file events...")
         
         # Keep the process running
+        _heartbeat = Path("/tmp/consumer-health")
         try:
             while True:
-                await asyncio.sleep(1)
+                await asyncio.sleep(10)
+                _heartbeat.touch()
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
         
