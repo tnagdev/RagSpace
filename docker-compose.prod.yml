@@ -234,7 +234,7 @@ services:
     volumes:
       - scene-detector-temp:/tmp/scene-detector
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/consumer-health && test $(( $(date +%s) - $(stat -c %Y /tmp/consumer-health) )) -lt 60"]
+      test: ["CMD-SHELL", "python -c \"import os,time; s=os.stat('/tmp/consumer-health'); exit(0 if time.time()-s.st_mtime<60 else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -310,7 +310,7 @@ services:
     networks:
       - ragspace-net
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/consumer-health && test $(( $(date +%s) - $(stat -c %Y /tmp/consumer-health) )) -lt 60"]
+      test: ["CMD-SHELL", "python -c \"import os,time; s=os.stat('/tmp/consumer-health'); exit(0 if time.time()-s.st_mtime<60 else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
