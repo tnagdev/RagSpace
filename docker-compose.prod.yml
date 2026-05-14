@@ -104,7 +104,7 @@ services:
     environment:
       API_GATEWAY_URL: http://api-gateway:8080
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "127.0.0.1:8090:80"
     depends_on:
       - api-gateway
     restart: on-failure
