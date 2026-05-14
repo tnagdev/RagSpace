@@ -23,7 +23,7 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 RUN printf '#!/bin/sh\n\
     set -e\n\
     \n\
-    export API_GATEWAY_URL=${VITE_API_URL:-http://localhost:3000}\n\
+    export API_GATEWAY_URL=${API_GATEWAY_URL:-http://api-gateway:8080}\n\
     \n\
     # envsubst only these specific variables to avoid touching nginx variables\n\
     envsubst '"'"'$API_GATEWAY_URL'"'"' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf\n\
