@@ -92,7 +92,7 @@ const planDefinitions: PlanDefinition[] = [
             'Advanced semantic search',
             'Priority processing',
         ],
-        razorpayPlanId: 'plan_SJgdHqrZ1r7fBj',
+        razorpayPlanId: 'plan_SJgKmmqzGAMwLP',
         syncWithLemonSqueezy: true,
     },
     {
@@ -116,7 +116,7 @@ const planDefinitions: PlanDefinition[] = [
             'Unlimited YouTube videos',
             'No video length limits'
         ],
-        razorpayPlanId: 'plan_SJgdfyTsf0aCiD',
+        razorpayPlanId: 'plan_SJgLatFIul8xeL',
         syncWithLemonSqueezy: true,
     },
 ];
