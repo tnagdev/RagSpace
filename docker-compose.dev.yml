@@ -157,7 +157,7 @@ services:
       - "8003:8080"
     volumes:
       - scene-detector-temp:/tmp/scene-detector
-      - ./scene-detector/cookies:/app/cookies
+      - ./scene-detector/cookies:/app/cookies:ro
 
   scene-detector-consumer:
     container_name: ragspace-scene-detector-consumer
@@ -173,7 +173,7 @@ services:
       YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
     volumes:
       - scene-detector-temp:/tmp/scene-detector
-      - ./scene-detector/cookies:/app/cookies
+      - ./scene-detector/cookies:/app/cookies:ro
     depends_on:
       - postgres
       - rabbitmq

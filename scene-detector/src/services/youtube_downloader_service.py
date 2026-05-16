@@ -1,5 +1,7 @@
 import logging
 import os
+import shutil
+import tempfile
 from typing import Optional
 import yt_dlp
 from src.config.settings import settings
@@ -60,8 +62,15 @@ class YouTubeDownloaderService:
             }
 
             if settings.youtube_cookies_file and os.path.exists(settings.youtube_cookies_file):
-                ydl_opts['cookiefile'] = settings.youtube_cookies_file
-                logger.info(f"Using YouTube cookies from: {settings.youtube_cookies_file}")
+                # Copy to a writable temp file — yt-dlp writes back updated cookies
+                # after each session and will fail if the source is not writable
+                tmp_cookies = tempfile.NamedTemporaryFile(
+                    suffix='.txt', delete=False, dir='/tmp'
+                )
+                tmp_cookies.close()
+                shutil.copy2(settings.youtube_cookies_file, tmp_cookies.name)
+                ydl_opts['cookiefile'] = tmp_cookies.name
+                logger.info(f"Using YouTube cookies (temp copy: {tmp_cookies.name})")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # Extract info without downloading first
@@ -127,7 +136,12 @@ class YouTubeDownloaderService:
             }
 
             if settings.youtube_cookies_file and os.path.exists(settings.youtube_cookies_file):
-                ydl_opts['cookiefile'] = settings.youtube_cookies_file
+                tmp_cookies = tempfile.NamedTemporaryFile(
+                    suffix='.txt', delete=False, dir='/tmp'
+                )
+                tmp_cookies.close()
+                shutil.copy2(settings.youtube_cookies_file, tmp_cookies.name)
+                ydl_opts['cookiefile'] = tmp_cookies.name
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
