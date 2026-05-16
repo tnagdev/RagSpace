@@ -15,8 +15,9 @@ _BASE_YDL_OPTS = {
     'no_warnings': False,
     'nocheckcertificate': True,
     'ignoreerrors': False,
-    'no_color': True,
-    'extractor_args': {'youtube': {'player_client': ['web_safari', 'tv', 'web_embedded']}},
+    'no_color': False,
+    'extractor_args': {'youtube': {'player_client': ['ios', 'tv', 'web_embedded']}},
+    'js_runtimes': ['nodejs'],
 }
 
 
