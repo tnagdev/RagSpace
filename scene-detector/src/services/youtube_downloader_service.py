@@ -22,11 +22,14 @@ _BASE_YDL_OPTS = {
 
 def _copy_cookies_to_tmp() -> Optional[str]:
     src = settings.youtube_cookies_file
+    logger.info(f"Cookie file configured: {src!r}, exists: {os.path.exists(src) if src else False}")
     if not (src and os.path.exists(src)):
+        logger.warning(f"Cookie file not found, skipping cookie retry (path={src!r})")
         return None
     tmp = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, dir='/tmp')
     tmp.close()
     shutil.copy2(src, tmp.name)
+    logger.info(f"Copied cookies to {tmp.name}")
     return tmp.name
 
 
