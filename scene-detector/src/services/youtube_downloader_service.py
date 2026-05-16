@@ -24,8 +24,8 @@ _BASE_YDL_OPTS = {
 # No cookies: clients that don't require PO tokens
 _NO_COOKIE_CLIENTS = ['web_embedded', 'android_vr']
 
-# With cookies: standard clients — auth bypasses bot check, full format access
-_COOKIE_CLIENTS = ['web', 'android', 'mweb']
+# With cookies: web_safari (HLS, no PO token for GVS) + tv (no PO token, non-DRM with cookies)
+_COOKIE_CLIENTS = ['web_safari', 'tv']
 
 
 def _copy_cookies_to_tmp() -> Optional[str]:
