@@ -185,6 +185,7 @@ PAYMENT_SERVICE_URL=http://payment-service:8080
 # ── 8. frontend ───────────────────────────────────────────────────────────────
 Write-Env "$RepoRoot\frontend\.env.prod" @"
 VITE_API_URL=$($Env.PUBLIC_URL)
+VITE_APP_URL=$($Env.PUBLIC_URL)
 "@
 
 # ── 9. Root .env for docker-compose interpolation ─────────────────────────────

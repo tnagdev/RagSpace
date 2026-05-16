@@ -208,6 +208,7 @@ echo "  ✓ chat-manager/.env.prod"
 # ─────────────────────────────────────────────────────────────────────────────
 cat > "$REPO_ROOT/frontend/.env.prod" << EOF
 VITE_API_URL=${PUBLIC_URL}
+VITE_APP_URL=${PUBLIC_URL}
 EOF
 echo "  ✓ frontend/.env.prod"
 
