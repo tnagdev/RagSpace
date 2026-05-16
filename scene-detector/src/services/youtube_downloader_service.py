@@ -20,7 +20,7 @@ class YouTubeDownloaderService:
         self, 
         url: str, 
         output_path: str,
-        quality: str = 'worstvideo+worstaudio/worst/best'
+        quality: str = 'best[height<=480]/best'
     ) -> dict:
         """
         Download YouTube video in minimal required quality
@@ -53,10 +53,11 @@ class YouTubeDownloaderService:
                 'no_color': True,
                 # Add merge output format if separate video/audio
                 'merge_output_format': 'mp4',
-                # android_vr and web_embedded do not require PO tokens (per yt-dlp wiki)
+                # web_embedded has standard formats and no PO token requirement;
+                # android_vr as fallback (also no PO token required)
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android_vr', 'web_embedded'],
+                        'player_client': ['web_embedded', 'android_vr'],
                     }
                 },
             }
