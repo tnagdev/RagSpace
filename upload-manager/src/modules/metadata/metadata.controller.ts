@@ -11,7 +11,7 @@ import {
     Logger,
 } from '@nestjs/common';
 import { MetadataService } from './metadata.service';
-import { CreateFileMetadataDto, UpdateFileMetadataDto } from './dto';
+import { CreateFileMetadataDto, UpdateFileMetadataDto, BatchUpsertFileMetadataDto } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @Controller('metadata')
@@ -30,6 +30,12 @@ export class MetadataController {
     async upsertMetadata(@Body() dto: CreateFileMetadataDto) {
         this.logger.log(`Upserting metadata for file: ${dto.fileId}`);
         return this.metadataService.upsertMetadata(dto);
+    }
+
+    @Post('upsert-batch')
+    async upsertMetadataBatch(@Body() dto: BatchUpsertFileMetadataDto) {
+        this.logger.log(`Batch upserting ${dto.items.length} metadata records`);
+        return this.metadataService.upsertMetadataBatch(dto.items);
     }
 
     @Get(':id')

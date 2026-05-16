@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFileMetadataDto, UpdateFileMetadataDto } from './dto';
-import { MetadataSourceType } from '@prisma/client';
+import { MetadataSourceType, Prisma } from '@prisma/client';
 
 @Injectable()
 export class MetadataService {
@@ -72,6 +72,97 @@ export class MetadataService {
 
         this.logger.log(`Metadata upserted: ${metadata.id}`);
         return metadata;
+    }
+
+    async upsertMetadataBatch(dtos: CreateFileMetadataDto[]) {
+        if (dtos.length === 0) return [];
+        this.logger.log(`Batch upserting ${dtos.length} metadata records`);
+
+        return this.prisma.$transaction(async (tx) => {
+            const existing = await tx.fileMetadata.findMany({
+                where: {
+                    OR: dtos.map((d) => ({ fileId: d.fileId, sceneId: d.sceneId ?? null })),
+                },
+                select: { id: true, fileId: true, sceneId: true },
+            });
+
+            const existingMap = new Map(
+                existing.map((r) => [`${r.fileId}:${r.sceneId}`, r.id]),
+            );
+
+            const toCreate: CreateFileMetadataDto[] = [];
+            const toUpdate: { id: string; dto: CreateFileMetadataDto }[] = [];
+
+            for (const dto of dtos) {
+                const key = `${dto.fileId}:${dto.sceneId ?? null}`;
+                const existingId = existingMap.get(key);
+                if (existingId) {
+                    toUpdate.push({ id: existingId, dto });
+                } else {
+                    toCreate.push(dto);
+                }
+            }
+
+            const created = toCreate.length > 0
+                ? await tx.fileMetadata.createManyAndReturn({
+                    data: toCreate.map((dto) => ({
+                        fileId: dto.fileId,
+                        sceneId: dto.sceneId ?? null,
+                        sourceType: dto.sourceType,
+                        summary: dto.summary,
+                        objects: dto.objects ?? [],
+                        setting: dto.setting,
+                        style: dto.style,
+                        colors: dto.colors ?? [],
+                        rawResponse: dto.rawResponse,
+                    })),
+                })
+                : [];
+
+            let updated: Prisma.FileMetadataGetPayload<object>[] = [];
+            if (toUpdate.length > 0) {
+                const values = toUpdate
+                    .map((_, i) => {
+                        const base = i * 7;
+                        return `($${base + 1}::uuid, $${base + 2}, $${base + 3}::text[], $${base + 4}, $${base + 5}, $${base + 6}::text[], $${base + 7}::jsonb)`;
+                    })
+                    .join(', ');
+
+                const params: unknown[] = [];
+                for (const { id, dto } of toUpdate) {
+                    params.push(
+                        id,
+                        dto.summary ?? null,
+                        dto.objects ?? [],
+                        dto.setting ?? null,
+                        dto.style ?? null,
+                        dto.colors ?? [],
+                        dto.rawResponse ? JSON.stringify(dto.rawResponse) : null,
+                    );
+                }
+
+                updated = await tx.$queryRaw<Prisma.FileMetadataGetPayload<object>[]>(
+                    Prisma.raw(`
+                        UPDATE upload.file_metadata AS m
+                        SET
+                            summary    = v.summary,
+                            objects    = v.objects,
+                            setting    = v.setting,
+                            style      = v.style,
+                            colors     = v.colors,
+                            "rawResponse" = v.raw_response,
+                            "updatedAt" = NOW()
+                        FROM (VALUES ${values}) AS v(id, summary, objects, setting, style, colors, raw_response)
+                        WHERE m.id = v.id::uuid
+                        RETURNING m.*
+                    `),
+                    ...params,
+                );
+            }
+
+            this.logger.log(`Batch upserted: ${created.length} created, ${updated.length} updated`);
+            return [...created, ...updated];
+        });
     }
 
     async getMetadataById(id: string) {

@@ -12,6 +12,7 @@ class UploadManagerEndpoints(Enum):
     LIST_FILES = "/upload"
     CREATE_METADATA = "/metadata"
     UPSERT_METADATA = "/metadata/upsert"
+    UPSERT_METADATA_BATCH = "/metadata/upsert-batch"
     GET_METADATA_BY_FILE = "/metadata/file/{file_id}"
     GET_METADATA_BY_SCENE = "/metadata/scene/{scene_id}"
 
@@ -154,6 +155,48 @@ class UploadManagerService:
             logger.error(f"Error creating metadata for file {file_id}: {e}")
             return None
     
+    async def upsert_file_metadata_batch(
+        self,
+        items: list[dict],
+    ) -> Optional[list]:
+        """
+        Batch upsert metadata for multiple scenes in a single request.
+
+        Each item should have: file_id, source_type, description, and optionally scene_id.
+
+        Args:
+            items: List of dicts with keys: file_id, source_type, description (ImageDescription), scene_id (optional)
+
+        Returns:
+            List of upserted metadata records or None on failure
+        """
+        if not items:
+            return []
+        try:
+            url = f"{self.upload_manager_url}{UploadManagerEndpoints.UPSERT_METADATA_BATCH.value}"
+            payload_items = []
+            for item in items:
+                description = item["description"]
+                entry = {
+                    "fileId": item["file_id"],
+                    "sourceType": item["source_type"],
+                    "summary": description.summary,
+                    "objects": description.objects,
+                    "setting": description.setting,
+                    "style": description.style,
+                    "colors": description.colors,
+                    "rawResponse": description.model_dump(),
+                }
+                if item.get("scene_id"):
+                    entry["sceneId"] = item["scene_id"]
+                payload_items.append(entry)
+
+            logger.info(f"Batch upserting {len(payload_items)} metadata records")
+            return await self.client.send_request("POST", url, json={"items": payload_items})
+        except Exception as e:
+            logger.error(f"Error batch upserting metadata: {e}")
+            return None
+
     async def upsert_file_metadata(
         self,
         file_id: str,

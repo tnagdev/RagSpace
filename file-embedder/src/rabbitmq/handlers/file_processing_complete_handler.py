@@ -51,6 +51,7 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         
         visual_items = []
         text_items = []
+        metadata_items = []
         
         async def process_scene(i, scene):
             try:
@@ -60,7 +61,7 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
 
                 if not thumbnail_url:
                     logger.warning(f"No thumbnail URL for scene {i}, skipping")
-                    return None, None
+                    return None, None, None
 
                 loop = asyncio.get_running_loop()
                 thumbnail_path = os.path.join(temp_dir, f"scene_{i}.jpg")
@@ -76,15 +77,16 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                     await asyncio.sleep(0)
                     text_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_text, text)
                 
+                metadata_item = None
                 try:
                     description = await video_embedder.generate_image_description(thumbnail_path)
                     if description and scene_id:
-                        await upload_manager.upsert_file_metadata(
-                            file_id=file_id,
-                            source_type="SCENE",
-                            description=description,
-                            scene_id=scene_id,
-                        )
+                        metadata_item = {
+                            "file_id": file_id,
+                            "source_type": "SCENE",
+                            "description": description,
+                            "scene_id": scene_id,
+                        }
                 except Exception as e:
                     logger.error(f"Error generating scene description for scene {i}: {e}")
                 
@@ -126,10 +128,10 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                         "text": text
                     }
 
-                return visual_item, text_item
+                return visual_item, text_item, metadata_item
             except Exception as e:
                 logger.error(f"Error processing scene {i} for {file_id}: {e}")
-                return None, None
+                return None, None, None
         
         results = await asyncio.gather(
             *[process_scene(i, scene) for i, scene in enumerate(scenes)],
@@ -138,11 +140,13 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
 
         for result in results:
             if result and not isinstance(result, Exception):
-                visual_item, text_item = result
+                visual_item, text_item, metadata_item = result
                 if visual_item:
                     visual_items.append(visual_item)
                 if text_item:
                     text_items.append(text_item)
+                if metadata_item:
+                    metadata_items.append(metadata_item)
 
         if visual_items:
             chroma_db.upsert_items(chroma_db.image_index_name, visual_items)
@@ -151,6 +155,10 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         if text_items:
             chroma_db.upsert_items(chroma_db.text_index_name, text_items)
             logger.info(f"Successfully embedded {len(text_items)} text embeddings for {file_id}")
+        
+        if metadata_items:
+            await upload_manager.upsert_file_metadata_batch(metadata_items)
+            logger.info(f"Successfully batch upserted {len(metadata_items)} metadata records for {file_id}")
         
         if not visual_items and not text_items:
             logger.warning(f"No embeddings to store for {file_id}")
