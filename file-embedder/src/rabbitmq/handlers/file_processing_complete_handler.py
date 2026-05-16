@@ -52,72 +52,54 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         visual_items = []
         text_items = []
         metadata_items = []
+        semaphore = asyncio.Semaphore(settings.max_concurrent_scenes)
         
         async def process_scene(i, scene):
-            try:
-                thumbnail_url = scene.thumbnailUrl
-                thumbnail_s3_key = scene.thumbnailS3Key
-                scene_id = scene.id
-
-                if not thumbnail_url:
-                    logger.warning(f"No thumbnail URL for scene {i}, skipping")
-                    return None, None, None
-
-                loop = asyncio.get_running_loop()
-                thumbnail_path = os.path.join(temp_dir, f"scene_{i}.jpg")
-                await s3_client.download(s3_url=thumbnail_url, s3_key=thumbnail_s3_key, local_path=thumbnail_path)
-                
-                visual_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_image, thumbnail_path)
-                await asyncio.sleep(0)
-                
-                text = await loop.run_in_executor(cpu_executor, video_embedder.extract_text, thumbnail_path)
-                
-                text_embedding = None
-                if text:
-                    await asyncio.sleep(0)
-                    text_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_text, text)
-                
-                metadata_item = None
+            async with semaphore:
                 try:
-                    description = await video_embedder.generate_image_description(thumbnail_path)
-                    if description and scene_id:
-                        metadata_item = {
-                            "file_id": file_id,
-                            "source_type": "SCENE",
-                            "description": description,
-                            "scene_id": scene_id,
-                        }
-                except Exception as e:
-                    logger.error(f"Error generating scene description for scene {i}: {e}")
-                
-                visual_item = {
-                    "chunk_id": f"{file_id}#scene_{i}",
-                    "scene_index": i,
-                    "file_id": file_id,
-                    "user_id": user_id,
-                    "file_type": FileType.VIDEO,
-                    "file_name": original_name,
-                    "vector": visual_embedding,
-                    "scene_number": scene.sceneNumber,
-                    "start_frame": scene.startFrame,
-                    "end_frame": scene.endFrame,
-                    "start_time": scene.startTime,
-                    "end_time": scene.endTime,
-                    "keyframe": scene.keyframe,
-                    "thumbnail_s3_key": thumbnail_s3_key,
-                    "text": text
-                }
+                    thumbnail_url = scene.thumbnailUrl
+                    thumbnail_s3_key = scene.thumbnailS3Key
+                    scene_id = scene.id
 
-                text_item = None
-                if text_embedding is not None:
-                    text_item = {
-                        "chunk_id": f"{file_id}#scene_{i}#text",
+                    if not thumbnail_url:
+                        logger.warning(f"No thumbnail URL for scene {i}, skipping")
+                        return None, None, None
+
+                    loop = asyncio.get_running_loop()
+                    thumbnail_path = os.path.join(temp_dir, f"scene_{i}.jpg")
+                    await s3_client.download(s3_url=thumbnail_url, s3_key=thumbnail_s3_key, local_path=thumbnail_path)
+                    
+                    visual_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_image, thumbnail_path)
+                    await asyncio.sleep(0)
+                    
+                    text = await loop.run_in_executor(cpu_executor, video_embedder.extract_text, thumbnail_path)
+                    
+                    text_embedding = None
+                    if text:
+                        await asyncio.sleep(0)
+                        text_embedding = await loop.run_in_executor(cpu_executor, video_embedder.embed_text, text)
+                    
+                    metadata_item = None
+                    try:
+                        description = await video_embedder.generate_image_description(thumbnail_path)
+                        if description and scene_id:
+                            metadata_item = {
+                                "file_id": file_id,
+                                "source_type": "SCENE",
+                                "description": description,
+                                "scene_id": scene_id,
+                            }
+                    except Exception as e:
+                        logger.error(f"Error generating scene description for scene {i}: {e}")
+                    
+                    visual_item = {
+                        "chunk_id": f"{file_id}#scene_{i}",
                         "scene_index": i,
                         "file_id": file_id,
                         "user_id": user_id,
                         "file_type": FileType.VIDEO,
                         "file_name": original_name,
-                        "vector": text_embedding,
+                        "vector": visual_embedding,
                         "scene_number": scene.sceneNumber,
                         "start_frame": scene.startFrame,
                         "end_frame": scene.endFrame,
@@ -128,10 +110,30 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                         "text": text
                     }
 
-                return visual_item, text_item, metadata_item
-            except Exception as e:
-                logger.error(f"Error processing scene {i} for {file_id}: {e}")
-                return None, None, None
+                    text_item = None
+                    if text_embedding is not None:
+                        text_item = {
+                            "chunk_id": f"{file_id}#scene_{i}#text",
+                            "scene_index": i,
+                            "file_id": file_id,
+                            "user_id": user_id,
+                            "file_type": FileType.VIDEO,
+                            "file_name": original_name,
+                            "vector": text_embedding,
+                            "scene_number": scene.sceneNumber,
+                            "start_frame": scene.startFrame,
+                            "end_frame": scene.endFrame,
+                            "start_time": scene.startTime,
+                            "end_time": scene.endTime,
+                            "keyframe": scene.keyframe,
+                            "thumbnail_s3_key": thumbnail_s3_key,
+                            "text": text
+                        }
+
+                    return visual_item, text_item, metadata_item
+                except Exception as e:
+                    logger.error(f"Error processing scene {i} for {file_id}: {e}")
+                    return None, None, None
         
         results = await asyncio.gather(
             *[process_scene(i, scene) for i, scene in enumerate(scenes)],

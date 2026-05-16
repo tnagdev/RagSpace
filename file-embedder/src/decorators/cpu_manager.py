@@ -1,6 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
+from src.config import settings
 
-CPU_COUNT = 4
-MAX_WORKERS = max(1, CPU_COUNT)
-
-cpu_executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+cpu_executor = ThreadPoolExecutor(max_workers=max(1, settings.cpu_workers))
