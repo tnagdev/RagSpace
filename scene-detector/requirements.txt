@@ -18,8 +18,7 @@ scenedetect[opencv]
 opencv-python
 
 # YouTube Download
-# [default] includes yt-dlp-ejs: the EJS challenge solver scripts required for YouTube
-yt-dlp[default]>=2024.11.4
+yt-dlp>=2024.11.4
 
 # Image Processing
 Pillow

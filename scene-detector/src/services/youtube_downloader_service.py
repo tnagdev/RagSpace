@@ -8,28 +8,18 @@ from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-
 _BOT_DETECTION_PHRASES = ('Sign in to confirm', 'not a bot')
 
 _BASE_YDL_OPTS = {
     'quiet': False,
     'no_warnings': False,
-    'extract_flat': False,
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'no_color': True,
-    'merge_output_format': 'mp4',
 }
-
-# No cookies: clients that don't require PO tokens
-_NO_COOKIE_CLIENTS = ['tv', 'web_embedded']
-
-# With cookies: web_safari (HLS, no PO token for GVS) + tv (no PO token, non-DRM with cookies)
-_COOKIE_CLIENTS = ['web_safari', 'tv']
 
 
 def _copy_cookies_to_tmp() -> Optional[str]:
-    """Copy the cookie file to /tmp so yt-dlp can write back to it."""
     src = settings.youtube_cookies_file
     if not (src and os.path.exists(src)):
         return None
@@ -39,63 +29,44 @@ def _copy_cookies_to_tmp() -> Optional[str]:
     return tmp.name
 
 
-def _make_opts(base: dict, quality: str, output_path: str, clients: list, cookies_tmp: Optional[str] = None) -> dict:
-    opts = {
-        **base,
-        'format': quality,
-        'outtmpl': output_path,
-        'extractor_args': {'youtube': {'player_client': clients}},
-    }
-    if cookies_tmp:
-        opts['cookiefile'] = cookies_tmp
-    return opts
-
-
 class YouTubeDownloaderService:
     """Service for downloading YouTube videos using yt-dlp"""
-
-    def _run_ydl(self, url: str, ydl_opts: dict, download: bool) -> dict:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=download)
-            if not info:
-                raise Exception("Failed to extract video information")
-            return info
 
     async def download_video(
         self,
         url: str,
         output_path: str,
-        quality: str = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
+        quality: str = 'worst[ext=mp4]'
     ) -> dict:
         try:
             logger.info(f"Starting YouTube download: {url}")
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            # Try without cookies first using PO-token-free clients
-            no_cookie_opts = _make_opts(_BASE_YDL_OPTS, quality, output_path, _NO_COOKIE_CLIENTS)
-            active_opts = no_cookie_opts
+            ydl_opts = {**_BASE_YDL_OPTS, 'format': quality, 'outtmpl': output_path}
+
             try:
-                info = self._run_ydl(url, no_cookie_opts, download=False)
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if not info:
+                        raise Exception("Failed to extract video information")
             except Exception as first_err:
                 is_bot_error = any(p in str(first_err) for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
-                logger.warning("Cookieless attempt blocked, retrying with cookies + full clients")
-                # With valid cookies use web/android — full format access, no embedding restriction
-                active_opts = _make_opts(_BASE_YDL_OPTS, quality, output_path, _COOKIE_CLIENTS, cookies_tmp)
-                info = self._run_ydl(url, active_opts, download=False)
-
-            video_title = info.get('title', 'Unknown')
-            duration = info.get('duration', 0)
-            logger.info(f"Video info - Title: {video_title}, Duration: {duration}s")
-
-            self._run_ydl(url, active_opts, download=True)
+                logger.warning("Cookieless attempt blocked, retrying with cookies")
+                cookie_opts = {**ydl_opts, 'cookiefile': cookies_tmp}
+                with yt_dlp.YoutubeDL(cookie_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if not info:
+                        raise Exception("Failed to extract video information")
 
             if not os.path.exists(output_path):
                 raise Exception(f"Downloaded file not found at: {output_path}")
 
             file_size = os.path.getsize(output_path)
+            video_title = info.get('title', 'Unknown')
+            duration = info.get('duration', 0)
             logger.info(f"✓ Successfully downloaded: {video_title} ({file_size / (1024*1024):.2f} MB)")
 
             return {
@@ -119,15 +90,16 @@ class YouTubeDownloaderService:
     def get_video_info(self, url: str) -> Optional[dict]:
         try:
             base = {**_BASE_YDL_OPTS, 'quiet': True, 'no_warnings': True}
-            no_cookie_opts = _make_opts(base, 'best', '/dev/null', _NO_COOKIE_CLIENTS)
             try:
-                return self._run_ydl(url, no_cookie_opts, download=False)
+                with yt_dlp.YoutubeDL(base) as ydl:
+                    return ydl.extract_info(url, download=False)
             except Exception as e:
                 is_bot_error = any(p in str(e) for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
-                return self._run_ydl(url, _make_opts(base, 'best', '/dev/null', _COOKIE_CLIENTS, cookies_tmp), download=False)
+                with yt_dlp.YoutubeDL({**base, 'cookiefile': cookies_tmp}) as ydl:
+                    return ydl.extract_info(url, download=False)
         except Exception as e:
             logger.error(f"Failed to get video info: {e}")
             return None
