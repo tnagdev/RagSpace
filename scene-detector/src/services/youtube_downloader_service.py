@@ -17,7 +17,7 @@ _BASE_YDL_OPTS = {
     'ignoreerrors': False,
     'no_color': False,
     'extractor_args': {'youtube': {'player_client': ['ios', 'tv', 'web_embedded']}},
-    'js_runtimes': ['nodejs'],
+    'js_runtimes': {'nodejs': {}},
 }
 
 
