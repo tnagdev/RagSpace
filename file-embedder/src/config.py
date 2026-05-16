@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_model: str = "meta/llama-3.2-11b-vision-instruct"
     llm_max_concurrent_requests: int = 5
+    max_concurrent_scenes: int = 3
+    cpu_workers: int = 2
+    message_handler_timeout: int = 3600
     mode: str = "production"
     
     # YouTube Downloader Configuration
