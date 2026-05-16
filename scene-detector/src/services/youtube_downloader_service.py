@@ -19,12 +19,13 @@ _BASE_YDL_OPTS = {
     'ignoreerrors': False,
     'no_color': True,
     'merge_output_format': 'mp4',
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['web_embedded', 'android_vr'],
-        }
-    },
 }
+
+# No cookies: clients that don't require PO tokens
+_NO_COOKIE_CLIENTS = ['web_embedded', 'android_vr']
+
+# With cookies: standard clients — auth bypasses bot check, full format access
+_COOKIE_CLIENTS = ['web', 'android', 'mweb']
 
 
 def _copy_cookies_to_tmp() -> Optional[str]:
@@ -36,6 +37,18 @@ def _copy_cookies_to_tmp() -> Optional[str]:
     tmp.close()
     shutil.copy2(src, tmp.name)
     return tmp.name
+
+
+def _make_opts(base: dict, quality: str, output_path: str, clients: list, cookies_tmp: Optional[str] = None) -> dict:
+    opts = {
+        **base,
+        'format': quality,
+        'outtmpl': output_path,
+        'extractor_args': {'youtube': {'player_client': clients}},
+    }
+    if cookies_tmp:
+        opts['cookiefile'] = cookies_tmp
+    return opts
 
 
 class YouTubeDownloaderService:
@@ -60,20 +73,19 @@ class YouTubeDownloaderService:
             logger.info(f"Starting YouTube download: {url}")
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            opts = {**_BASE_YDL_OPTS, 'format': quality, 'outtmpl': output_path}
-
-            # Always try WITHOUT cookies first — passing stale cookies triggers
-            # stricter bot detection than no credentials at all.
-            active_opts = opts
+            # Try without cookies first using PO-token-free clients
+            no_cookie_opts = _make_opts(_BASE_YDL_OPTS, quality, output_path, _NO_COOKIE_CLIENTS)
+            active_opts = no_cookie_opts
             try:
-                info = self._run_ydl(url, opts, download=False)
+                info = self._run_ydl(url, no_cookie_opts, download=False)
             except Exception as first_err:
                 is_bot_error = any(p in str(first_err) for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
-                logger.warning(f"Cookieless attempt blocked, retrying with cookies")
-                active_opts = {**opts, 'cookiefile': cookies_tmp}
+                logger.warning("Cookieless attempt blocked, retrying with cookies + full clients")
+                # With valid cookies use web/android — full format access, no embedding restriction
+                active_opts = _make_opts(_BASE_YDL_OPTS, quality, output_path, _COOKIE_CLIENTS, cookies_tmp)
                 info = self._run_ydl(url, active_opts, download=False)
 
             video_title = info.get('title', 'Unknown')
@@ -108,15 +120,16 @@ class YouTubeDownloaderService:
 
     def get_video_info(self, url: str) -> Optional[dict]:
         try:
-            opts = {**_BASE_YDL_OPTS, 'quiet': True, 'no_warnings': True}
+            base = {**_BASE_YDL_OPTS, 'quiet': True, 'no_warnings': True}
+            no_cookie_opts = _make_opts(base, 'best', '/dev/null', _NO_COOKIE_CLIENTS)
             try:
-                return self._run_ydl(url, opts, download=False)
+                return self._run_ydl(url, no_cookie_opts, download=False)
             except Exception as e:
                 is_bot_error = any(p in str(e) for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
-                return self._run_ydl(url, {**opts, 'cookiefile': cookies_tmp}, download=False)
+                return self._run_ydl(url, _make_opts(base, 'best', '/dev/null', _COOKIE_CLIENTS, cookies_tmp), download=False)
         except Exception as e:
             logger.error(f"Failed to get video info: {e}")
             return None
