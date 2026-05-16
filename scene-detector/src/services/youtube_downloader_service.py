@@ -18,7 +18,7 @@ class YouTubeDownloaderService:
         self, 
         url: str, 
         output_path: str,
-        quality: str = 'worst[ext=mp4]'
+        quality: str = 'worstvideo+worstaudio/worst/best'
     ) -> dict:
         """
         Download YouTube video in minimal required quality

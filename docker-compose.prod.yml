@@ -205,7 +205,7 @@ services:
       - ragspace-net
     volumes:
       - scene-detector-temp:/tmp/scene-detector
-      - ./scene-detector/cookies:/app/cookies:ro
+      - ./scene-detector/cookies:/app/cookies
     deploy:
       resources:
         limits:
@@ -236,7 +236,7 @@ services:
       - ragspace-net
     volumes:
       - scene-detector-temp:/tmp/scene-detector
-      - ./scene-detector/cookies:/app/cookies:ro
+      - ./scene-detector/cookies:/app/cookies
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,time; s=os.stat('/tmp/consumer-health'); exit(0 if time.time()-s.st_mtime<60 else 1)"]
       interval: 30s
