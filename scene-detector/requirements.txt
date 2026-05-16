@@ -18,7 +18,7 @@ scenedetect[opencv]
 opencv-python
 
 # YouTube Download
-yt-dlp
+yt-dlp>=2024.11.4
 
 # Image Processing
 Pillow

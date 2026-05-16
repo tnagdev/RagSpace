@@ -51,14 +51,13 @@ class YouTubeDownloaderService:
                 'no_color': True,
                 # Add merge output format if separate video/audio
                 'merge_output_format': 'mp4',
-                # Use alternative player clients to bypass bot detection
+                # tv_embedded bypasses bot/PO-token checks; ios as fallback
                 'extractor_args': {
                     'youtube': {
-                        'player_client': settings.youtube_player_client.split(','),
+                        'player_client': ['tv_embedded', 'ios'],
+                        'skip': ['webpage'],
                     }
                 },
-                # Limit download speed (optional)
-                # 'ratelimit': 1000000,  # 1 MB/s
             }
 
             if settings.youtube_cookies_file and os.path.exists(settings.youtube_cookies_file):
@@ -123,7 +122,8 @@ class YouTubeDownloaderService:
                 'extract_flat': False,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': settings.youtube_player_client.split(','),
+                        'player_client': ['tv_embedded', 'ios'],
+                        'skip': ['webpage'],
                     }
                 },
             }
