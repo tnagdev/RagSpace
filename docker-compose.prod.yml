@@ -196,6 +196,7 @@ services:
     environment:
       <<: *python-env
       PYTHONPATH: /app
+      YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -204,6 +205,7 @@ services:
       - ragspace-net
     volumes:
       - scene-detector-temp:/tmp/scene-detector
+      - ./scene-detector/cookies:/app/cookies:ro
     deploy:
       resources:
         limits:
@@ -225,6 +227,7 @@ services:
       <<: *python-env
       PYTHONPATH: /app
       TEMP_DIR: /tmp/scene-detector
+      YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -233,6 +236,7 @@ services:
       - ragspace-net
     volumes:
       - scene-detector-temp:/tmp/scene-detector
+      - ./scene-detector/cookies:/app/cookies:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,time; s=os.stat('/tmp/consumer-health'); exit(0 if time.time()-s.st_mtime<60 else 1)"]
       interval: 30s

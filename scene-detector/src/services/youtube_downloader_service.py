@@ -51,11 +51,10 @@ class YouTubeDownloaderService:
                 'no_color': True,
                 # Add merge output format if separate video/audio
                 'merge_output_format': 'mp4',
-                # tv_embedded bypasses bot/PO-token checks; ios as fallback
+                # android_vr and web_embedded do not require PO tokens (per yt-dlp wiki)
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['tv_embedded', 'ios'],
-                        'skip': ['webpage'],
+                        'player_client': ['android_vr', 'web_embedded'],
                     }
                 },
             }
@@ -122,8 +121,7 @@ class YouTubeDownloaderService:
                 'extract_flat': False,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['tv_embedded', 'ios'],
-                        'skip': ['webpage'],
+                        'player_client': ['android_vr', 'web_embedded'],
                     }
                 },
             }
