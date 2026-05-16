@@ -28,6 +28,10 @@ env/
 .env
 .env.local
 
+# YouTube cookies (never commit)
+cookies/*.txt
+cookies/*.json
+
 # IDE
 .vscode/
 .idea/

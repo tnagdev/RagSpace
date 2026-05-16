@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = "user-uploads"
     aws_s3_endpoint: Optional[str] = None
     
+    # YouTube Download
+    youtube_cookies_file: Optional[str] = None  # Path to Netscape-format cookies.txt
+    youtube_player_client: str = "web_safari,android"  # yt-dlp player clients to try
+
     # Scene Detection
     scene_detection_threshold: float = 27.0
     scene_detection_min_scene_length: int = 15

@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Optional
 import yt_dlp
+from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,19 @@ class YouTubeDownloaderService:
                 'no_color': True,
                 # Add merge output format if separate video/audio
                 'merge_output_format': 'mp4',
+                # Use alternative player clients to bypass bot detection
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': settings.youtube_player_client.split(','),
+                    }
+                },
                 # Limit download speed (optional)
                 # 'ratelimit': 1000000,  # 1 MB/s
             }
+
+            if settings.youtube_cookies_file and os.path.exists(settings.youtube_cookies_file):
+                ydl_opts['cookiefile'] = settings.youtube_cookies_file
+                logger.info(f"Using YouTube cookies from: {settings.youtube_cookies_file}")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # Extract info without downloading first
@@ -110,8 +121,16 @@ class YouTubeDownloaderService:
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': settings.youtube_player_client.split(','),
+                    }
+                },
             }
-            
+
+            if settings.youtube_cookies_file and os.path.exists(settings.youtube_cookies_file):
+                ydl_opts['cookiefile'] = settings.youtube_cookies_file
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 return info
