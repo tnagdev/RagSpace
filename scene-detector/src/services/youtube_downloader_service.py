@@ -54,7 +54,7 @@ class YouTubeDownloaderService:
         self,
         url: str,
         output_path: str,
-        quality: str = 'best[height<=480]/best'
+        quality: str = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
     ) -> dict:
         try:
             logger.info(f"Starting YouTube download: {url}")
@@ -64,6 +64,7 @@ class YouTubeDownloaderService:
 
             # Always try WITHOUT cookies first — passing stale cookies triggers
             # stricter bot detection than no credentials at all.
+            active_opts = opts
             try:
                 info = self._run_ydl(url, opts, download=False)
             except Exception as first_err:
@@ -72,14 +73,14 @@ class YouTubeDownloaderService:
                 if not cookies_tmp:
                     raise
                 logger.warning(f"Cookieless attempt blocked, retrying with cookies")
-                opts_with_cookies = {**opts, 'cookiefile': cookies_tmp}
-                info = self._run_ydl(url, opts_with_cookies, download=False)
+                active_opts = {**opts, 'cookiefile': cookies_tmp}
+                info = self._run_ydl(url, active_opts, download=False)
 
             video_title = info.get('title', 'Unknown')
             duration = info.get('duration', 0)
             logger.info(f"Video info - Title: {video_title}, Duration: {duration}s")
 
-            self._run_ydl(url, opts, download=True)
+            self._run_ydl(url, active_opts, download=True)
 
             if not os.path.exists(output_path):
                 raise Exception(f"Downloaded file not found at: {output_path}")
