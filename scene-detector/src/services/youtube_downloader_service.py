@@ -16,6 +16,7 @@ _BASE_YDL_OPTS = {
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'no_color': True,
+    'extractor_args': {'youtube': {'player_client': ['tv', 'web_embedded']}},
 }
 
 
@@ -36,7 +37,7 @@ class YouTubeDownloaderService:
         self,
         url: str,
         output_path: str,
-        quality: str = 'worst[ext=mp4]'
+        quality: str = 'worst[height<=480]/worst/best[height<=480]/best'
     ) -> dict:
         try:
             logger.info(f"Starting YouTube download: {url}")
