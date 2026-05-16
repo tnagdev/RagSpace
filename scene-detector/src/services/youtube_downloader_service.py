@@ -22,7 +22,7 @@ _BASE_YDL_OPTS = {
 }
 
 # No cookies: clients that don't require PO tokens
-_NO_COOKIE_CLIENTS = ['web_embedded', 'android_vr']
+_NO_COOKIE_CLIENTS = ['tv', 'web_embedded']
 
 # With cookies: web_safari (HLS, no PO token for GVS) + tv (no PO token, non-DRM with cookies)
 _COOKIE_CLIENTS = ['web_safari', 'tv']
@@ -59,8 +59,6 @@ class YouTubeDownloaderService:
             info = ydl.extract_info(url, download=download)
             if not info:
                 raise Exception("Failed to extract video information")
-            if download:
-                ydl.download([url])
             return info
 
     async def download_video(
