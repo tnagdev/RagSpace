@@ -38,9 +38,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
 
 # Create temp directory with proper permissions
-RUN mkdir -p /tmp/scene-detector /home/appuser/.cache && \
+RUN mkdir -p /tmp/scene-detector /home/appuser/.cache /home/appuser/.config/yt-dlp && \
+    echo "--js-runtimes node" > /home/appuser/.config/yt-dlp/config && \
     chown -R appuser:appuser /tmp/scene-detector && \
     chown -R appuser:appuser /home/appuser/.cache && \
+    chown -R appuser:appuser /home/appuser/.config && \
     chmod -R 755 /tmp/scene-detector
 
 COPY --chown=appuser:appuser . .
