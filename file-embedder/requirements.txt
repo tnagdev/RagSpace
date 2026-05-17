@@ -24,4 +24,4 @@ pytesseract
 faiss-cpu
 spacy>=3.0.0
 networkx
-yt-dlp
+yt-dlp[default]>=2024.11.4

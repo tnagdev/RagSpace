@@ -51,8 +51,7 @@ class Settings(BaseSettings):
     mode: str = "production"
     
     # YouTube Downloader Configuration
-    youtube_cookie_browser: Optional[str] = None  # Browser to extract cookies from: chrome, firefox, edge, safari
-                                                   # Set to None to disable (recommended for Docker)
+    youtube_cookies_file: Optional[str] = None  # Path to Netscape-format cookies file
 
     class Config:
         env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"

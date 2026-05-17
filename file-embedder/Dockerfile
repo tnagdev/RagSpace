@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     ffmpeg \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1001 appuser && \
@@ -29,9 +32,11 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-RUN mkdir -p /app/chroma_data /home/appuser/.cache /home/appuser/.cache/huggingface /home/appuser/.cache/torch /tmp/file-embedder && \
+RUN mkdir -p /app/chroma_data /home/appuser/.cache /home/appuser/.cache/huggingface /home/appuser/.cache/torch /tmp/file-embedder /home/appuser/.config/yt-dlp && \
+    echo "--js-runtimes node" > /home/appuser/.config/yt-dlp/config && \
     chown -R appuser:appuser /app/chroma_data && \
     chown -R appuser:appuser /home/appuser/.cache && \
+    chown -R appuser:appuser /home/appuser/.config && \
     chown -R appuser:appuser /tmp/file-embedder && \
     chmod -R 755 /tmp/file-embedder
 

@@ -267,9 +267,11 @@ services:
       TORCH_HOME: /home/appuser/.cache/torch
       TESSERACT_CMD: /usr/bin/tesseract
       HF_HUB_DISABLE_TELEMETRY: "1"
+      YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
     volumes:
       - file-embedder-models:/home/appuser/.cache
       - file-embedder-chroma:/app/chroma_data
+      - ./scene-detector/cookies:/app/cookies:ro
     depends_on:
       chromadb:
         condition: service_healthy
@@ -302,9 +304,11 @@ services:
       TORCH_HOME: /home/appuser/.cache/torch
       TESSERACT_CMD: /usr/bin/tesseract
       HF_HUB_DISABLE_TELEMETRY: "1"
+      YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
     volumes:
       - file-embedder-models:/home/appuser/.cache
       - file-embedder-chroma:/app/chroma_data
+      - ./scene-detector/cookies:/app/cookies:ro
     depends_on:
       chromadb:
         condition: service_healthy

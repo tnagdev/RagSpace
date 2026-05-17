@@ -248,7 +248,7 @@ async def process_video(event: UploadCompletedEventModel):
     try:
         s3_client = S3ClientService()
         audio_embedder = AudioEmbedderService()
-        youtube_downloader = YouTubeDownloaderService(cookie_browser=settings.youtube_cookie_browser)
+        youtube_downloader = YouTubeDownloaderService()
         chroma_db = ChromaDatabaseManager()
         
         file_id = event.fileId
