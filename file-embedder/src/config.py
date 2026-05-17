@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     device: str = "cpu"
     clip_model: str = "ViT-B-32"
     text_model: str = "BAAI/bge-base-en-v1.5"
+    whisper_model: str = "tiny"
     nvidia_api_key: Optional[str] = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_model: str = "meta/llama-3.2-11b-vision-instruct"

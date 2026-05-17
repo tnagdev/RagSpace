@@ -172,7 +172,7 @@ async def process_audio(event: UploadCompletedEventModel):
     temp_dir = None
     try:
         s3_client = S3ClientService()
-        audio_embedder = AudioEmbedderService()
+        audio_embedder = AudioEmbedderService(transcription_model=settings.whisper_model)
         chroma_db = ChromaDatabaseManager()
 
         file_id = event.fileId
@@ -247,7 +247,7 @@ async def process_video(event: UploadCompletedEventModel):
     temp_dir = None
     try:
         s3_client = S3ClientService()
-        audio_embedder = AudioEmbedderService()
+        audio_embedder = AudioEmbedderService(transcription_model=settings.whisper_model)
         youtube_downloader = YouTubeDownloaderService()
         chroma_db = ChromaDatabaseManager()
         
