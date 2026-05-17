@@ -191,8 +191,16 @@ class UploadManagerService:
                     entry["sceneId"] = item["scene_id"]
                 payload_items.append(entry)
 
-            logger.info(f"Batch upserting {len(payload_items)} metadata records")
-            return await self.client.send_request("POST", url, json={"items": payload_items})
+            chunk_size = 50
+            chunks = [payload_items[i:i + chunk_size] for i in range(0, len(payload_items), chunk_size)]
+            logger.info(f"Batch upserting {len(payload_items)} metadata records in {len(chunks)} chunk(s)")
+
+            results = []
+            for chunk in chunks:
+                response = await self.client.send_request("POST", url, json={"items": chunk})
+                if response:
+                    results.extend(response if isinstance(response, list) else [response])
+            return results
         except Exception as e:
             logger.error(f"Error batch upserting metadata: {e}")
             return None

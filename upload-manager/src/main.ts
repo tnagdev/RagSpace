@@ -13,6 +13,9 @@ async function bootstrap() {
 
   app.enableShutdownHooks();
 
+  app.use(require('express').json({ limit: '10mb' }));
+  app.use(require('express').urlencoded({ limit: '10mb', extended: true }));
+
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port') as number;
 

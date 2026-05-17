@@ -159,8 +159,11 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
             logger.info(f"Successfully embedded {len(text_items)} text embeddings for {file_id}")
         
         if metadata_items:
-            await upload_manager.upsert_file_metadata_batch(metadata_items)
-            logger.info(f"Successfully batch upserted {len(metadata_items)} metadata records for {file_id}")
+            result = await upload_manager.upsert_file_metadata_batch(metadata_items)
+            if result is not None:
+                logger.info(f"Successfully batch upserted {len(metadata_items)} metadata records for {file_id}")
+            else:
+                logger.error(f"Failed to batch upsert metadata records for {file_id}")
         
         if not visual_items and not text_items:
             logger.warning(f"No embeddings to store for {file_id}")
