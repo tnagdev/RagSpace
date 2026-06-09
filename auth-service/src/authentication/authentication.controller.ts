@@ -2,29 +2,32 @@ import { Controller, Get, Logger, Req, Res, Post, Body, Patch, Delete } from '@n
 import type { Request, Response } from 'express';
 import { auth } from '../../auth';
 import { AuthenticationService } from './authentication.service';
-import { SignInDto, SignUpDto, ChangePasswordDto, UpdateProfileDto } from './dto';
+import { SignInDto, SignUpDto, ChangePasswordDto } from './dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { PaymentService } from 'src/common/services/payment.service';
+import { AuthUser } from './types/user.type';
 
 @Controller('auth')
 export class AuthenticationController {
     private readonly logger = new Logger(AuthenticationController.name);
 
-    constructor(private authService: AuthenticationService) { }
+    constructor(
+        private authService: AuthenticationService,
+        private paymentService: PaymentService
+    ) { }
 
     @Public()
     @Post('/signin')
     async signIn(@Body() body: SignInDto, @Req() req: Request, @Res() res: Response) {
         try {
-            const { emailOrUsername, password } = body;
-            const isEmail = emailOrUsername.includes('@');
-            let email = emailOrUsername;
+            const { email, password } = body;
+            const isEmail = email.includes('@');
             if (!isEmail) {
-                const user = await this.authService.findUserByUsername(emailOrUsername);
+                const user = await this.authService.findUserByEmail(email);
                 if (!user) {
                     return res.status(401).json({ error: 'Invalid credentials' });
                 }
-                email = user.email;
             }
 
             const result = await auth.api.signInEmail({
@@ -40,7 +43,7 @@ export class AuthenticationController {
             }
 
             return res.setHeaders(result.headers).json(await result.json());
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error in sign in:', error);
             return res.status(500).json({ error: 'Internal server error', details: error.message });
         }
@@ -51,12 +54,10 @@ export class AuthenticationController {
     async signUp(@Body() body: SignUpDto, @Req() req: Request, @Res() res: Response) {
 
         try {
-            const { email, username, password, firstName, lastName } = body;
-            const finalUsername = username || email.split('@')[0];
-
-            const existingUser = await this.authService.findUserByUsername(finalUsername);
+            const { email, password, firstName, lastName } = body;
+            const existingUser = await this.authService.findUserByEmail(email);
             if (existingUser) {
-                return res.status(400).json({ error: 'Username already taken' });
+                return res.status(400).json({ error: 'Already an account exists with this email' });
             }
 
             const result = await auth.api.signUpEmail({
@@ -71,15 +72,14 @@ export class AuthenticationController {
             if (result) {
                 res.setHeaders(result.headers);
                 const data = await result.json();
-                if (data.user && data.user.id) {
-                    await this.authService.updateUserUsername(data.user.id, finalUsername);
-                    await this.authService.createFreeSubscription(data.user.id);
+                if (data?.user?.id) {
+                    await this.paymentService.createFreeSubscription(data.user);
                 }
-                return res.json(data);
+                return res.status(result.status).json(data);
             }
 
             return res.status(400).json({ error: 'Failed to create account' });
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error in sign up:', error);
             return res.status(500).json({ error: 'Internal server error', details: error.message });
         }
@@ -104,7 +104,6 @@ export class AuthenticationController {
                 return res.status(400).json({ error: 'Failed to initiate Google login' });
             }
 
-            // better-auth returns a 302 with the Google OAuth URL in the Location header
             if (result.status === 302 || result.status === 301) {
                 const url = result.headers.get('location');
                 if (url) {
@@ -130,7 +129,7 @@ export class AuthenticationController {
             }
 
             return res.status(400).json({ error: 'Failed to get Google OAuth URL' });
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error in Google login:', error);
             return res.status(500).json({ error: 'Internal server error', details: error.message });
         }
@@ -158,9 +157,9 @@ export class AuthenticationController {
 
             this.logger.log(`better-auth callback response: ${response.status}`);
 
-            // Forward ALL Set-Cookie headers (session + state-cleanup cookies)
             const setCookies = response.headers.getSetCookie?.() ||
                 [response.headers.get('set-cookie')].filter(Boolean) as string[];
+
             if (setCookies.length > 0) {
                 res.setHeader('Set-Cookie', setCookies);
             }
@@ -172,10 +171,10 @@ export class AuthenticationController {
                         headers: { cookie: cookieHeader } as any,
                     });
                     if (session?.user?.id) {
-                        await this.authService.createFreeSubscription(session.user.id);
+                        await this.paymentService.createFreeSubscription(session.user as AuthUser);
                         this.logger.log(`Ensured free subscription for OAuth user ${session.user.id}`);
                     }
-                } catch (err) {
+                } catch (err: any) {
                     this.logger.warn('Could not ensure subscription after OAuth:', err?.message);
                 }
 
@@ -246,39 +245,6 @@ export class AuthenticationController {
         });
     }
 
-    @Patch('/profile')
-    async updateProfile(
-        @CurrentUser() user: any,
-        @Body() body: UpdateProfileDto,
-        @Req() req: Request,
-        @Res() res: Response,
-    ) {
-        if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-        const { name, username } = body;
-
-        if (username && username !== user.username) {
-            const existing = await this.authService.findUserByUsername(username);
-            if (existing && existing.id !== user.id) {
-                return res.status(400).json({ error: 'Username already taken' });
-            }
-        }
-
-        if (name) {
-            await auth.api.updateUser({
-                body: { name },
-                headers: req.headers as any,
-            });
-        }
-
-        if (username) {
-            await this.authService.updateUserUsername(user.id, username);
-        }
-
-        const updatedUser = await this.authService.findUserById(user.id);
-        return res.json({ user: updatedUser });
-    }
-
     @Post('/change-password')
     async changePassword(
         @CurrentUser() user: any,
@@ -303,7 +269,7 @@ export class AuthenticationController {
             }
 
             return res.json({ message: 'Password changed successfully' });
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error changing password:', error);
             const message = error?.message?.includes('incorrect') || error?.message?.includes('invalid')
                 ? 'Current password is incorrect'
@@ -349,7 +315,7 @@ export class AuthenticationController {
         try {
             await this.authService.deleteUserAccount(user.id, user);
             return res.json({ message: 'Account deleted successfully' });
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error deleting account:', error);
             return res.status(500).json({ error: 'Failed to delete account', details: error.message });
         }

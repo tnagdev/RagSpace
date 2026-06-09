@@ -23,12 +23,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
                 new Logger(PrismaService.name).error('Unexpected pg pool error', err.message);
             });
         }
+
         const adapter = new PrismaPg(PrismaService.pool);
         super({
             adapter,
             log: isProduction
-                ? [{ emit: 'event', level: 'warn' }, { emit: 'event', level: 'error' }]
-                : ['query', 'info', 'warn', 'error'],
+                ? [
+                    { emit: 'event', level: 'warn' },
+                    { emit: 'event', level: 'error' }
+                ] : ['query', 'info', 'warn', 'error'],
         });
     }
 

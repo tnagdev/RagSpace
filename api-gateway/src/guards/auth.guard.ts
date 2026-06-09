@@ -12,9 +12,18 @@ import { SERVICES } from '../config/services.config';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
+interface CachedSession {
+    user: any;
+    session: any;
+    expiresAt: number;
+}
+
 @Injectable()
 export class AuthGuard implements CanActivate {
     private readonly logger = new Logger(AuthGuard.name);
+    private readonly sessionCache = new Map<string, CachedSession>();
+    private readonly SESSION_CACHE_TTL_MS = 30_000;
+
     private publicRoutes: string[] = [
         '/api/auth/signup',
         '/api/auth/signin',
@@ -59,6 +68,16 @@ export class AuthGuard implements CanActivate {
         }
 
         const request = context.switchToHttp().getRequest<Request>();
+        const cacheKey = request.headers.cookie || '';
+
+        const cached = this.sessionCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            request['user'] = cached.user;
+            request['session'] = cached.session;
+            return true;
+        }
+        if (cached) this.sessionCache.delete(cacheKey);
+
         try {
             const authServiceUrl = SERVICES.AUTH_SERVICE.url;
             const authHeaders = {
@@ -78,6 +97,20 @@ export class AuthGuard implements CanActivate {
                 this.logger.error('Invalid session response structure');
                 throw new UnauthorizedException('No authentication provided');
             }
+
+            this.sessionCache.set(cacheKey, {
+                user: sessionData.user,
+                session: sessionData.session,
+                expiresAt: Date.now() + this.SESSION_CACHE_TTL_MS,
+            });
+
+            if (this.sessionCache.size > 5_000) {
+                const now = Date.now();
+                for (const [key, value] of this.sessionCache) {
+                    if (value.expiresAt < now) this.sessionCache.delete(key);
+                }
+            }
+
             request['user'] = sessionData.user;
             request['session'] = sessionData.session;
             return true;
