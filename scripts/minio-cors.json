@@ -1,0 +1,9 @@
+[
+  {
+    "allowedHeaders": ["*"],
+    "allowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "allowedOrigins": ["*"],
+    "exposeHeaders": ["ETag"],
+    "maxAgeSeconds": 3600
+  }
+]

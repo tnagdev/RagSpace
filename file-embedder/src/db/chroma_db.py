@@ -88,14 +88,16 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             metadatas.append(metadata)
             documents.append(item.get("text", ""))
         
-        collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            documents=documents
-        )
+        BATCH_SIZE = 100
+        for i in range(0, len(ids), BATCH_SIZE):
+            collection.upsert(
+                ids=ids[i:i + BATCH_SIZE],
+                embeddings=embeddings[i:i + BATCH_SIZE],
+                metadatas=metadatas[i:i + BATCH_SIZE],
+                documents=documents[i:i + BATCH_SIZE],
+            )
         logger.info(f"Upserted {len(items)} items to {index_name}")
-    
+
     def query_index(
         self,
         text_query_vec: Optional[np.ndarray] = None,

@@ -3,7 +3,8 @@ import os
 import tempfile
 import shutil
 import asyncio
-from src.models.enums import FileType, ProcessingStatus, ProcessingStage
+from datetime import datetime
+from src.models.enums import EventType, FileType, ProcessingStatus, ProcessingStage
 from src.models.events import ProcessingCompletedEventModel
 from src.config import settings
 from src.services.VideoEmbedderService import VideoEmbedderService
@@ -11,10 +12,31 @@ from src.services.S3ClientService import S3ClientService
 from src.services.UploadManagerService import UploadManagerService
 from src.db.chroma_db import ChromaDatabaseManager
 from src.rabbitmq.consumer import rabbitmq_consumer, FileEventType
+from src.rabbitmq.publisher import publish_event
 from src.decorators.cpu_manager import cpu_executor
 
 
 logger = logging.getLogger(__name__)
+
+
+async def _publish_indexing_progress(file_id: str, user_id: str, done: int, total: int) -> None:
+    pct = round((done / total) * 100) if total else 100
+    try:
+        await publish_event(
+            EventType.PROCESSING_PROGRESS.value,
+            {
+                'type': EventType.PROCESSING_PROGRESS.value,
+                'fileId': file_id,
+                'userId': user_id,
+                'timestamp': datetime.utcnow().isoformat(),
+                'data': {
+                    'stage': ProcessingStage.INDEXING.value,
+                    'progress': pct,
+                }
+            }
+        )
+    except Exception as pub_err:
+        logger.warning(f"Failed to publish indexing progress: {pub_err}")
 
 
 async def _process_scenes_in_background(event_data: ProcessingCompletedEventModel):
@@ -45,6 +67,25 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
             )
             return
 
+        # ── Idempotency: delete any existing embeddings for this file so a
+        # reprocess never leaves stale vectors in ChromaDB.
+        try:
+            for collection_name in [chroma_db.image_index_name, chroma_db.text_index_name]:
+                collection = (
+                    chroma_db.image_collection
+                    if collection_name == chroma_db.image_index_name
+                    else chroma_db.text_collection
+                )
+                existing = collection.get(where={"file_id": file_id}, include=[])
+                if existing and existing.get("ids"):
+                    collection.delete(ids=existing["ids"])
+                    logger.info(
+                        f"Deleted {len(existing['ids'])} existing embeddings "
+                        f"from {collection_name} for reprocess of {file_id}"
+                    )
+        except Exception as del_err:
+            logger.warning(f"Could not purge existing embeddings for {file_id}: {del_err}")
+
         dir_path = os.path.join(settings.temp_dir, file_id, 'scene')
         os.makedirs(dir_path, exist_ok=True)
         temp_dir = tempfile.mkdtemp(dir=dir_path)
@@ -52,9 +93,13 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         visual_items = []
         text_items = []
         metadata_items = []
+        total_scenes = len(scenes)
+        completed_scenes = 0
+        progress_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(settings.max_concurrent_scenes)
         
         async def process_scene(i, scene):
+            nonlocal completed_scenes
             async with semaphore:
                 try:
                     thumbnail_url = scene.thumbnailUrl
@@ -130,9 +175,18 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                             "text": text
                         }
 
+                    async with progress_lock:
+                        completed_scenes += 1
+                        done = completed_scenes
+                    await _publish_indexing_progress(file_id, user_id, done, total_scenes)
                     return visual_item, text_item, metadata_item
+
                 except Exception as e:
                     logger.error(f"Error processing scene {i} for {file_id}: {e}")
+                    async with progress_lock:
+                        completed_scenes += 1
+                        done = completed_scenes
+                    await _publish_indexing_progress(file_id, user_id, done, total_scenes)
                     return None, None, None
         
         results = await asyncio.gather(
@@ -179,6 +233,22 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
     finally:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@rabbitmq_consumer.register_handler(FileEventType.PROCESSING_COMPLETED)
+async def handle_processing_completed(event_data: ProcessingCompletedEventModel):
+    """Handle processing completion event and process scenes."""
+    try:
+        file_id = event_data.fileId
+        scene_count = len(event_data.data.scenes) if event_data.data and event_data.data.scenes else 0
+        logger.info(f"Processing {scene_count} scenes for {file_id}")
+        
+        await _process_scenes_in_background(event_data)
+        
+        logger.info(f"✓ Completed scene processing for {file_id}")
+    except Exception as e:
+        logger.error(f"Error processing scenes for {event_data.fileId}: {e}", exc_info=True)
+        raise
 
 
 @rabbitmq_consumer.register_handler(FileEventType.PROCESSING_COMPLETED)

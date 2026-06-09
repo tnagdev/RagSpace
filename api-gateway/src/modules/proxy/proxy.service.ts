@@ -9,6 +9,15 @@ import FormData from 'form-data';
 export class ProxyService {
     private readonly logger = new Logger(ProxyService.name);
 
+    private readonly SERVICE_TIMEOUTS: Record<string, number> = {
+        'auth-service': 5_000,
+        'upload-manager': 120_000,
+        'chat-manager': 0,
+        'scene-detector': 30_000,
+        'file-embedder': 30_000,
+        'payment-service': 10_000,
+    };
+
     constructor(private readonly httpService: HttpService) { }
 
     async forwardRequest(
@@ -77,6 +86,9 @@ export class ProxyService {
             sanitizedHeaders['content-type'] = 'application/json';
         }
 
+        const isStream = !!(headers['accept']?.includes('text/event-stream') ||
+            sanitizedHeaders['accept']?.includes('text/event-stream'));
+
         const config: AxiosRequestConfig = {
             method: method.toLowerCase() as any,
             url,
@@ -84,12 +96,12 @@ export class ProxyService {
             headers: sanitizedHeaders,
             params: query,
             withCredentials: true,
-            timeout: 30000,
+            timeout: isStream ? 0 : (this.SERVICE_TIMEOUTS[service.name] ?? 30_000),
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             maxRedirects: 0,
             validateStatus: () => true,
-            responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
+            responseType: isStream ? 'stream' : 'json',
         };
 
         this.logger.log(`Request config for ${service.name}:`, {

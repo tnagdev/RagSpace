@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     llm_max_concurrent_requests: int = 5
     max_concurrent_scenes: int = 3
     cpu_workers: int = 2
-    message_handler_timeout: int = 3600
+    message_handler_timeout: int = 600
     mode: str = "production"
     
     # YouTube Downloader Configuration

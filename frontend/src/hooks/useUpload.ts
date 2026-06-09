@@ -167,3 +167,17 @@ export const useSubmitYouTubeLink = (
         ...options,
     });
 };
+
+export const useReprocessFile = (
+    options?: UseMutationOptions<{ message: string; fileId: string }, Error, string>
+) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => uploadAPI.reprocessFile(id),
+        onSuccess: (_data, id) => {
+            queryClient.invalidateQueries({ queryKey: uploadKeys.detail(id) });
+            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+        },
+        ...options,
+    });
+};

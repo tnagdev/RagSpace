@@ -83,6 +83,7 @@ export class AuthGuard implements CanActivate {
             const authHeaders = {
                 cookie: request.headers.cookie || '',
                 'user-agent': request.headers['user-agent'] || '',
+                ...(request.headers.authorization ? { authorization: request.headers.authorization } : {}),
             };
 
             const response = await firstValueFrom(

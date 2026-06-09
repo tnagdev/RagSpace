@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672"
     rabbitmq_exchange: str = "file.events"
     rabbitmq_queue: str = "scene.detector.queue"
+    rabbitmq_user_queue: str = "user.events.queue"
+    rabbitmq_user_exchange: str = "user.events"
+    rabbitmq_user_routing_key: str = "user.events.*"
     rabbitmq_routing_key: str = EventType.UPLOAD_COMPLETED.value
     
     # AWS S3

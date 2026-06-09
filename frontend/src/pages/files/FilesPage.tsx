@@ -3,16 +3,17 @@ import { RefreshCw, Grid3x3, List } from 'lucide-react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { FileUploadZone } from './components/FileUploadZone';
 import { YouTubeLinkInput } from './components/YouTubeLinkInput';
-import { PollingFileItem } from './components/PollingFileItem';
+import { ProcessingFileItem } from './components/ProcessingFileItem';
 import { FileCard } from './components/FileCard';
 import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import PaymentResultModal from '@/components/payment/PaymentResultModal';
-import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
+import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink, useReprocessFile } from '@/hooks/useUpload';
+import { useFileEvents } from '@/hooks/useFileEvents';
 import type { FileResponseDto } from '@/types/upload.types';
-import { ProcessingStage } from '@/types/upload.types';
+import { ProcessingStage, UploadStatus } from '@/types/upload.types';
 import { CollectionSidePanel } from '@/components/CollectionSidePanel';
 
 interface UploadProgress {
@@ -22,6 +23,8 @@ interface UploadProgress {
 interface PollingFile {
     id: string;
     file: FileResponseDto;
+    rawFile?: File;
+    failed?: boolean;
 }
 
 const FilesPage = () => {
@@ -61,139 +64,166 @@ const FilesPage = () => {
 
     const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
         { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
-        {
-            refetchInterval: false,
-        }
+        { refetchInterval: false }
     );
 
     const { data: processingFilesData, refetch: refetchProcessing } = useFiles(
         { limit: 100 },
-        {
-            refetchInterval: (data: any) => {
-                const processingFiles = (data?.files || []).filter((f: any) => f.processingStage !== ProcessingStage.COMPLETED);
-                const hasProcessing = processingFiles.length > 0 || pollingFiles.length > 0;
-                return hasProcessing ? 5000 : false;
-            },
-            staleTime: 0,
-        }
+        { staleTime: 60_000 }
     );
+
+    const [wsProgress, setWsProgress] = useState<Record<string, number>>({});
+
+    const handleWsProgress = useCallback((fileId: string, _type: string, progress: number) => {
+        setWsProgress((prev) => ({ ...prev, [fileId]: progress }));
+    }, []);
+
+    useFileEvents(handleWsProgress);
 
     const uploadMutation = useUploadFile();
     const abortMutation = useAbortMultipartUpload();
     const deleteMutation = useDeleteFile();
     const youtubeSubmitMutation = useSubmitYouTubeLink();
+    const reprocessMutation = useReprocessFile();
 
     const completedFiles = completedFilesData?.files || [];
 
     const allProcessingFiles = useMemo(() => {
         const processingFilesFromAPI = (processingFilesData?.files || [])
             .filter(f => f.processingStage !== ProcessingStage.COMPLETED);
-        const allProcessingFiles = [
+        return [
             ...pollingFiles,
             ...processingFilesFromAPI
                 .filter(apiFile => !pollingFiles.some(pf => pf.id === apiFile.id))
-                .map(file => ({ id: file.id, file }))
+                .map(file => ({
+                    id: file.id,
+                    file,
+                    rawFile: undefined as File | undefined,
+                    failed: file.uploadStatus === UploadStatus.FAILED,
+                }))
         ];
-        return allProcessingFiles;
     }, [processingFilesData?.files, pollingFiles]);
 
     const handleFileComplete = useCallback(
-        (file: FileResponseDto) => {
+        async (file: FileResponseDto) => {
+            await refetchCompleted();
             setPollingFiles((prev) => prev.filter((f) => f.id !== file.id));
-            refetchCompleted();
             refetchProcessing();
         },
         [refetchCompleted, refetchProcessing]
     );
 
-    const handleFilesSelected = useCallback(
-        async (files: File[]) => {
-            files.forEach(async (file) => {
-                try {
-                    const fakeId = `uploading-${Date.now()}-${file.name}`;
-                    setPollingFiles((prev) => [...prev, {
-                        id:
-                            fakeId, file: {
-                                id: fakeId,
-                                originalFilename: file.name,
-                                filename: file.name,
-                                processingStage: 'UPLOAD',
-                                fileSize: file.size,
-                                mimeType: file.type,
-                            } as any
-                    }]);
-                    setUploadProgress((prev) => ({
-                        ...prev,
-                        [fakeId]: 0,
-                    }));
-
-                    await uploadMutation.mutateAsync({
-                        file,
-                        onInit: (fileRecord) => {
-                            setPollingFiles((prev) => prev.map((pf) => pf.id === fakeId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf));
-                            setUploadProgress((prev) => {
-                                const newProgress = { ...prev };
-                                delete newProgress[fakeId];
-                                return {
-                                    ...newProgress,
-                                    [fileRecord.id]: 0,
-                                };
-                            });
-                        },
-                        onProgress: (fileRecord, progress) => {
-                            if (fileRecord.id) {
-                                setUploadProgress((prev) => ({
-                                    ...prev,
-                                    [fileRecord.id]: progress,
-                                }));
-                            }
-                        },
-                        onError: (_error, fileRecord) => {
-                            if (fileRecord && fileRecord.id) {
-                                setPollingFiles((prev) => prev.filter((f) => f.id !== fileRecord.id));
-                                setUploadProgress((prev) => {
-                                    const newProgress = { ...prev };
-                                    delete newProgress[fileRecord.id];
-                                    return newProgress;
-                                });
-                            }
-                        },
-                        onComplete: (fileRecord) => {
-                            setPollingFiles((prev) =>
-                                prev.map((pf) => pf.id === fileRecord.id ? { ...pf, file: fileRecord } : pf)
-                            );
-                            setUploadProgress((prev) => {
-                                const newProgress = { ...prev };
-                                delete newProgress[fileRecord.id];
-                                return newProgress;
-                            });
+    const uploadSingleFile = useCallback(
+        async (rawFile: File, pollingId: string) => {
+            try {
+                await uploadMutation.mutateAsync({
+                    file: rawFile,
+                    onInit: (fileRecord) => {
+                        setPollingFiles((prev) => prev.map((pf) =>
+                            pf.id === pollingId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf
+                        ));
+                        setUploadProgress((prev) => {
+                            const next = { ...prev };
+                            delete next[pollingId];
+                            return { ...next, [fileRecord.id]: 0 };
+                        });
+                    },
+                    onProgress: (fileRecord, progress) => {
+                        if (fileRecord.id) {
+                            setUploadProgress((prev) => ({ ...prev, [fileRecord.id]: progress }));
                         }
-                    });
-                } catch (error) {
-                    console.error('Failed to upload file:', error);
-                }
-            });
+                    },
+                    onComplete: (fileRecord) => {
+                        setPollingFiles((prev) =>
+                            prev.map((pf) => pf.id === fileRecord.id ? { ...pf, file: fileRecord } : pf)
+                        );
+                        setUploadProgress((prev) => {
+                            const next = { ...prev };
+                            delete next[fileRecord.id];
+                            return next;
+                        });
+                    },
+                    onError: (_error, fileRecord) => {
+                        const failedId = fileRecord?.id ?? pollingId;
+                        setPollingFiles((prev) =>
+                            prev.map((pf) => pf.id === failedId ? { ...pf, failed: true } : pf)
+                        );
+                        setUploadProgress((prev) => {
+                            const next = { ...prev };
+                            delete next[failedId];
+                            return next;
+                        });
+                    },
+                });
+            } catch {
+                // onError handles the failed state
+            }
         },
         [uploadMutation]
+    );
+
+    const handleFilesSelected = useCallback(
+        (files: File[]) => {
+            files.forEach((file) => {
+                const fakeId = `uploading-${Date.now()}-${file.name}`;
+                setPollingFiles((prev) => [...prev, {
+                    id: fakeId,
+                    file: {
+                        id: fakeId,
+                        originalFilename: file.name,
+                        filename: file.name,
+                        processingStage: 'UPLOAD',
+                        fileSize: file.size,
+                        mimeType: file.type,
+                    } as any,
+                    rawFile: file,
+                    failed: false,
+                }]);
+                setUploadProgress((prev) => ({ ...prev, [fakeId]: 0 }));
+                uploadSingleFile(file, fakeId);
+            });
+        },
+        [uploadSingleFile]
+    );
+
+    const handleRetryUpload = useCallback(
+        (id: string) => {
+            const fileToRetry = pollingFiles.find((f) => f.id === id);
+            if (!fileToRetry) return;
+
+            if (fileToRetry.rawFile) {
+                // Retry the S3 upload from scratch
+                setPollingFiles((prev) => prev.map((pf) => pf.id === id ? { ...pf, failed: false } : pf));
+                setUploadProgress((prev) => ({ ...prev, [id]: 0 }));
+                uploadSingleFile(fileToRetry.rawFile, id);
+            } else {
+                // File is already on S3 but processing failed — trigger server-side reprocess
+                setPollingFiles((prev) => prev.map((pf) => pf.id === id ? { ...pf, failed: false } : pf));
+                reprocessMutation.mutate(id);
+            }
+        },
+        [pollingFiles, uploadSingleFile, reprocessMutation]
     );
 
     const handleCancelUpload = useCallback(
         async (id: string) => {
             try {
                 const fileToCancel = allProcessingFiles.find((f) => f.id === id);
-                if (fileToCancel) {
+                if (!fileToCancel) return;
+                const isFakeId = id.startsWith('uploading-') || id.startsWith('youtube-');
+                if (!isFakeId) {
                     if (fileToCancel.file.processingStage === 'UPLOAD') {
                         await abortMutation.mutateAsync(id);
                     } else {
                         await deleteMutation.mutateAsync(id);
                     }
-                    setPollingFiles((prev) => prev.filter((f) => f.id !== id));
-                    setUploadProgress((prev) => {
-                        const newProgress = { ...prev };
-                        delete newProgress[id];
-                        return newProgress;
-                    });
                 }
+                setPollingFiles((prev) => prev.filter((f) => f.id !== id));
+                setUploadProgress((prev) => {
+                    const next = { ...prev };
+                    delete next[id];
+                    return next;
+                });
             } catch (error) {
                 console.error('Failed to cancel upload:', error);
                 setPollingFiles((prev) => prev.filter((f) => f.id !== id));
@@ -318,18 +348,22 @@ const FilesPage = () => {
                             </h3>
                         </div>
                         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                            {allProcessingFiles.map(({ id, file }) => {
+                            {allProcessingFiles.map(({ id, file, rawFile, failed }) => {
                                 const latestFile = processingFilesData?.files.find(f => f.id === id);
+                                // Upload progress for active S3 uploads; WS progress for server-side stages
+                                const progress = uploadProgress[id] ?? wsProgress[id] ?? 0;
 
                                 return (
-                                    <PollingFileItem
+                                    <ProcessingFileItem
                                         key={id}
                                         fileId={id}
                                         initialFile={file}
                                         latestFile={latestFile}
-                                        progress={uploadProgress[id] || 0}
+                                        progress={progress}
                                         onComplete={handleFileComplete}
                                         onCancel={handleCancelUpload}
+                                        onRetry={handleRetryUpload}
+                                        failed={failed || latestFile?.processingStatus === 'FAILED'}
                                     />
                                 );
                             })}

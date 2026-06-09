@@ -11,6 +11,7 @@ export default () => ({
         s3: {
             bucket: process.env.AWS_S3_BUCKET,
             endpoint: process.env.AWS_S3_ENDPOINT,
+            publicEndpoint: process.env.AWS_S3_PUBLIC_ENDPOINT,
         },
     },
     rabbitmq: {
@@ -22,4 +23,8 @@ export default () => ({
         maxFileSize: parseInt(process.env.MAX_FILE_SIZE as string, 10),
         allowedFileTypes: process.env.ALLOWED_FILE_TYPES?.split(',')
     },
+    authServiceUrl: process.env.AUTH_SERVICE_URL,
+    allowedWsOrigins: process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+        : [],
 });

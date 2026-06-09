@@ -1,5 +1,5 @@
 import { type FC } from 'react';
-import { FileText, X, Image, Film, Music, File, Loader2 } from 'lucide-react';
+import { FileText, X, Image, Film, Music, File, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 import { IconButton } from '../../../components/IconButton';
 import { ProgressBar } from '../../../components/ProgressBar';
 import type { FileResponseDto, ProcessingStage } from '@/types/upload.types';
@@ -8,6 +8,8 @@ interface FileUploadItemProps {
     file: FileResponseDto;
     progress: number;
     onCancel?: (id: string) => void;
+    onRetry?: (id: string) => void;
+    failed?: boolean;
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -35,7 +37,11 @@ const getStatusText = (stage: ProcessingStage): string => {
     }
 };
 
-export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCancel }) => {
+export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCancel, onRetry, failed }) => {
+    const isFailed = failed || file.uploadStatus === 'FAILED';
+    const isCompleted = file.processingStage === 'COMPLETED';
+    const isProcessing = !isCompleted && !isFailed;
+
     const getFileIcon = () => {
         const iconClass = 'w-10 h-10 rounded-lg flex items-center justify-center';
 
@@ -73,8 +79,6 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
         }
     };
 
-    const isProcessing = file.processingStage !== 'COMPLETED';
-
     return (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-bg-tertiary/50 border border-sidebar-border hover:border-sidebar-border/50 transition-all">
             {getFileIcon()}
@@ -83,7 +87,7 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
                     <p className="text-sm font-medium text-text-primary truncate">
                         {file.originalFilename}
                     </p>
-                    {onCancel && isProcessing && (
+                    {onCancel && !isCompleted && (
                         <IconButton
                             size="sm"
                             variant="ghost"
@@ -92,35 +96,50 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
                         />
                     )}
                 </div>
-                <div className="flex items-center gap-2">
-                    <p className="text-xs text-text-muted">{formatFileSize(file.fileSize)}</p>
-                    <span className="text-xs text-text-muted">•</span>
-                    {isProcessing ? (
-                        <div className="flex items-center gap-1.5">
-                            <Loader2 className="w-3 h-3 text-accent-primary animate-spin" />
-                            <p className="text-xs text-text-secondary">
-                                {getStatusText(file.processingStage)}
-                            </p>
+                {isFailed ? (
+                    <div className="flex items-center gap-2 mt-1">
+                        <AlertCircle className="w-3 h-3 text-danger shrink-0" />
+                        <p className="text-xs text-danger">Upload failed</p>
+                        {onRetry && (
+                            <button
+                                onClick={() => onRetry(file.id)}
+                                className="flex items-center gap-1 text-xs text-accent-primary hover:underline ml-auto"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Retry
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <p className="text-xs text-text-muted">{formatFileSize(file.fileSize)}</p>
+                            <span className="text-xs text-text-muted">•</span>
+                            {isProcessing ? (
+                                <div className="flex items-center gap-1.5">
+                                    <Loader2 className="w-3 h-3 text-accent-primary animate-spin" />
+                                    <p className="text-xs text-text-secondary">
+                                        {getStatusText(file.processingStage)}
+                                    </p>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-success">Complete</p>
+                            )}
+                            {file.processingStage === 'UPLOAD' && progress > 0 && progress < 100 && (
+                                <span className="text-xs text-accent-primary font-medium ml-auto">
+                                    {progress}%
+                                </span>
+                            )}
                         </div>
-                    ) : (
-                        <p className="text-xs text-success">Complete</p>
-                    )}
-                    {file.processingStage === 'UPLOAD' && progress > 0 && progress < 100 && (
-                        <span className="text-xs text-accent-primary font-medium ml-auto">
-                            {progress}%
-                        </span>
-                    )}
-                </div>
-                {isProcessing && (
-                    <ProgressBar
-                        progress={progress}
-                        variant={file.processingStage === 'UPLOAD' ? 'default' : 'shimmer'}
-                        size="md"
-                        className="mt-2"
-                    />
-                )}
-                {file.uploadStatus === 'FAILED' && file.errorMessage && (
-                    <p className="text-xs text-danger mt-1">{file.errorMessage}</p>
+                        {isProcessing && (
+                            <ProgressBar
+                                progress={progress}
+                                variant={file.processingStage === 'UPLOAD' ? 'default' : 'shimmer'}
+                                size="md"
+                                className="mt-2"
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </div>

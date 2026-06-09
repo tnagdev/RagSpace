@@ -1,8 +1,3 @@
-
-
-
-
-
 """Audio embedding utilities using Sentence Transformers and Whisper."""
 from torch import Tensor, cuda
 import whisper

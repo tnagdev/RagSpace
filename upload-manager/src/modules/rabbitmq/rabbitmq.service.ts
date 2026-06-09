@@ -7,8 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqp-connection-manager';
 import { ChannelWrapper } from 'amqp-connection-manager';
-import { Channel } from 'amqplib';
+import { Channel, ConsumeMessage } from 'amqplib';
 import { AuthSession, AuthUser } from 'src/common/decorators/current-user.decorator';
+import { WsService } from '../ws/ws.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 export enum FileEventType {
     UPLOAD_STARTED = 'file.upload.started',
@@ -34,13 +36,18 @@ export interface FileEvent {
 @Injectable()
 export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(RabbitmqService.name);
-    private connection: amqp.AmqpConnectionManager;
-    private channelWrapper: ChannelWrapper;
-    private exchange: string;
-    private queue: string;
-    private url: string;
+    private connection!: amqp.AmqpConnectionManager;
+    private channelWrapper!: ChannelWrapper;
+    private consumerWrapper!: ChannelWrapper;
+    private exchange!: string;
+    private queue!: string;
+    private url!: string;
 
-    constructor(private configService: ConfigService) { }
+    constructor(
+        private configService: ConfigService,
+        private wsService: WsService,
+        private prisma: PrismaService,
+    ) { }
 
     async onModuleInit() {
         try {
@@ -115,10 +122,70 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
                 },
             });
 
+            // Ephemeral exclusive queue for SSE broadcasting — receives live events only
+            this.consumerWrapper = this.connection.createChannel({
+                setup: async (channel: Channel) => {
+                    await channel.assertExchange(this.exchange, 'topic', { durable: true });
+                    const sseQueue = await channel.assertQueue('', {
+                        exclusive: true,
+                        autoDelete: true,
+                        durable: false,
+                    });
+                    await channel.bindQueue(sseQueue.queue, this.exchange, 'file.*');
+                    await channel.consume(
+                        sseQueue.queue,
+                        (msg) => this.handleSseMessage(msg),
+                        { noAck: true },
+                    );
+                    this.logger.log(`SSE consumer queue "${sseQueue.queue}" ready`);
+                },
+            });
+
             await this.channelWrapper.waitForConnect();
         } catch (error) {
             this.logger.error('Error initializing RabbitMQ', error);
             throw error;
+        }
+    }
+
+    private async handleSseMessage(msg: ConsumeMessage | null): Promise<void> {
+        if (!msg) return;
+        let body: any;
+        try {
+            body = JSON.parse(msg.content.toString());
+        } catch {
+            return;
+        }
+
+        const fileId: string | undefined = body.fileId;
+        // Python services publish userId at top level; NestJS publishes user.id
+        const userId: string | undefined = body.userId ?? body.user?.id;
+        if (!fileId || !userId) return;
+
+        if (!this.wsService.hasClients(userId)) return;
+
+        try {
+            const file = await this.prisma.file.findUnique({
+                where: { id: fileId },
+                select: {
+                    id: true, userId: true, filename: true, originalFilename: true,
+                    fileSize: true, mimeType: true, fileType: true, s3Key: true,
+                    s3Url: true, uploadStatus: true, processingStatus: true,
+                    processingStage: true, thumbnailPath: true, errorMessage: true,
+                    createdAt: true, updatedAt: true,
+                },
+            });
+            if (!file) return;
+
+            this.wsService.broadcast(file.userId, {
+                fileId: file.id,
+                type: body.type,
+                // Forward progress percentage if the event carries it
+                progress: body.data?.progress ?? undefined,
+                file,
+            });
+        } catch (error) {
+            this.logger.error(`WS broadcast failed for file ${fileId}`, error);
         }
     }
 
@@ -152,9 +219,10 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     async onModuleDestroy() {
         try {
+            await this.consumerWrapper?.close();
             await this.channelWrapper?.close();
             await this.connection?.close();
-            this.logger.log('RabbitMQ connection closed');
+            this.logger.log('RabbitMQ connections closed');
         } catch (error) {
             this.logger.error('Error closing RabbitMQ connection', error);
         }

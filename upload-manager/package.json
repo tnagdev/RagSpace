@@ -33,6 +33,8 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/microservices": "^11.1.13",
     "@nestjs/platform-express": "^11.1.13",
+    "@nestjs/platform-ws": "^11.1.24",
+    "@nestjs/websockets": "^11.1.24",
     "@prisma/adapter-pg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "amqp-connection-manager": "^5.0.0",
@@ -48,7 +50,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sharp": "^0.34.5",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -63,6 +66,7 @@
     "@types/pg": "^8.16.0",
     "@types/supertest": "^6.0.3",
     "@types/uuid": "^11.0.0",
+    "@types/ws": "^8.18.1",
     "dotenv-cli": "^11.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",

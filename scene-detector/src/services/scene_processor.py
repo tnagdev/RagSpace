@@ -40,6 +40,17 @@ class SceneProcessor:
             file_record = await self.upload_manager_client.get_file(file_id)
             if not file_record:
                 raise Exception(f"File not found: {file_id}")
+
+            # ── Idempotency: delete any previously created scenes so a reprocess
+            # never leaves duplicate rows (create_many would duplicate on retry).
+            existing_count = await self.prisma_service.prisma.scene.count(
+                where={'fileId': file_id}
+            )
+            if existing_count > 0:
+                await self.prisma_service.prisma.scene.delete_many(
+                    where={'fileId': file_id}
+                )
+                logger.info(f"Deleted {existing_count} existing scenes for reprocess of {file_id}")
             
             file_type = file_record.get('fileType', '').upper()
 
@@ -206,9 +217,32 @@ class SceneProcessor:
             year = datetime.utcnow().year
             month = datetime.utcnow().month
             scene_bucket = file_record.get('s3Bucket', 'user-uploads')
-            
+            total_scenes = len(scenes_data)
+            completed_scenes = 0
+            progress_lock = asyncio.Lock()
+
+            async def _publish_scene_progress(done: int, total: int) -> None:
+                pct = round((done / total) * 100) if total else 100
+                try:
+                    await self.rabbitmq_service.publish_event(
+                        EventType.PROCESSING_PROGRESS.value,
+                        {
+                            'type': EventType.PROCESSING_PROGRESS.value,
+                            'fileId': file_id,
+                            'userId': user_id,
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'data': {
+                                'stage': ProcessingStage.SCENE_DETECTION.value,
+                                'progress': pct,
+                            }
+                        }
+                    )
+                except Exception as pub_err:
+                    logger.warning(f"Failed to publish progress event: {pub_err}")
+
             async def process_scene(scene_data):
                 """Process a single scene asynchronously"""
+                nonlocal completed_scenes
                 try:
                     scene_number = scene_data['scene_number']
                     thumbnail_filename = f"scene_{scene_number:04d}.jpg"
@@ -238,9 +272,7 @@ class SceneProcessor:
                         bucket=scene_bucket
                     )
 
-                    logger.info(f"Processed scene {scene_number}/{len(scenes_data)}")
-                    
-                    return {
+                    result = {
                         'fileId': file_id,
                         'userId': user_id,
                         'sceneNumber': scene_number,
@@ -253,12 +285,23 @@ class SceneProcessor:
                         'thumbnailS3Key': thumbnail_s3_key,
                         'thumbnailS3Url': thumbnail_url
                     }
-                    
+
+                    async with progress_lock:
+                        completed_scenes += 1
+                        done = completed_scenes
+                    await _publish_scene_progress(done, total_scenes)
+                    logger.info(f"Processed scene {scene_number}/{total_scenes}")
+                    return result
+
                 except Exception as e:
                     logger.error(
                         f"Error processing scene {scene_data.get('scene_number', 'unknown')}: {e}",
                         exc_info=True
                     )
+                    async with progress_lock:
+                        completed_scenes += 1
+                        done = completed_scenes
+                    await _publish_scene_progress(done, total_scenes)
                     return None
             
             results = await asyncio.gather(*[process_scene(scene_data) for scene_data in scenes_data])

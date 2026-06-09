@@ -2,6 +2,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    OnApplicationBootstrap,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
@@ -16,7 +17,7 @@ import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { AuthUser, AuthSession } from 'src/common/decorators/current-user.decorator';
 
 @Injectable()
-export class UploadService {
+export class UploadService implements OnApplicationBootstrap {
     private readonly logger = new Logger(UploadService.name);
 
     constructor(
@@ -24,6 +25,26 @@ export class UploadService {
         private s3Service: S3Service,
         private rabbitmqService: RabbitmqService,
     ) { }
+
+    async onApplicationBootstrap(): Promise<void> {
+        // Any file still marked UPLOADING when the server starts was interrupted
+        // (crash, restart, browser tab closed). Mark them FAILED so the UI can
+        // show an error state instead of spinning forever.
+        const STALE_MINUTES = 5;
+        const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1_000);
+        const result = await this.prisma.file.updateMany({
+            where: {
+                uploadStatus: UploadStatus.UPLOADING,
+                createdAt: { lt: cutoff },
+            },
+            data: { uploadStatus: UploadStatus.FAILED },
+        });
+        if (result.count > 0) {
+            this.logger.warn(
+                `Marked ${result.count} stale UPLOADING file(s) as FAILED on startup`,
+            );
+        }
+    }
 
     async uploadFile(file: Express.Multer.File, user: AuthUser, session?: AuthSession) {
         try {
@@ -99,7 +120,7 @@ export class UploadService {
 
                 this.logger.log(`File uploaded successfully: ${fileRecord.id}`);
                 return updatedFile;
-            } catch (error) {
+            } catch (error: any) {
                 this.logger.error(
                     `S3 upload failed for file ${fileRecord.id}, deleting record`,
                     error,
@@ -339,14 +360,14 @@ export class UploadService {
             if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
                 try {
                     await this.s3Service.deleteFile(file.s3Key);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
                 }
             }
             if ((file as any).thumbnailPath) {
                 try {
                     await this.s3Service.deleteFile((file as any).thumbnailPath);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
             }
@@ -372,7 +393,7 @@ export class UploadService {
                 },
             });
             this.logger.log(`Published file deletion event for: ${id}`);
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error(`Failed to publish file deletion event: ${error.message}`);
             // Continue with deletion even if event publishing fails
         }
@@ -381,7 +402,7 @@ export class UploadService {
             try {
                 await this.s3Service.deleteFile(file.s3Key);
                 this.logger.log(`Deleted S3 file: ${file.s3Key}`);
-            } catch (error) {
+            } catch (error: any) {
                 this.logger.error(`Failed to delete S3 file: ${error.message}`);
             }
         }
@@ -390,7 +411,7 @@ export class UploadService {
             try {
                 await this.s3Service.deleteFile((file as any).thumbnailPath);
                 this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
-            } catch (error) {
+            } catch (error: any) {
                 this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
             }
         }
@@ -427,7 +448,7 @@ export class UploadService {
                 },
             });
             this.logger.log(`Published batch file deletion event for ${files.length} files`);
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error(`Failed to publish batch file deletion event: ${error.message}`);
         }
 
@@ -437,7 +458,7 @@ export class UploadService {
                 try {
                     await this.s3Service.deleteFile(file.s3Key);
                     this.logger.log(`Deleted S3 file: ${file.s3Key}`);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
                 }
             }
@@ -446,7 +467,7 @@ export class UploadService {
                 try {
                     await this.s3Service.deleteFile((file as any).thumbnailPath);
                     this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
             }
@@ -522,7 +543,7 @@ export class UploadService {
                 chunkSize,
                 file: fileRecord,
             };
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error initializing multipart upload', error);
             throw error;
         }
@@ -571,7 +592,7 @@ export class UploadService {
 
             this.logger.log(`Multipart upload completed for file: ${fileId}`);
             return updatedFile;
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error completing multipart upload', error);
             throw error;
         }
@@ -600,10 +621,57 @@ export class UploadService {
 
             this.logger.log(`File record deleted: ${fileId}`);
             return { message: 'Upload aborted successfully' };
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error aborting multipart upload', error);
             throw error;
         }
+    }
+
+    /**
+     * Idempotently re-triggers processing for a file that is in FAILED or stuck state.
+     * Resets status to IN_PROGRESS/EMBEDDING and re-publishes file.upload.completed so
+     * the downstream consumers (scene-detector, file-embedder) pick it up again.
+     * Those consumers are already idempotent (they upsert/delete-then-insert).
+     */
+    async reprocessFile(fileId: string, user: AuthUser, session?: AuthSession) {
+        const fileRecord = await this.prisma.file.findFirst({
+            where: { id: fileId, userId: user.id },
+        });
+        if (!fileRecord) {
+            throw new NotFoundException(`File ${fileId} not found`);
+        }
+        if (fileRecord.uploadStatus !== UploadStatus.COMPLETED) {
+            throw new Error('Cannot reprocess a file that has not finished uploading');
+        }
+
+        await this.prisma.file.update({
+            where: { id: fileId },
+            data: {
+                processingStatus: ProcessingStatus.IN_PROGRESS,
+                processingStage: ProcessingStage.EMBEDDING,
+                errorMessage: null,
+            },
+        });
+
+        await this.rabbitmqService.publishEvent({
+            type: FileEventType.UPLOAD_COMPLETED,
+            fileId,
+            user,
+            session,
+            timestamp: new Date(),
+            data: {
+                fileName: fileRecord.originalFilename,
+                fileSize: fileRecord.fileSize,
+                mimeType: fileRecord.mimeType,
+                fileType: fileRecord.fileType,
+                s3Key: fileRecord.s3Key,
+                s3Url: fileRecord.s3Url,
+                isReprocess: true,
+            },
+        });
+
+        this.logger.log(`Reprocess triggered for file: ${fileId}`);
+        return { message: 'Reprocessing started', fileId };
     }
 
     async submitYouTubeLink(url: string, user: AuthUser, session?: AuthSession) {
