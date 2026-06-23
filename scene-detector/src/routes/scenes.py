@@ -6,29 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from src.services.s3_service import S3Service
 from src.services.prisma_service import PrismaService
+from src.models.events import SceneResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scenes", tags=["scenes"])
-
-
-class SceneResponse(BaseModel):
-    """Scene response model."""
-    id: str
-    fileId: str
-    userId: str
-    sceneNumber: int
-    startTime: float
-    endTime: float
-    startFrame: int
-    endFrame: int
-    keyframe: int
-    duration: float
-    thumbnailS3Key: str
-    thumbnailS3Url: Optional[str] = None
-    metadata: Optional[dict] = None
-    createdAt: str
-    updatedAt: str
 
 
 class ScenesListResponse(BaseModel):
@@ -117,6 +99,7 @@ async def get_scenes(
         logger.info(f"Querying scenes with filters: {where_conditions}")
         
         prisma_service = PrismaService()
+        await prisma_service.ensure_connected()
         scenes = await prisma_service.prisma.scene.find_many(
             where=where_conditions if where_conditions else None,
             order={"sceneNumber": "asc"},
@@ -179,6 +162,7 @@ async def get_scene_by_id(
         
         # Build filters
         prisma_service = PrismaService()
+        await prisma_service.ensure_connected()
         scene = await prisma_service.prisma.scene.find_unique(
             where={"id": scene_id}
         )
@@ -222,6 +206,7 @@ async def delete_user_scenes(user_id: str):
     """Delete all scenes and their S3 thumbnails for a user. Called by auth-service on account deletion."""
     try:
         prisma_service = PrismaService()
+        await prisma_service.ensure_connected()
         scenes = await prisma_service.prisma.scene.find_many(
             where={"userId": user_id},
             include={}

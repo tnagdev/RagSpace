@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import json
 from typing import Optional, Dict, Any
@@ -86,10 +87,15 @@ class RabbitMQProducer(metaclass=SingletonMeta):
                 message_id=data.get('fileId', 'unknown')
             )
             
-            await self.exchange.publish(
-                message,
-                routing_key=event_type
-            )
+            try:
+                await asyncio.wait_for(
+                    self.exchange.publish(message, routing_key=event_type),
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Timed out publishing event {event_type} after 10 seconds"
+                )
             logger.info(f"✓ Published event: {event_type} (file: {data.get('fileId', 'N/A')})")
         except Exception as e:
             logger.error(f"Failed to publish event {event_type}: {e}", exc_info=True)

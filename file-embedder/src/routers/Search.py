@@ -2,8 +2,11 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Request
 from typing import List, Optional
-from pydantic import BaseModel
-from src.models.query import QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails
+from src.models.query import (
+    QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails,
+    VideoContentRequest, VideoContentSegment, VideoContentResponse,
+    RouterFileContentRequest, RouterFileContentResponse,
+)
 from src.db.chroma_db import ChromaDatabaseManager
 from src.services.UploadManagerService import UploadManagerService
 from src.services.SceneDetectionService import SceneDetectionService
@@ -320,43 +323,6 @@ async def advanced_search(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class VideoContentRequest(BaseModel):
-    """Request model for getting full video content."""
-    file_id: str
-    include_metadata: bool = True
-
-
-class VideoContentSegment(BaseModel):
-    """A segment of video content (scene or audio segment)."""
-    type: str  # "visual" or "audio"
-    scene_id: Optional[str] = None
-    scene_index: Optional[int] = None
-    segment_index: Optional[int] = None
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
-    duration: Optional[float] = None
-    text: Optional[str] = None
-    # Metadata fields
-    description: Optional[str] = None
-    objects: Optional[List[str]] = None
-    setting: Optional[str] = None
-    style: Optional[str] = None
-    colors: Optional[List[str]] = None
-    thumbnail_url: Optional[str] = None
-
-
-class VideoContentResponse(BaseModel):
-    """Response model for full video content."""
-    file_id: str
-    file_name: Optional[str] = None
-    file_type: Optional[str] = None
-    total_duration: Optional[float] = None
-    total_scenes: int = 0
-    total_segments: int = 0
-    content: List[VideoContentSegment] = []
-    summary_context: str = ""  # Formatted for LLM consumption
-
-
 @router.post("/content/video")
 async def get_video_content(
     body: VideoContentRequest,
@@ -525,35 +491,9 @@ async def get_video_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class FileContentRequest(BaseModel):
-    """Request model for getting file content (images, audio, or any file type)."""
-    file_id: str
-    include_metadata: bool = True
-
-
-class FileContentResponse(BaseModel):
-    """Response model for file content."""
-    file_id: str
-    file_name: Optional[str] = None
-    file_type: Optional[str] = None
-    mime_type: Optional[str] = None
-    file_url: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    # Metadata fields
-    description: Optional[str] = None
-    objects: Optional[List[str]] = None
-    setting: Optional[str] = None
-    style: Optional[str] = None
-    colors: Optional[List[str]] = None
-    # For audio files
-    transcript: Optional[str] = None
-    # Summary context for LLM
-    summary_context: str = ""
-
-
 @router.post("/content/file")
 async def get_file_content(
-    body: FileContentRequest,
+    body: RouterFileContentRequest,
     request: Request,
 ):
     """
@@ -649,7 +589,7 @@ async def get_file_content(
         
         summary_context = "\n".join(summary_parts)
         
-        return FileContentResponse(
+        return RouterFileContentResponse(
             file_id=body.file_id,
             file_name=file_name,
             file_type=file_type,

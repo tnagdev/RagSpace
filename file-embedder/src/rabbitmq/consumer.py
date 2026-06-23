@@ -2,11 +2,14 @@
 import logging
 import json
 import asyncio
+import random
+import uuid
 from typing import Callable, Dict, Any, Optional, List
 import aio_pika
 from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel, AbstractRobustExchange, AbstractRobustQueue
 from pydantic import ValidationError
 from src.config import settings
+from src.context import correlation_id_var
 from src.models.events import (
     UploadCompletedEventModel,
     ProcessingCompletedEventModel,
@@ -107,24 +110,30 @@ class RabbitMQConsumer:
         logger.info(f"✓ Channel setup complete - Queue: {self.queue_name} (DLX: {dlx_name})")
     
     async def _on_reconnect(self, connection: AbstractRobustConnection) -> None:
-        """Callback when connection is restored - reestablish channel and resume consuming."""
-        try:
-            logger.info("Reconnection detected, reestablishing channel...")
-            await asyncio.sleep(1)
+        """Callback when connection is restored — reestablish channel with exponential backoff."""
+        logger.info("Reconnection detected, reestablishing channel...")
+        if connection.is_closed:
+            logger.warning("Connection still closed after reconnect signal, skipping channel setup.")
+            return
 
-            if connection.is_closed:
-                logger.warning("Connection still closed, waiting...")
+        self.connection = connection
+        delay = 1.0
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self._setup_channel()
+                if self._is_consuming:
+                    await self.queue.consume(self.process_message)
+                    logger.info("✓ Consumer restarted after reconnection")
                 return
-            
-            self.connection = connection
-            await self._setup_channel()
-            
-            if self._is_consuming:
-                await self.queue.consume(self.process_message)
-                logger.info("✓ Consumer restarted after reconnection")
-                
-        except Exception as e:
-            logger.error(f"Reconnection setup failed: {e}", exc_info=True)
+            except Exception as e:
+                if attempt == max_attempts:
+                    logger.error(f"Channel setup failed after {max_attempts} attempts: {e}", exc_info=True)
+                    return
+                jitter = random.uniform(0, 1)
+                logger.warning(f"Channel setup attempt {attempt} failed ({e}), retrying in {delay:.1f}s")
+                await asyncio.sleep(delay + jitter)
+                delay = min(60.0, delay * 2)
     
     def register_handler(self, event_type: str, handler: Optional[Callable] = None) -> Callable:
         """Register a handler for an event type. Can be used as decorator or direct call."""
@@ -152,43 +161,60 @@ class RabbitMQConsumer:
         """Process incoming RabbitMQ message with comprehensive error handling."""
         message_id = message.message_id or "unknown"
         event_type = "unknown"
-        
+
         async with message.process(requeue=False, ignore_processed=True):
             try:
                 if not self.channel or self.channel.is_closed:
                     logger.warning(f"Channel closed, cannot process message {message_id}")
                     raise RuntimeError("Channel is not available")
-                
+
                 try:
                     body = json.loads(message.body.decode())
                     event_type = body.get("type", "unknown")
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON in message {message_id}: {e}")
                     return
-                
-                logger.debug(f"Processing message {message_id}: {event_type}")
-                
-                handler = self.handlers.get(event_type)
-                if not handler:
-                    logger.warning(f"No handler registered for: {event_type}")
-                    return
-                
+
+                correlation_id = body.get("correlationId") or str(uuid.uuid4())
+                token = correlation_id_var.set(correlation_id)
                 try:
-                    event_model = self._parse_event(event_type, body)
-                except ValidationError as e:
-                    logger.error(f"Invalid event data for {event_type}: {e}")
-                    return
-                
-                try:
-                    await asyncio.wait_for(handler(event_model), timeout=settings.message_handler_timeout)
-                    logger.info(f"✓ Processed: {event_type}")
-                    
-                except asyncio.TimeoutError:
-                    logger.error(f"Handler timeout ({settings.message_handler_timeout}s) for {event_type}")
-            
-                except Exception as e:
-                    logger.error(f"Handler error for {event_type}: {e}", exc_info=True)
-                    
+                    logger.debug(
+                        f"Processing message {message_id}: {event_type} "
+                        f"correlation_id={correlation_id}"
+                    )
+
+                    handler = self.handlers.get(event_type)
+                    if not handler:
+                        logger.warning(f"No handler registered for: {event_type}")
+                        return
+
+                    try:
+                        event_model = self._parse_event(event_type, body)
+                    except ValidationError as e:
+                        logger.error(f"Invalid event data for {event_type}: {e}")
+                        return
+
+                    try:
+                        await asyncio.wait_for(
+                            handler(event_model),
+                            timeout=settings.message_handler_timeout,
+                        )
+                        logger.info(f"✓ Processed: {event_type} correlation_id={correlation_id}")
+
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            f"Handler timeout ({settings.message_handler_timeout}s) "
+                            f"for {event_type} correlation_id={correlation_id}"
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Handler error for {event_type} correlation_id={correlation_id}: {e}",
+                            exc_info=True,
+                        )
+                finally:
+                    correlation_id_var.reset(token)
+
             except Exception as e:
                 logger.error(f"Critical error processing {message_id}: {e}", exc_info=True)
 

@@ -14,7 +14,13 @@ import {
     ProcessingStage,
 } from '@prisma/client';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
+import { UpdateFileDto } from './dto/update-file.dto';
 import { AuthUser, AuthSession } from 'src/common/decorators/current-user.decorator';
+import { PaymentClientService, UsageMetricType } from '../../common/payment/payment-client.service';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 @Injectable()
 export class UploadService implements OnApplicationBootstrap {
@@ -24,6 +30,7 @@ export class UploadService implements OnApplicationBootstrap {
         private prisma: PrismaService,
         private s3Service: S3Service,
         private rabbitmqService: RabbitmqService,
+        private paymentClient: PaymentClientService,
     ) { }
 
     async onApplicationBootstrap(): Promise<void> {
@@ -149,7 +156,7 @@ export class UploadService implements OnApplicationBootstrap {
         }
     }
 
-    async updateFile(id: string, data: Partial<any>) {
+    async updateFile(id: string, data: UpdateFileDto) {
         const updateData = { ...data };
         if (data.metadata && data.metadata.thumbnailPath) {
             updateData.thumbnailPath = data.metadata.thumbnailPath;
@@ -215,7 +222,10 @@ export class UploadService implements OnApplicationBootstrap {
     }
 
     async getFileByIds(ids: string[], userId: string, query?: GetFilesQueryDto) {
-        const { uploadStatus, processingStatus } = query || {};
+        const { page = 1, limit: _limit = 20, uploadStatus, processingStatus } = query || {};
+        const limit = parseInt(_limit as any, 10);
+        const skip = (page - 1) * limit;
+
         const where: any = { userId };
         if (uploadStatus) {
             where.uploadStatus = uploadStatus;
@@ -224,10 +234,16 @@ export class UploadService implements OnApplicationBootstrap {
             where.processingStatus = processingStatus;
         }
         where.id = { in: ids };
-        const files = await this.prisma.file.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-        });
+
+        const [files, total] = await Promise.all([
+            this.prisma.file.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            this.prisma.file.count({ where: { id: { in: ids }, userId } }),
+        ]);
 
         const filesWithUrls = files.map(async (file) => {
             try {
@@ -254,9 +270,9 @@ export class UploadService implements OnApplicationBootstrap {
 
         return {
             files: await Promise.all(filesWithUrls),
-            total: files.length,
-            page: 1,
-            limit: files.length,
+            total,
+            page,
+            limit,
         };
     }
 
@@ -321,26 +337,35 @@ export class UploadService implements OnApplicationBootstrap {
     }
 
     async getStorageStats(userId: string) {
-        const result = await this.prisma.file.aggregate({
-            where: {
-                userId,
-                uploadStatus: UploadStatus.COMPLETED
-            },
-            _sum: {
-                fileSize: true,
-            },
-            _count: true,
-        });
+        const FALLBACK_TOTAL_BYTES = 100 * 1024 * 1024 * 1024; // 100GB fallback
+
+        const [result, storageCheck] = await Promise.all([
+            this.prisma.file.aggregate({
+                where: {
+                    userId,
+                    uploadStatus: UploadStatus.COMPLETED,
+                },
+                _sum: {
+                    fileSize: true,
+                },
+                _count: true,
+            }),
+            this.paymentClient.checkUsage(userId, UsageMetricType.STORAGE, 0).catch(() => null),
+        ]);
 
         const usedBytes = result._sum.fileSize || 0;
-        const totalBytes = 100 * 1024 * 1024 * 1024; // 100GB in bytes
         const fileCount = result._count;
+
+        let totalBytes = FALLBACK_TOTAL_BYTES;
+        if (storageCheck && storageCheck.limit !== undefined && storageCheck.limit !== 'unlimited') {
+            totalBytes = storageCheck.limit as number;
+        }
 
         return {
             usedBytes,
             totalBytes,
             usedGB: (usedBytes / (1024 * 1024 * 1024)).toFixed(2),
-            totalGB: 100,
+            totalGB: (totalBytes / (1024 * 1024 * 1024)).toFixed(2),
             usedPercentage: ((usedBytes / totalBytes) * 100).toFixed(1),
             fileCount,
         };
@@ -364,9 +389,9 @@ export class UploadService implements OnApplicationBootstrap {
                     this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
                 }
             }
-            if ((file as any).thumbnailPath) {
+            if (file.thumbnailPath) {
                 try {
-                    await this.s3Service.deleteFile((file as any).thumbnailPath);
+                    await this.s3Service.deleteFile(file.thumbnailPath);
                 } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
@@ -407,10 +432,10 @@ export class UploadService implements OnApplicationBootstrap {
             }
         }
 
-        if ((file as any).thumbnailPath) {
+        if (file.thumbnailPath) {
             try {
-                await this.s3Service.deleteFile((file as any).thumbnailPath);
-                this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
+                await this.s3Service.deleteFile(file.thumbnailPath);
+                this.logger.log(`Deleted S3 thumbnail: ${file.thumbnailPath}`);
             } catch (error: any) {
                 this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
             }
@@ -429,6 +454,14 @@ export class UploadService implements OnApplicationBootstrap {
             where: {
                 id: { in: ids },
                 userId: user.id,
+            },
+            select: {
+                id: true,
+                s3Key: true,
+                thumbnailPath: true,
+                uploadStatus: true,
+                fileType: true,
+                filename: true,
             },
         });
 
@@ -463,10 +496,10 @@ export class UploadService implements OnApplicationBootstrap {
                 }
             }
 
-            if ((file as any).thumbnailPath) {
+            if (file.thumbnailPath) {
                 try {
-                    await this.s3Service.deleteFile((file as any).thumbnailPath);
-                    this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
+                    await this.s3Service.deleteFile(file.thumbnailPath);
+                    this.logger.log(`Deleted S3 thumbnail: ${file.thumbnailPath}`);
                 } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
@@ -563,6 +596,7 @@ export class UploadService implements OnApplicationBootstrap {
                 key,
                 uploadId,
                 parts,
+                totalSize,
             );
             const updatedFile = await this.prisma.file.update({
                 where: { id: fileId },
@@ -691,10 +725,6 @@ export class UploadService implements OnApplicationBootstrap {
             };
 
             try {
-                const { exec } = require('child_process');
-                const { promisify } = require('util');
-                const execAsync = promisify(exec);
-
                 const { stdout } = await execAsync(
                     `yt-dlp --dump-json --no-download "${url}"`,
                     { timeout: 15000 }

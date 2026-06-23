@@ -288,6 +288,7 @@ export class S3Service {
         key: string,
         uploadId: string,
         parts: CompletedPart[],
+        totalSize: number,
     ): Promise<UploadResult> {
         try {
             const completeCommand = new CompleteMultipartUploadCommand({
@@ -308,13 +309,11 @@ export class S3Service {
 
             this.logger.log(`Multipart upload completed: ${key}`);
 
-            const size = parts.length * 5 * 1024 * 1024;
-
             return {
                 key,
                 bucket: this.bucket,
                 url,
-                size,
+                size: totalSize,
             };
         } catch (error) {
             this.logger.error('Error completing multipart upload', error);

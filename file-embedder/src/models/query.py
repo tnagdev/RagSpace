@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 
@@ -84,41 +84,60 @@ class QueryResponse(BaseModel):
     stats: Dict[str, Any] | None = Field(None, description="Retrieval statistics (avg scores, match counts, etc.)")
 
 
-class FileContentRequest(BaseModel):
-    """Request model for getting all content from a file."""
-    file_id: str = Field(..., description="The file ID to get content for")
-    user_id: str | None = Field(None, description="User ID for authorization")
-    include_metadata: bool = Field(True, description="Include file and scene metadata")
-
-
-class SceneContent(BaseModel):
-    """Content from a single scene."""
-    scene_number: int
-    start_time: float
-    end_time: float
-    duration: float
-    transcript: str | None = None
-    description: str | None = None
-    thumbnail_url: str | None = None
-
-
-class FileContentResponse(BaseModel):
-    """Response model for all content from a file."""
+class VideoContentRequest(BaseModel):
+    """Request model for getting full video content."""
     file_id: str
-    file_name: str | None = None
-    file_type: str | None = None
-    duration: float | None = None
-    # All transcripts combined
-    full_transcript: str | None = None
-    # Scene-by-scene content
-    scenes: List[SceneContent] = []
-    # File-level metadata
-    summary: str | None = None
-    description: str | None = None
-    objects: List[str] | None = None
-    setting: str | None = None
-    style: str | None = None
-    colors: List[str] | None = None
-    # Stats
+    include_metadata: bool = True
+
+
+class VideoContentSegment(BaseModel):
+    """A segment of video content (visual scene or audio segment)."""
+    type: str  # "visual" or "audio"
+    scene_id: Optional[str] = None
+    scene_index: Optional[int] = None
+    segment_index: Optional[int] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    duration: Optional[float] = None
+    text: Optional[str] = None
+    description: Optional[str] = None
+    objects: Optional[List[str]] = None
+    setting: Optional[str] = None
+    style: Optional[str] = None
+    colors: Optional[List[str]] = None
+    thumbnail_url: Optional[str] = None
+
+
+class VideoContentResponse(BaseModel):
+    """Response model for full video content."""
+    file_id: str
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    total_duration: Optional[float] = None
     total_scenes: int = 0
     total_segments: int = 0
+    content: List[VideoContentSegment] = []
+    summary_context: str = ""
+
+
+class RouterFileContentRequest(BaseModel):
+    """Request model for getting content of any file type (image, audio, or video)."""
+    file_id: str
+    include_metadata: bool = True
+
+
+class RouterFileContentResponse(BaseModel):
+    """Response model for file content (image, audio, or video)."""
+    file_id: str
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    description: Optional[str] = None
+    objects: Optional[List[str]] = None
+    setting: Optional[str] = None
+    style: Optional[str] = None
+    colors: Optional[List[str]] = None
+    transcript: Optional[str] = None
+    summary_context: str = ""

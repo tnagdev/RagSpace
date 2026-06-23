@@ -113,8 +113,8 @@ class LLMService(metaclass=SingletonMeta):
     async def generate_image_description(
         self,
         image_path: str,
-        max_retries: int = 3,
-        json_retry_count: int = 1
+        max_retries: int = settings.llm_max_retries,
+        json_retry_count: int = settings.llm_json_retry_count,
     ) -> Optional[ImageDescription]:
         """Generate a structured text description for an image using vision LLM.
         

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import Optional, Dict
@@ -88,10 +89,9 @@ class S3Service(metaclass=SingletonMeta):
                     Key=s3_key
                 )
                 
-                async with response['Body'] as stream:
-                    data = await stream.read()
-                    with open(local_path, 'wb') as f:
-                        f.write(data)
+                with open(local_path, 'wb') as f:
+                    async for chunk in response['Body'].iter_chunks(8388608):
+                        f.write(chunk)
             
             file_size = os.path.getsize(local_path)
             logger.info(f"✓ Downloaded {file_size:,} bytes to: {local_path}")
@@ -137,19 +137,22 @@ class S3Service(metaclass=SingletonMeta):
             upload_metadata.setdefault('uploadedby', 'scene-detector-service')
             
             async with self._get_client() as s3_client:
-                await s3_client.put_object(
-                    Bucket=upload_bucket,
-                    Key=s3_key,
-                    Body=file_data,
-                    ContentType=content_type,
-                    Metadata=upload_metadata
+                await asyncio.wait_for(
+                    s3_client.put_object(
+                        Bucket=upload_bucket,
+                        Key=s3_key,
+                        Body=file_data,
+                        ContentType=content_type,
+                        Metadata=upload_metadata
+                    ),
+                    timeout=30.0
                 )
-            
+
             url = self._build_s3_url(upload_bucket, s3_key)
             file_size = len(file_data)
             logger.info(f"✓ Uploaded {file_size:,} bytes: {url}")
             return url
-            
+
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
             logger.error(f"S3 upload failed ({error_code}): {s3_key}")
@@ -258,44 +261,51 @@ class S3Service(metaclass=SingletonMeta):
         s3_keys: list[str],
         bucket: Optional[str] = None
     ) -> int:
-        """Delete multiple files from S3 individually.
-        
+        """Delete multiple files from S3 using the batch delete_objects API.
+
         Args:
             s3_keys: List of S3 object keys to delete
             bucket: Optional bucket name (uses default if not provided)
-            
+
         Returns:
             Number of files successfully deleted
         """
         if not s3_keys:
             return 0
-        
+
         delete_bucket = bucket or self.bucket
         deleted_count = 0
-        
+        chunk_size = 1000
+
         try:
-            logger.info(f"Deleting {len(s3_keys)} files from S3")
-            
+            logger.info(f"Deleting {len(s3_keys)} files from S3 (batch)")
+
             async with self._get_client() as s3_client:
-                for key in s3_keys:
+                for i in range(0, len(s3_keys), chunk_size):
+                    chunk = s3_keys[i:i + chunk_size]
+                    objects = [{"Key": key} for key in chunk]
                     try:
-                        await s3_client.delete_object(
+                        response = await s3_client.delete_objects(
                             Bucket=delete_bucket,
-                            Key=key
+                            Delete={"Objects": objects, "Quiet": False}
                         )
-                        deleted_count += 1
+                        deleted = response.get("Deleted", [])
+                        errors = response.get("Errors", [])
+                        deleted_count += len(deleted)
+                        for err in errors:
+                            logger.warning(
+                                f"Failed to delete {err.get('Key')}: "
+                                f"{err.get('Code')} - {err.get('Message')}"
+                            )
                     except ClientError as e:
                         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-                        if error_code == 'NoSuchKey':
-                            deleted_count += 1  # Consider missing files as successfully deleted
-                        else:
-                            logger.warning(f"Failed to delete {key}: {error_code}")
+                        logger.warning(f"Batch delete error for chunk at index {i}: {error_code}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete {key}: {e}")
-            
+                        logger.warning(f"Batch delete error for chunk at index {i}: {e}")
+
             logger.info(f"✓ Deleted {deleted_count}/{len(s3_keys)} files from S3")
             return deleted_count
-            
+
         except Exception as e:
             logger.error(f"Delete operation error: {e}", exc_info=True)
             return deleted_count

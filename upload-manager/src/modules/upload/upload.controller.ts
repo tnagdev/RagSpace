@@ -190,8 +190,4 @@ export class UploadController {
         return this.uploadService.submitYouTubeLink(dto.url, user, session);
     }
 
-    @Get('health')
-    health() {
-        return { status: 'ok', service: 'upload-manager' };
-    }
 }

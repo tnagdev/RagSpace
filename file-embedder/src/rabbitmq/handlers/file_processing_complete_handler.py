@@ -19,6 +19,23 @@ from src.decorators.cpu_manager import cpu_executor
 logger = logging.getLogger(__name__)
 
 
+def _delete_existing_embeddings(chroma_db, file_id: str) -> None:
+    """Purge all existing embeddings for a file from both collections (idempotency guard)."""
+    for collection_name in [chroma_db.image_index_name, chroma_db.text_index_name]:
+        collection = (
+            chroma_db.image_collection
+            if collection_name == chroma_db.image_index_name
+            else chroma_db.text_collection
+        )
+        existing = collection.get(where={"file_id": file_id}, include=[])
+        if existing and existing.get("ids"):
+            collection.delete(ids=existing["ids"])
+            logger.info(
+                f"Deleted {len(existing['ids'])} existing embeddings "
+                f"from {collection_name} for reprocess of {file_id}"
+            )
+
+
 async def _publish_indexing_progress(file_id: str, user_id: str, done: int, total: int) -> None:
     pct = round((done / total) * 100) if total else 100
     try:
@@ -67,22 +84,8 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
             )
             return
 
-        # ── Idempotency: delete any existing embeddings for this file so a
-        # reprocess never leaves stale vectors in ChromaDB.
         try:
-            for collection_name in [chroma_db.image_index_name, chroma_db.text_index_name]:
-                collection = (
-                    chroma_db.image_collection
-                    if collection_name == chroma_db.image_index_name
-                    else chroma_db.text_collection
-                )
-                existing = collection.get(where={"file_id": file_id}, include=[])
-                if existing and existing.get("ids"):
-                    collection.delete(ids=existing["ids"])
-                    logger.info(
-                        f"Deleted {len(existing['ids'])} existing embeddings "
-                        f"from {collection_name} for reprocess of {file_id}"
-                    )
+            _delete_existing_embeddings(chroma_db, file_id)
         except Exception as del_err:
             logger.warning(f"Could not purge existing embeddings for {file_id}: {del_err}")
 
@@ -242,25 +245,9 @@ async def handle_processing_completed(event_data: ProcessingCompletedEventModel)
         file_id = event_data.fileId
         scene_count = len(event_data.data.scenes) if event_data.data and event_data.data.scenes else 0
         logger.info(f"Processing {scene_count} scenes for {file_id}")
-        
-        await _process_scenes_in_background(event_data)
-        
-        logger.info(f"✓ Completed scene processing for {file_id}")
-    except Exception as e:
-        logger.error(f"Error processing scenes for {event_data.fileId}: {e}", exc_info=True)
-        raise
 
-
-@rabbitmq_consumer.register_handler(FileEventType.PROCESSING_COMPLETED)
-async def handle_processing_completed(event_data: ProcessingCompletedEventModel):
-    """Handle processing completion event and process scenes."""
-    try:
-        file_id = event_data.fileId
-        scene_count = len(event_data.data.scenes) if event_data.data and event_data.data.scenes else 0
-        logger.info(f"Processing {scene_count} scenes for {file_id}")
-        
         await _process_scenes_in_background(event_data)
-        
+
         logger.info(f"✓ Completed scene processing for {file_id}")
     except Exception as e:
         logger.error(f"Error processing scenes for {event_data.fileId}: {e}", exc_info=True)

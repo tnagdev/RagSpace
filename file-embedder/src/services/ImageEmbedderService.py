@@ -1,5 +1,6 @@
 """Video embedding utilities using OpenAI CLIP."""
 from pydantic import validate_call, ValidationError
+from typing import Union
 import torch
 import open_clip
 import numpy as np
@@ -58,25 +59,25 @@ class ImageEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
         llm_service = LLMService()
         return await llm_service.generate_image_description(image_path)
     
-    def embed_image(self, image_path: str) -> np.ndarray | None:
-        """
-        Generate embedding for an image using CLIP.
-        """
+    def embed_image(self, image: Union[str, Image.Image]) -> np.ndarray | None:
+        """Generate CLIP embedding for an image file path or a PIL Image."""
         try:
-            image = Image.open(image_path).convert('RGB')
-            image_tensor = self.preprocess(image).unsqueeze(0).to(self.device) # type: ignore
+            if isinstance(image, str):
+                image = Image.open(image).convert('RGB')
+            elif not isinstance(image, Image.Image):
+                raise TypeError(f"Expected str or PIL.Image, got {type(image)}")
+            image_tensor = self.preprocess(image).unsqueeze(0).to(self.device)  # type: ignore
 
             with torch.no_grad():
-                image_features = self.model.encode_image(image_tensor) # type: ignore
+                image_features = self.model.encode_image(image_tensor)  # type: ignore
                 image_features = image_features.cpu().numpy()[0]
-                
-            image_features = image_features / np.linalg.norm(image_features)
-            return image_features
+
+            return image_features / np.linalg.norm(image_features)
         except ValidationError as e:
             logger.error(f"Validation error during image embedding: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error embedding image {image_path}: {e}")
+            logger.error(f"Error embedding image: {e}")
             return None
 
     @validate_call

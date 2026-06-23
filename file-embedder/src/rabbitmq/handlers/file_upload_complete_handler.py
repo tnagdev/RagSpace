@@ -22,6 +22,39 @@ from src.decorators.cpu_manager import cpu_executor
 logger = logging.getLogger(__name__)
 
 
+async def _embed_audio_segments(
+    segments: list,
+    file_id: str,
+    user_id: str,
+    original_name: str,
+    file_type,
+    loop,
+    audio_embedder,
+) -> list:
+    """Embed Whisper transcription segments and return ChromaDB-ready items."""
+    items = []
+    batch_size = settings.audio_segment_batch_size
+    for batch_start in range(0, len(segments), batch_size):
+        batch_end = min(batch_start + batch_size, len(segments))
+        batch_segments = segments[batch_start:batch_end]
+        for i, segment in enumerate(batch_segments, start=batch_start):
+            text = segment["text"]
+            embedding = await loop.run_in_executor(cpu_executor, audio_embedder.embed_text, text)
+            items.append({
+                "chunk_id": f"{file_id}#audio#{i}",
+                "segment_index": i,
+                "file_id": file_id,
+                "user_id": user_id,
+                "file_type": file_type,
+                "file_name": original_name,
+                "vector": embedding,
+                "start_time": segment["start"],
+                "end_time": segment["end"],
+                "text": text,
+            })
+    return items
+
+
 async def _process_file_in_background(event: UploadCompletedEventModel):
     """Process file with CPU-intensive operations using singleton models."""
     try:
@@ -196,33 +229,14 @@ async def process_audio(event: UploadCompletedEventModel):
 
         loop = asyncio.get_running_loop()
         transcription = await loop.run_in_executor(cpu_executor, audio_embedder.transcribe_audio, audio_path)
-        
+
         segments = transcription["segments"]
         logger.info(f"Generating audio embeddings for {len(segments)} segments...")
-        
-        audio_items = []
-        SEGMENT_BATCH_SIZE = 5
-        
-        for batch_start in range(0, len(segments), SEGMENT_BATCH_SIZE):
-            batch_end = min(batch_start + SEGMENT_BATCH_SIZE, len(segments))
-            batch_segments = segments[batch_start:batch_end]
-            
-            for i, segment in enumerate(batch_segments, start=batch_start):
-                text = segment["text"]
-                embedding = await loop.run_in_executor(cpu_executor, audio_embedder.embed_text, text)
-                audio_items.append({
-                    "chunk_id": f"{file_id}#audio#{i}",
-                    "segment_index": i,
-                    "file_id": file_id,
-                    "user_id": user_id,
-                    "file_type": FileType.AUDIO,
-                    "file_name": original_name,
-                    "vector": embedding,
-                    "start_time": segment["start"],
-                    "end_time": segment["end"],
-                    "text": text
-                })
-            
+
+        audio_items = await _embed_audio_segments(
+            segments, file_id, user_id, original_name, FileType.AUDIO, loop, audio_embedder
+        )
+
         if audio_items:
             chroma_db.upsert_items(chroma_db.text_index_name, audio_items)
             logger.info(f"Successfully embedded audio for file: {file_id}, {len(audio_items)} segments")
@@ -286,33 +300,14 @@ async def process_video(event: UploadCompletedEventModel):
 
         await loop.run_in_executor(cpu_executor, extract_audio, video_path, audio_path)
         transcription = await loop.run_in_executor(cpu_executor, audio_embedder.transcribe_audio, audio_path)
-        
+
         segments = transcription["segments"]
         logger.info(f"Generating audio embeddings for {len(segments)} segments...")
-        
-        audio_items = []
-        SEGMENT_BATCH_SIZE = 5
-        
-        for batch_start in range(0, len(segments), SEGMENT_BATCH_SIZE):
-            batch_end = min(batch_start + SEGMENT_BATCH_SIZE, len(segments))
-            batch_segments = segments[batch_start:batch_end]
-            
-            for i, segment in enumerate(batch_segments, start=batch_start):
-                text = segment["text"]
-                embedding = await loop.run_in_executor(cpu_executor, audio_embedder.embed_text, text)
-                audio_items.append({
-                    "chunk_id": f"{file_id}#audio#{i}",
-                    "segment_index": i,
-                    "file_id": file_id,
-                    "user_id": user_id,
-                    "file_type": FileType.VIDEO,
-                    "file_name": original_name,
-                    "vector": embedding,
-                    "start_time": segment["start"],
-                    "end_time": segment["end"],
-                    "text": text
-                })
-            
+
+        audio_items = await _embed_audio_segments(
+            segments, file_id, user_id, original_name, FileType.VIDEO, loop, audio_embedder
+        )
+
         if audio_items:
             chroma_db.upsert_items(chroma_db.text_index_name, audio_items)
             logger.info(f"Successfully embedded audio for file: {file_id}, {len(audio_items)} segments")

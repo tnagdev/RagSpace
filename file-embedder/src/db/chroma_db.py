@@ -88,7 +88,7 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             metadatas.append(metadata)
             documents.append(item.get("text", ""))
         
-        BATCH_SIZE = 100
+        BATCH_SIZE = settings.chroma_upsert_batch_size
         for i in range(0, len(ids), BATCH_SIZE):
             collection.upsert(
                 ids=ids[i:i + BATCH_SIZE],
@@ -324,11 +324,6 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         
         logger.info(f"Batch deleted {total_text_deleted + total_image_deleted} total embeddings for {len(file_ids)} files")
     
-    def delete_by_video_id(self, video_id: str) -> None:
-        """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""
-        logger.warning("delete_by_video_id is deprecated, use delete_by_file_id instead")
-        self.delete_by_file_id(video_id)
-
     def delete_by_user_id(self, user_id: str) -> int:
         """Delete all embeddings for a user across all collections."""
         total_deleted = 0

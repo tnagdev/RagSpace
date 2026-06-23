@@ -23,7 +23,6 @@ class UploadManagerClient:
     def __init__(self, user, session):
         self.base_url = settings.upload_manager_url
         self.client = HttpClient(user, session)
-        self.timeout = 30.0
 
     async def update_file_status(
         self,

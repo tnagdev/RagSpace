@@ -93,7 +93,9 @@ class S3ClientService(metaclass=SingletonMeta):
                         return local_path
             
             # Stream HTTP download — never loads entire response into memory
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.s3_download_timeout_seconds, connect=10.0)
+            ) as client:
                 async with client.stream('GET', url, follow_redirects=True) as response:
                     response.raise_for_status()
                     total_bytes = 0

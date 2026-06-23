@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 class SceneDetectionService:
     def __init__(self, user, session):
         self.client = HttpClient(user, session)
-        self.upload_manager_url = settings.upload_manager_url
 
     @validate_call
     async def get_scenes(

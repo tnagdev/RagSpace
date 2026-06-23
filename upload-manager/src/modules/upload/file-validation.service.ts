@@ -4,6 +4,9 @@ import { FileType } from '@prisma/client';
 import * as ffprobe from 'ffprobe';
 import * as ffprobeStatic from 'ffprobe-static';
 import sharp from 'sharp';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { promises as fs } from 'fs';
 
 export interface FileValidationResult {
     isValid: boolean;
@@ -17,48 +20,11 @@ export interface FileValidationResult {
     message?: string;
 }
 
-export interface PlanLimits {
-    maxVideoLength?: number; // in seconds, 0 = unlimited
-    maxStorage?: number; // in bytes, 0 = unlimited
-    maxAudioDuration?: number; // in seconds
-}
-
 @Injectable()
 export class FileValidationService {
     private readonly logger = new Logger(FileValidationService.name);
 
-    // Default limits if payment service is unavailable
-    private readonly DEFAULT_LIMITS: PlanLimits = {
-        maxVideoLength: 600, // 10 minutes
-        maxStorage: 1 * 1024 * 1024 * 1024, // 1GB
-        maxAudioDuration: 3600, // 1 hour
-    };
-
     constructor(private paymentClient: PaymentClientService) { }
-
-    /**
-     * Get user's plan limits or use defaults as fallback
-     */
-    private async getUserLimits(userId: string): Promise<PlanLimits> {
-        try {
-            const limits = await this.paymentClient.getUserPlanLimits(userId);
-            if (!limits) {
-                this.logger.warn(`Could not fetch plan limits for user ${userId}, using defaults`);
-                return this.DEFAULT_LIMITS;
-            }
-
-            // Map payment service limits to our PlanLimits structure
-            // Use 0 to represent unlimited, otherwise use the limit or default
-            return {
-                maxVideoLength: limits['MAX_VIDEO_LENGTH'] ?? this.DEFAULT_LIMITS.maxVideoLength,
-                maxStorage: limits['STORAGE'] ?? this.DEFAULT_LIMITS.maxStorage,
-                maxAudioDuration: limits['MAX_AUDIO_DURATION'] ?? this.DEFAULT_LIMITS.maxAudioDuration,
-            };
-        } catch (error) {
-            this.logger.error(`Error fetching user limits: ${error.message}`);
-            return this.DEFAULT_LIMITS;
-        }
-    }
 
     /**
      * Validate file against user's plan limits
@@ -112,6 +78,27 @@ export class FileValidationService {
     }
 
     /**
+     * Write file buffer to a temp path, run ffprobe, then clean up.
+     */
+    private async probeMediaFile(
+        file: Express.Multer.File | { buffer?: Buffer; path?: string; mimetype: string; size: number },
+    ): Promise<ffprobe.FfprobeData> {
+        if (file.buffer) {
+            const tempPath = join(tmpdir(), `${Date.now()}-${Math.random()}.tmp`);
+            await fs.writeFile(tempPath, file.buffer);
+            try {
+                return await ffprobe(tempPath, { path: ffprobeStatic.path });
+            } finally {
+                await fs.unlink(tempPath).catch(() => { });
+            }
+        } else if ((file as any).path) {
+            return ffprobe((file as any).path, { path: ffprobeStatic.path });
+        } else {
+            throw new Error('File must have either buffer or path');
+        }
+    }
+
+    /**
      * Validate video file duration
      */
     private async validateVideo(
@@ -119,27 +106,9 @@ export class FileValidationService {
         userId: string,
     ): Promise<FileValidationResult> {
         try {
-            let duration: number;
-
             // Get video metadata using ffprobe
-            if (file.buffer) {
-                // For in-memory files, we need to write to a temp file
-                const tempPath = `/tmp/${Date.now()}-${Math.random()}.tmp`;
-                const fs = require('fs').promises;
-                await fs.writeFile(tempPath, file.buffer);
-
-                try {
-                    const metadata = await ffprobe(tempPath, { path: ffprobeStatic.path });
-                    duration = metadata.streams[0]?.duration || 0;
-                } finally {
-                    await fs.unlink(tempPath).catch(() => { });
-                }
-            } else if ((file as any).path) {
-                const metadata = await ffprobe((file as any).path, { path: ffprobeStatic.path });
-                duration = metadata.streams[0]?.duration || 0;
-            } else {
-                throw new Error('File must have either buffer or path');
-            }
+            const probeData = await this.probeMediaFile(file);
+            const duration = probeData.streams[0]?.duration || 0;
 
             // Check against MAX_VIDEO_LENGTH from payment service
             const videoLengthCheck = await this.paymentClient.checkUsage(
@@ -230,39 +199,26 @@ export class FileValidationService {
         userId: string,
     ): Promise<FileValidationResult> {
         try {
-            let duration: number;
-
             // Get audio metadata using ffprobe
-            if (file.buffer) {
-                const tempPath = `/tmp/${Date.now()}-${Math.random()}.tmp`;
-                const fs = require('fs').promises;
-                await fs.writeFile(tempPath, file.buffer);
+            const probeData = await this.probeMediaFile(file);
+            const duration = probeData.streams[0]?.duration || 0;
 
-                try {
-                    const metadata = await ffprobe(tempPath, { path: ffprobeStatic.path });
-                    duration = metadata.streams[0]?.duration || 0;
-                } finally {
-                    await fs.unlink(tempPath).catch(() => { });
-                }
-            } else if ((file as any).path) {
-                const metadata = await ffprobe((file as any).path, { path: ffprobeStatic.path });
-                duration = metadata.streams[0]?.duration || 0;
-            } else {
-                throw new Error('File must have either buffer or path');
-            }
+            // Check against MAX_AUDIO_DURATION from payment service
+            const audioDurationCheck = await this.paymentClient.checkUsage(
+                userId,
+                UsageMetricType.MAX_AUDIO_DURATION,
+                Math.ceil(duration),
+            );
 
-            // Get user's plan limits
-            const userLimits = await this.getUserLimits(userId);
-            const maxAudioDuration = userLimits.maxAudioDuration!;
-
-            // Skip validation if limit is 0 (unlimited)
-            if (maxAudioDuration > 0 && duration > maxAudioDuration) {
-                const maxMinutes = Math.floor(maxAudioDuration / 60);
+            if (!audioDurationCheck.allowed) {
+                const maxMinutes = audioDurationCheck.limit === 'unlimited'
+                    ? 'unlimited'
+                    : `${Math.floor((audioDurationCheck.limit as number) / 60)} minutes`;
                 const currentMinutes = Math.floor(duration / 60);
                 const currentSeconds = Math.floor(duration % 60);
 
                 throw new ForbiddenException(
-                    `Audio duration exceeds plan limit. Maximum allowed: ${maxMinutes} minutes. This audio is ${currentMinutes}m ${currentSeconds}s.`,
+                    `Audio duration exceeds plan limit. Your plan allows audio up to ${maxMinutes}. This audio is ${currentMinutes}m ${currentSeconds}s.`,
                 );
             }
 

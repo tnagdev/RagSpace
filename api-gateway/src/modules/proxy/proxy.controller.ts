@@ -77,7 +77,7 @@ export class ProxyController {
             filesObj,
         );
 
-        if (result.headers['content-type']?.includes('text/event-stream')) {
+        if (result.isStream) {
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
@@ -93,7 +93,7 @@ export class ProxyController {
         res.status(result.status);
         res.setHeader('x-correlation-id', correlationId);
         for (const [key, value] of Object.entries(result.headers || {})) {
-            console.log(`Response header → ${key}: ${value}`);
+            this.logger.debug(`Response header → ${key}: ${value}`);
             if (value === undefined || value === null) continue;
             if (key.toLowerCase() === 'set-cookie') {
                 res.setHeader('set-cookie', Array.isArray(value) ? value : [value]);

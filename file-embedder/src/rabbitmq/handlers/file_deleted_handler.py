@@ -45,9 +45,9 @@ async def handle_file_deleted(event: FileDeletedEventModel) -> None:
         
         try:
             import json
-            user_dict = event.user if isinstance(event.user, dict) else event.user.dict()
+            user_dict = event.user if isinstance(event.user, dict) else event.user.model_dump()
             url = f"{settings.chat_manager_url}/conversations/batch/files/delete"
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=settings.chat_manager_timeout_seconds) as client:
                 response = await client.post(
                     url,
                     headers={

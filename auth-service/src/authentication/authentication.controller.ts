@@ -1,8 +1,14 @@
-import { Controller, Get, Logger, Req, Res, Post, Body, Patch, Delete } from '@nestjs/common';
+import { Controller, Get, Logger, Req, Res, Post, Body, Delete, Query } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { auth } from '../../auth';
 import { AuthenticationService } from './authentication.service';
-import { SignInDto, SignUpDto, ChangePasswordDto } from './dto';
+import {
+    SignInDto,
+    SignUpDto,
+    ChangePasswordDto,
+    ForgotPasswordDto,
+    GoogleLoginQueryDto,
+} from './dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { PaymentService } from 'src/common/services/payment.service';
@@ -22,19 +28,9 @@ export class AuthenticationController {
     async signIn(@Body() body: SignInDto, @Req() req: Request, @Res() res: Response) {
         try {
             const { email, password } = body;
-            const isEmail = email.includes('@');
-            if (!isEmail) {
-                const user = await this.authService.findUserByEmail(email);
-                if (!user) {
-                    return res.status(401).json({ error: 'Invalid credentials' });
-                }
-            }
 
             const result = await auth.api.signInEmail({
-                body: {
-                    email: email,
-                    password: password,
-                },
+                body: { email, password },
                 asResponse: true,
             });
 
@@ -52,7 +48,6 @@ export class AuthenticationController {
     @Public()
     @Post('/signup')
     async signUp(@Body() body: SignUpDto, @Req() req: Request, @Res() res: Response) {
-
         try {
             const { email, password, firstName, lastName } = body;
             const existingUser = await this.authService.findUserByEmail(email);
@@ -87,9 +82,9 @@ export class AuthenticationController {
 
     @Public()
     @Get('/google/login')
-    async googleLogin(@Req() req: Request, @Res() res: Response) {
+    async googleLogin(@Query() query: GoogleLoginQueryDto, @Res() res: Response) {
         try {
-            const callbackURL = (req.query.callbackURL as string) ||
+            const callbackURL = query.callbackURL ||
                 `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`;
 
             const result = await auth.api.signInSocial({
@@ -207,7 +202,7 @@ export class AuthenticationController {
     }
 
     @Get('/me')
-    async getProfile(@CurrentUser() user: any, @Res() res: Response) {
+    async getProfile(@CurrentUser() user: AuthUser | null, @Res() res: Response) {
         if (!user) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
@@ -233,7 +228,6 @@ export class AuthenticationController {
         }
     }
 
-
     @Public()
     @Get('/health')
     getHealth(@Res() res: Response) {
@@ -247,7 +241,7 @@ export class AuthenticationController {
 
     @Post('/change-password')
     async changePassword(
-        @CurrentUser() user: any,
+        @CurrentUser() user: AuthUser | null,
         @Body() body: ChangePasswordDto,
         @Req() req: Request,
         @Res() res: Response,
@@ -280,12 +274,9 @@ export class AuthenticationController {
 
     @Public()
     @Post('/forgot-password')
-    async forgotPassword(@Body() body: { email: string }, @Req() req: Request, @Res() res: Response) {
+    async forgotPassword(@Body() body: ForgotPasswordDto, @Req() req: Request, @Res() res: Response) {
         try {
             const { email } = body;
-            if (!email) {
-                return res.status(400).json({ error: 'Email is required' });
-            }
 
             const user = await this.authService.findUserByEmail(email);
             if (!user) {
@@ -306,7 +297,7 @@ export class AuthenticationController {
 
     @Delete('/account')
     async deleteAccount(
-        @CurrentUser() user: any,
+        @CurrentUser() user: AuthUser | null,
         @Req() req: Request,
         @Res() res: Response,
     ) {

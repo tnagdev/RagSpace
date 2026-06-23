@@ -1,5 +1,5 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from src.models.enums import EventType
 
@@ -48,10 +48,11 @@ class Settings(BaseSettings):
     # Dynamic: max(2, min(cpu_count // 2, 6)) - defaults to 2 if env override not set
     max_concurrent_jobs: int = max(2, min((os.cpu_count() or 4) // 2, 6))
     
-    class Config:
-        env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"
-        case_sensitive = False
-        env_file_encoding = 'utf-8'
+    model_config = SettingsConfigDict(
+        env_file=".env.development" if os.getenv("MODE") == "development" else ".env",
+        case_sensitive=False,
+        env_file_encoding='utf-8',
+    )
 
 
 settings = Settings()

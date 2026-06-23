@@ -36,7 +36,7 @@ export class PaymentClientService {
         private httpService: HttpService,
         private configService: ConfigService,
     ) {
-        this.baseUrl = this.configService.get('PAYMENT_SERVICE_URL', 'http://localhost:3006');
+        this.baseUrl = this.configService.get<string>('paymentServiceUrl') ?? 'http://localhost:8006';
         this.serviceName = this.configService.get('SERVICE_NAME', 'upload-manager');
     }
 

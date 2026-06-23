@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     message_handler_timeout: int = 600
     mode: str = "production"
     
+    # Batch / timeout tunables
+    audio_segment_batch_size: int = 5
+    chroma_upsert_batch_size: int = 100
+    chroma_timeout_seconds: int = 30
+    s3_download_timeout_seconds: float = 300.0
+    chat_manager_timeout_seconds: float = 30.0
+    llm_max_retries: int = 3
+    llm_json_retry_count: int = 1
+
     # YouTube Downloader Configuration
     youtube_cookies_file: Optional[str] = None  # Path to Netscape-format cookies file
 

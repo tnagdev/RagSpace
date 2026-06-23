@@ -1,8 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Any, Dict, Optional, List
 from datetime import datetime
-from pydantic import BaseModel
-from typing import Optional, List
 from .enums import EventType, FileType
 
 
@@ -29,19 +27,21 @@ class SceneResponse(BaseModel):
     """Scene response model"""
     id: str
     fileId: str
+    userId: str
     sceneNumber: int
     startTime: float
     endTime: float
     startFrame: int
     endFrame: int
+    keyframe: int
     duration: float
     thumbnailS3Key: str
     thumbnailS3Url: Optional[str] = None
-    createdAt: datetime
-    updatedAt: datetime
-    
-    class Config:
-        from_attributes = True
+    metadata: Optional[dict] = None
+    createdAt: str
+    updatedAt: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProcessingCompleteEvent(BaseModel):
