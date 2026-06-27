@@ -24,6 +24,7 @@ class EventType(str, Enum):
     PROCESSING_STARTED = "file.processing.started"
     PROCESSING_PROGRESS = "file.processing.progress"
     PROCESSING_COMPLETED = "file.processing.completed"
+    PROCESSING_RETRYING = "file.processing.retrying"
     PROCESSING_FAILED = "file.processing.failed"
     
     # Scene detection events
@@ -31,6 +32,9 @@ class EventType(str, Enum):
     SCENE_DETECTION_COMPLETED = "file.scene.detection.completed"
     SCENE_DETECTION_FAILED = "file.scene.detection.failed"
     
+    # Indexing completion — distinct from PROCESSING_COMPLETED to avoid re-triggering embedder
+    INDEXING_COMPLETED = "file.indexing.completed"
+
     # File management events
     FILE_DELETED = "file.deleted"
 

@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { Server, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
 import { WsService } from './ws.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { ProcessingStage, UploadStatus } from '@prisma/client';
 
 const PING_INTERVAL_MS = 30_000;
 
@@ -21,6 +23,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     constructor(
         private readonly wsService: WsService,
         private readonly configService: ConfigService,
+        private readonly prisma: PrismaService,
     ) { }
 
     async handleConnection(client: WebSocket, req: IncomingMessage): Promise<void> {
@@ -62,6 +65,82 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
 
         this.heartbeatTimers.set(client, timer);
         this.logger.debug(`WS connected: user ${userId}`);
+
+        // Send the current processing state snapshot to the newly connected client
+        // and mark any stuck UPLOAD-stage files as FAILED (browser upload was interrupted)
+        this.sendSnapshotToClient(client, userId).catch((err) => {
+            this.logger.warn(`Failed to send WS snapshot to user ${userId}: ${err.message}`);
+        });
+    }
+
+    private async sendSnapshotToClient(client: WebSocket, userId: string): Promise<void> {
+        // Files still in UPLOAD stage when the browser reconnects via WS means the XHR
+        // was interrupted — mark them FAILED immediately.
+        const inProgressStages: ProcessingStage[] = [
+            ProcessingStage.EMBEDDING,
+            ProcessingStage.SCENE_DETECTION,
+            ProcessingStage.INDEXING,
+        ];
+
+        // Only consider a file "stuck" if it has been in UPLOAD stage for more
+        // than 5 minutes.  Files created within the last 5 minutes are actively
+        // being uploaded by the browser — marking them FAILED here would race
+        // with the in-flight XHR and wrongly fail legitimate uploads.
+        const staleThreshold = new Date(Date.now() - 5 * 60 * 1_000);
+        const stuckUploads = await this.prisma.file.findMany({
+            where: {
+                userId,
+                processingStage: ProcessingStage.UPLOAD,
+                uploadStatus: { not: UploadStatus.FAILED },
+                createdAt: { lt: staleThreshold },
+            },
+            select: { id: true, processingStage: true, uploadStatus: true },
+        });
+
+        if (stuckUploads.length > 0) {
+            await this.prisma.file.updateMany({
+                where: { id: { in: stuckUploads.map(f => f.id) }, userId },
+                data: { uploadStatus: UploadStatus.FAILED },
+            });
+            this.logger.debug(
+                `Marked ${stuckUploads.length} stuck UPLOAD file(s) as FAILED for user ${userId}`,
+            );
+        }
+
+        // Build snapshot: all actively processing files + the ones we just failed
+        const activeFiles = await this.prisma.file.findMany({
+            where: {
+                userId,
+                processingStage: { in: inProgressStages },
+                uploadStatus: UploadStatus.COMPLETED,
+            },
+            select: {
+                id: true, processingStage: true, processingStatus: true,
+                uploadStatus: true, originalFilename: true,
+            },
+        });
+
+        const snapshotFiles = [
+            ...stuckUploads.map(f => ({
+                id: f.id,
+                processingStage: f.processingStage as string,
+                uploadStatus: UploadStatus.FAILED as string,
+            })),
+            ...activeFiles.map(f => ({
+                id: f.id,
+                processingStage: f.processingStage as string,
+                uploadStatus: f.uploadStatus as string,
+                processingStatus: f.processingStatus as string,
+                originalFilename: f.originalFilename,
+            })),
+        ];
+
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+                type: 'file.processing.snapshot',
+                files: snapshotFiles,
+            }));
+        }
     }
 
     handleDisconnect(client: WebSocket): void {

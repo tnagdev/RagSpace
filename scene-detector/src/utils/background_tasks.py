@@ -10,45 +10,68 @@ logger = logging.getLogger(__name__)
 
 class BackgroundTaskManager:
     """Manages background tasks to prevent blocking and ensure proper cleanup."""
-    
+
     def __init__(self, max_concurrent: int = 5):
         """Initialize task manager.
-        
+
         Args:
             max_concurrent: Maximum number of concurrent background tasks
         """
         self._tasks: Set[asyncio.Task] = set()
+        self._file_tasks: dict[str, set[asyncio.Task]] = {}
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._max_concurrent = max_concurrent
-    
+
     def create_task(
-        self, 
-        coro: Coroutine[Any, Any, Any], 
+        self,
+        coro: Coroutine[Any, Any, Any],
         name: str = None,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        file_id: str | None = None,
     ) -> asyncio.Task:
         """Create a background task with optional timeout and concurrency limit.
-        
+
         Args:
             coro: Coroutine to run in background
             name: Optional name for the task (for logging)
             timeout: Optional timeout in seconds (default: no timeout)
-        
+            file_id: Optional file ID to associate with this task for cancellation
+
         Returns:
             The created asyncio Task
         """
         # Wrap with timeout and concurrency limit
-        # Important: Don't await here - just wrap and create task
         wrapped_coro = self._wrap_task(coro, name, timeout)
         task = asyncio.create_task(wrapped_coro, name=name)
         self._tasks.add(task)
         task.add_done_callback(self._task_done_callback)
-        
+        if file_id:
+            self._file_tasks.setdefault(file_id, set()).add(task)
+            task.add_done_callback(
+                lambda t: self._file_tasks.get(file_id, set()).discard(t)
+            )
+
         logger.info(
             f"Created background task: {name or task.get_name()} "
             f"(active: {len(self._tasks)}/{self._max_concurrent})"
         )
         return task
+
+    def cancel_file_tasks(self, file_id: str) -> int:
+        """Cancel all background tasks for a specific file.
+
+        Returns:
+            Number of tasks that were cancelled
+        """
+        tasks = self._file_tasks.pop(file_id, set())
+        cancelled = 0
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                cancelled += 1
+        if cancelled:
+            logger.info(f"Cancelled {cancelled} background task(s) for file {file_id}")
+        return cancelled
     
     async def _wrap_task(
         self,

@@ -2,6 +2,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    ForbiddenException,
     OnApplicationBootstrap,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,10 +18,10 @@ import { GetFilesQueryDto } from './dto/get-files-query.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
 import { AuthUser, AuthSession } from 'src/common/decorators/current-user.decorator';
 import { PaymentClientService, UsageMetricType } from '../../common/payment/payment-client.service';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 @Injectable()
 export class UploadService implements OnApplicationBootstrap {
@@ -86,6 +87,7 @@ export class UploadService implements OnApplicationBootstrap {
             });
 
             try {
+                let lastPublishedProgress = -1;
                 const uploadResult = await this.s3Service.uploadFile(
                     file,
                     user.id,
@@ -93,6 +95,22 @@ export class UploadService implements OnApplicationBootstrap {
                         this.logger.debug(
                             `Upload progress for ${fileRecord.id}: ${progress}%`,
                         );
+                        // Throttle: only publish when progress increases by ≥5% from last published value
+                        if (progress - lastPublishedProgress >= 5) {
+                            lastPublishedProgress = progress;
+                            this.rabbitmqService.publishEvent({
+                                type: FileEventType.UPLOAD_PROGRESS,
+                                fileId: fileRecord.id,
+                                user,
+                                session,
+                                timestamp: new Date(),
+                                data: { stage: 'UPLOAD', progress },
+                            }).catch((err) => {
+                                this.logger.debug(
+                                    `Progress publish failed (non-fatal) for ${fileRecord.id}: ${err.message}`,
+                                );
+                            });
+                        }
                     },
                 );
 
@@ -725,14 +743,14 @@ export class UploadService implements OnApplicationBootstrap {
             };
 
             try {
-                const { stdout } = await execAsync(
-                    `yt-dlp --dump-json --no-download "${url}"`,
-                    { timeout: 15000 }
+                const { stdout } = await execFileAsync(
+                    'yt-dlp',
+                    ['--dump-json', '--no-download', url],
+                    { timeout: 15000 },
                 );
 
                 const videoInfo = JSON.parse(stdout);
                 const title = videoInfo.title || `YouTube Video ${videoId}`;
-                const filename = `${title.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}_${videoId}.mp4`;
 
                 metadata = {
                     ...metadata,
@@ -746,8 +764,28 @@ export class UploadService implements OnApplicationBootstrap {
                     thumbnail: videoInfo.thumbnail,
                 };
 
+                // Enforce per-plan video duration limit (same check as regular video uploads)
+                const videoDuration: number = videoInfo.duration ?? 0;
+                if (videoDuration > 0) {
+                    const usageCheck = await this.paymentClient.checkUsage(
+                        user.id,
+                        UsageMetricType.MAX_VIDEO_LENGTH,
+                        videoDuration,
+                    );
+                    if (!usageCheck.allowed) {
+                        const limitSecs = typeof usageCheck.limit === 'number' ? usageCheck.limit : 0;
+                        const maxMins = limitSecs > 0 ? Math.floor(limitSecs / 60) : 0;
+                        throw new ForbiddenException(
+                            maxMins > 0
+                                ? `Video duration exceeds your plan limit of ${maxMins} minutes.`
+                                : `Video duration exceeds your plan limit.`,
+                        );
+                    }
+                }
+
                 this.logger.log(`Fetched YouTube metadata: ${title}`);
             } catch (metaError) {
+                if (metaError instanceof ForbiddenException) throw metaError;
                 this.logger.warn(`Failed to fetch YouTube metadata, using defaults: ${metaError.message}`);
             }
 

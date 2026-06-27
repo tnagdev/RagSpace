@@ -5,6 +5,7 @@ from src.models.enums import EventType
 from src.services.prisma_service import PrismaService
 from src.services.s3_service import S3Service
 from src.models.events import FileDeletedEventModel
+from src.utils.background_tasks import background_task_manager
 from src.utils.correlation import correlation_id_var
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,11 @@ async def handle_file_deleted(event: FileDeletedEventModel) -> None:
             raise ValueError("Missing fileId or fileIds in event")
 
         logger.info(f"[{correlation_id}] Processing file deletion for {len(file_ids)} file(s): {file_ids}")
+
+        # Cancel any in-flight scene detection tasks immediately
+        total_cancelled = sum(background_task_manager.cancel_file_tasks(fid) for fid in file_ids)
+        if total_cancelled:
+            logger.info(f"[{correlation_id}] Cancelled {total_cancelled} in-flight task(s)")
 
         prisma_service = PrismaService()
         await prisma_service.ensure_connected()

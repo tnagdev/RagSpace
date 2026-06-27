@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shutil
@@ -10,14 +11,29 @@ logger = logging.getLogger(__name__)
 
 _BOT_DETECTION_PHRASES = ('Sign in to confirm', 'not a bot')
 
+_PERMANENT_ERROR_PHRASES = (
+    'Video unavailable',
+    'This video is not available',
+    'age-restricted',
+    'members-only',
+    'Private video',
+    'This video has been removed',
+    'copyright',
+    'removed by the uploader',
+    'confirm your age',
+    'not available in your country',
+    'DRM protected',
+)
+
 _BASE_YDL_OPTS = {
     'quiet': False,
     'no_warnings': False,
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'no_color': False,
-    'extractor_args': {'youtube': {'player_client': ['ios', 'tv', 'web_embedded']}},
-    'js_runtimes': {'node': {}},
+    'socket_timeout': 30,
+    'merge_output_format': 'mp4',
+    'extractor_args': {'youtube': {'player_client': ['web_embedded', 'mweb', 'android_vr']}},
 }
 
 
@@ -41,30 +57,34 @@ class YouTubeDownloaderService:
         self,
         url: str,
         output_path: str,
-        quality: str = 'best[protocol=m3u8_native][height<=480]/best[protocol=m3u8_native]/worst[height<=480]/worst/best'
+        quality: Optional[str] = None,
     ) -> dict:
+        format_selector = quality or settings.youtube_format_selector
         try:
             logger.info(f"Starting YouTube download: {url}")
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            ydl_opts = {**_BASE_YDL_OPTS, 'format': quality, 'outtmpl': output_path}
+            ydl_opts = {**_BASE_YDL_OPTS, 'format': format_selector, 'outtmpl': output_path}
 
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            def _run_download(opts):
+                with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     if not info:
                         raise Exception("Failed to extract video information")
+                    return info
+
+            try:
+                info = await asyncio.to_thread(_run_download, ydl_opts)
             except Exception as first_err:
-                is_bot_error = any(p in str(first_err) for p in _BOT_DETECTION_PHRASES)
+                err_str = str(first_err)
+                if any(p in err_str for p in _PERMANENT_ERROR_PHRASES):
+                    raise Exception(f"Video cannot be downloaded: {err_str}") from first_err
+                is_bot_error = any(p in err_str for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
                 logger.warning("Cookieless attempt blocked, retrying with cookies")
-                cookie_opts = {**ydl_opts, 'cookiefile': cookies_tmp}
-                with yt_dlp.YoutubeDL(cookie_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    if not info:
-                        raise Exception("Failed to extract video information")
+                info = await asyncio.to_thread(_run_download, {**ydl_opts, 'cookiefile': cookies_tmp})
 
             if not os.path.exists(output_path):
                 raise Exception(f"Downloaded file not found at: {output_path}")
@@ -92,19 +112,25 @@ class YouTubeDownloaderService:
             logger.error(f"Failed to download YouTube video: {e}", exc_info=True)
             raise Exception(f"YouTube download failed: {str(e)}")
 
-    def get_video_info(self, url: str) -> Optional[dict]:
+    async def get_video_info(self, url: str) -> Optional[dict]:
         try:
             base = {**_BASE_YDL_OPTS, 'quiet': True, 'no_warnings': True}
-            try:
-                with yt_dlp.YoutubeDL(base) as ydl:
+
+            def _run_info(opts):
+                with yt_dlp.YoutubeDL(opts) as ydl:
                     return ydl.extract_info(url, download=False)
+
+            try:
+                return await asyncio.to_thread(_run_info, base)
             except Exception as e:
-                is_bot_error = any(p in str(e) for p in _BOT_DETECTION_PHRASES)
+                err_str = str(e)
+                if any(p in err_str for p in _PERMANENT_ERROR_PHRASES):
+                    raise
+                is_bot_error = any(p in err_str for p in _BOT_DETECTION_PHRASES)
                 cookies_tmp = _copy_cookies_to_tmp() if is_bot_error else None
                 if not cookies_tmp:
                     raise
-                with yt_dlp.YoutubeDL({**base, 'cookiefile': cookies_tmp}) as ydl:
-                    return ydl.extract_info(url, download=False)
+                return await asyncio.to_thread(_run_info, {**base, 'cookiefile': cookies_tmp})
         except Exception as e:
             logger.error(f"Failed to get video info: {e}")
             return None

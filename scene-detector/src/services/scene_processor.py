@@ -32,10 +32,10 @@ class SceneProcessor:
         self.prisma_service = PrismaService()
         os.makedirs(self.temp_dir, exist_ok=True)
 
-    async def _publish_scene_progress(
-        self, file_id: str, user_id: str, completed: int, total: int
+    async def _publish_progress_pct(
+        self, file_id: str, user_id: str, pct: int
     ) -> None:
-        pct = round((completed / total) * 100) if total else 100
+        """Publish a raw progress percentage for the SCENE_DETECTION stage."""
         try:
             await self.rabbitmq_service.publish_event(
                 EventType.PROCESSING_PROGRESS.value,
@@ -52,6 +52,12 @@ class SceneProcessor:
             )
         except Exception as pub_err:
             logger.warning(f"Failed to publish progress event: {pub_err}")
+
+    async def _publish_scene_progress(
+        self, file_id: str, user_id: str, completed: int, total: int
+    ) -> None:
+        pct = round((completed / total) * 100) if total else 100
+        await self._publish_progress_pct(file_id, user_id, pct)
 
     async def _process_single_scene(
         self,
@@ -114,7 +120,12 @@ class SceneProcessor:
             )
             return {"_failed": True, "scene_number": scene_number, "error": str(e)}
 
-    async def process_file(self, file_id: str, event_data: UploadCompletedEventModel):
+    async def process_file(
+        self,
+        file_id: str,
+        event_data: UploadCompletedEventModel,
+        is_final_attempt: bool = True,
+    ):
         work_dir = None
         correlation_id = correlation_id_var.get()
         try:
@@ -177,49 +188,39 @@ class SceneProcessor:
             youtube_url = file_record.get('youtubeUrl')
             if youtube_url:
                 logger.info(f"Downloading YouTube video: {youtube_url}")
-                try:
-                    download_result = await self.youtube_downloader.download_video(
-                        youtube_url,
-                        file_path,
-                        quality='worst[ext=mp4]'
+                download_result = await self.youtube_downloader.download_video(
+                    youtube_url,
+                    file_path,
+                )
+
+                youtube_metadata = dict(file_record.get('metadata') or {})
+                # Only set keys that aren't already present (preserve submission-time metadata)
+                for key, value in {
+                    'actualFileSize': download_result['file_size'],
+                    'downloadedAt': datetime.utcnow().isoformat(),
+                    'downloadedTitle': download_result.get('title'),
+                    'downloadedDuration': download_result.get('duration'),
+                    'description': download_result.get('description', ''),
+                }.items():
+                    youtube_metadata.setdefault(key, value)
+                if download_result.get('duration'):
+                    youtube_metadata['duration'] = int(download_result['duration'])
+
+                video_title = download_result.get('title', file_record.get('filename', 'video'))
+                safe_filename = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in video_title)
+                safe_filename = safe_filename[:100]
+
+                await self.upload_manager_client.update_file_status(
+                    file_id,
+                    UpdateFileStatusParams(
+                        filename=f"{safe_filename}.mp4",
+                        originalFilename=video_title,
+                        fileSize=download_result['file_size'],
+                        metadata=youtube_metadata
                     )
+                )
 
-                    youtube_metadata = file_record.get('metadata', {})
-                    youtube_metadata.update({
-                        'actualFileSize': download_result['file_size'],
-                        'downloadedAt': datetime.utcnow().isoformat(),
-                        'downloadedTitle': download_result.get('title'),
-                        'downloadedDuration': download_result.get('duration'),
-                        'description': download_result.get('description', ''),
-                    })
-
-                    video_title = download_result.get('title', file_record.get('filename', 'video'))
-                    safe_filename = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in video_title)
-                    safe_filename = safe_filename[:100]
-                    if download_result.get('duration'):
-                        youtube_metadata['duration'] = int(download_result.get('duration', 0))
-
-                    await self.upload_manager_client.update_file_status(
-                        file_id,
-                        UpdateFileStatusParams(
-                            filename=f"{safe_filename}.mp4",
-                            originalFilename=video_title,
-                            fileSize=download_result['file_size'],
-                            metadata=youtube_metadata
-                        )
-                    )
-
-                    logger.info(f"✓ YouTube video downloaded: {download_result['title']}")
-                except Exception as e:
-                    logger.error(f"Failed to download YouTube video: {e}")
-                    await self.upload_manager_client.update_file_status(
-                        file_id,
-                        UpdateFileStatusParams(
-                            processingStatus=ProcessingStatus.FAILED.value,
-                            errorMessage=f"YouTube download failed: {str(e)}"
-                        )
-                    )
-                    raise
+                logger.info(f"✓ YouTube video downloaded: {download_result['title']}")
             else:
                 await self.s3_service.download_file(
                     file_record['s3Key'],
@@ -241,7 +242,7 @@ class SceneProcessor:
 
                 thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/files/{file_id}.jpg"
 
-                bucket = file_record.get('s3Bucket', 'user-uploads')
+                bucket = file_record.get('s3Bucket') or settings.aws_s3_bucket
                 await self.s3_service.upload_file(
                     thumbnail_local_path,
                     thumbnail_s3_key,
@@ -282,7 +283,20 @@ class SceneProcessor:
                     )
                 )
 
-            scenes_data = await loop.run_in_executor(cpu_executor, self.scene_detection_service.detect_scenes, file_path)
+            # Build a sync callback that schedules async progress publishes from the
+            # executor thread (0-49% range = frame analysis phase).
+            def _on_detect_progress(pct: int) -> None:
+                asyncio.run_coroutine_threadsafe(
+                    self._publish_progress_pct(file_id, user_id, pct),
+                    loop,
+                )
+
+            scenes_data = await loop.run_in_executor(
+                cpu_executor,
+                lambda: self.scene_detection_service.detect_scenes(
+                    file_path, progress_callback=_on_detect_progress
+                ),
+            )
 
             if not scenes_data:
                 logger.warning(f"No scenes detected in file: {file_id}")
@@ -298,7 +312,7 @@ class SceneProcessor:
 
             logger.info(f"[{correlation_id}] Detected {len(scenes_data)} scenes, processing thumbnails...")
 
-            scene_bucket = file_record.get('s3Bucket', 'user-uploads')
+            scene_bucket = file_record.get('s3Bucket') or settings.aws_s3_bucket
             total_scenes = len(scenes_data)
             completed_scenes = 0
             progress_lock = asyncio.Lock()
@@ -311,7 +325,10 @@ class SceneProcessor:
                 async with progress_lock:
                     completed_scenes += 1
                     done = completed_scenes
-                await self._publish_scene_progress(file_id, user_id, done, total_scenes)
+                # Thumbnail phase maps to 50-100% so the full bar goes 0→50 (detection)
+                # then 50→100 (thumbnail extraction + S3 upload).
+                pct = 50 + round(done / total_scenes * 50)
+                await self._publish_progress_pct(file_id, user_id, pct)
                 logger.info(f"Processed scene {scene_data['scene_number']}/{total_scenes}")
                 return result
 
@@ -323,6 +340,12 @@ class SceneProcessor:
                 logger.warning(
                     f"Failed to process {len(failed_scenes)} scenes: "
                     f"{[s['scene_number'] for s in failed_scenes]}"
+                )
+
+            if not scenes_to_create and scenes_data:
+                raise RuntimeError(
+                    f"All {len(failed_scenes)}/{len(scenes_data)} scene thumbnail uploads failed "
+                    f"for {file_id}. Check S3 connectivity."
                 )
 
             if scenes_to_create:
@@ -394,31 +417,32 @@ class SceneProcessor:
 
         except Exception as e:
             logger.error(f"[{correlation_id}] Error processing file {file_id}: {e}", exc_info=True)
-            try:
-                await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        processingStatus=ProcessingStatus.FAILED.value,
-                        processingCompletedAt=datetime.utcnow(),
-                        errorMessage=str(e)
+            if is_final_attempt:
+                try:
+                    await self.upload_manager_client.update_file_status(
+                        file_id,
+                        UpdateFileStatusParams(
+                            processingStatus=ProcessingStatus.FAILED.value,
+                            processingCompletedAt=datetime.utcnow(),
+                            errorMessage=str(e)
+                        )
                     )
-                )
 
-                await self.rabbitmq_service.publish_event(
-                    EventType.PROCESSING_FAILED.value,
-                    {
-                        'type': EventType.PROCESSING_FAILED.value,
-                        'fileId': file_id,
-                        'userId': user_id,
-                        'timestamp': datetime.utcnow().isoformat(),
-                        'data': {
-                            'stage': ProcessingStage.SCENE_DETECTION.value,
-                            'error': str(e)
+                    await self.rabbitmq_service.publish_event(
+                        EventType.PROCESSING_FAILED.value,
+                        {
+                            'type': EventType.PROCESSING_FAILED.value,
+                            'fileId': file_id,
+                            'userId': user_id,
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'data': {
+                                'stage': ProcessingStage.SCENE_DETECTION.value,
+                                'error': str(e)
+                            }
                         }
-                    }
-                )
-            except Exception as update_error:
-                logger.error(f"Failed to update error status: {update_error}")
+                    )
+                except Exception as update_error:
+                    logger.error(f"Failed to update error status: {update_error}")
 
             raise
 

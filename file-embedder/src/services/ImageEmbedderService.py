@@ -63,7 +63,8 @@ class ImageEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
         """Generate CLIP embedding for an image file path or a PIL Image."""
         try:
             if isinstance(image, str):
-                image = Image.open(image).convert('RGB')
+                with Image.open(image) as raw:
+                    image = raw.convert('RGB')
             elif not isinstance(image, Image.Image):
                 raise TypeError(f"Expected str or PIL.Image, got {type(image)}")
             image_tensor = self.preprocess(image).unsqueeze(0).to(self.device)  # type: ignore

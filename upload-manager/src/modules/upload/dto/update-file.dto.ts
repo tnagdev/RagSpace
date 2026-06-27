@@ -53,6 +53,10 @@ export class UpdateFileDto {
     processingCompletedAt?: Date;
 
     @IsOptional()
+    @IsNumber()
+    processingRetryCount?: number;
+
+    @IsOptional()
     @IsDate()
     @Type(() => Date)
     updatedAt?: Date;

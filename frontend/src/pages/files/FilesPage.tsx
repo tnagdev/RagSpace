@@ -10,7 +10,7 @@ import Button from '@/components/Button';
 import Pagination from '@/components/Pagination';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import PaymentResultModal from '@/components/payment/PaymentResultModal';
-import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink, useReprocessFile } from '@/hooks/useUpload';
+import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import { useFileEvents } from '@/hooks/useFileEvents';
 import type { FileResponseDto } from '@/types/upload.types';
 import { ProcessingStage, UploadStatus } from '@/types/upload.types';
@@ -25,6 +25,13 @@ interface PollingFile {
     file: FileResponseDto;
     rawFile?: File;
     failed?: boolean;
+}
+
+function formatEta(elapsedMs: number, progress: number): string | undefined {
+    if (progress < 5 || progress >= 100) return undefined;
+    const secs = Math.ceil(((elapsedMs / progress) * (100 - progress)) / 1000);
+    if (secs < 5) return undefined;
+    return secs < 60 ? `~${secs}s` : `~${Math.ceil(secs / 60)}m`;
 }
 
 const FilesPage = () => {
@@ -69,22 +76,46 @@ const FilesPage = () => {
 
     const { data: processingFilesData, refetch: refetchProcessing } = useFiles(
         { limit: 100 },
-        { staleTime: 60_000 }
+        { staleTime: 5_000 }
     );
 
     const [wsProgress, setWsProgress] = useState<Record<string, number>>({});
+    const [stageStartTimes, setStageStartTimes] = useState<Record<string, number>>({});
 
-    const handleWsProgress = useCallback((fileId: string, _type: string, progress: number) => {
-        setWsProgress((prev) => ({ ...prev, [fileId]: progress }));
-    }, []);
+    const handleWsProgress = useCallback(
+        (fileId: string, _type: string, progress: number, stage?: string) => {
+            if (!stage) return;
+            // Key by `fileId:stage` so EMBEDDING events never clobber SCENE_DETECTION
+            // progress, and each stage independently tracks its own 0-100% progress.
+            const key = `${fileId}:${stage}`;
+            setWsProgress((prev) => ({ ...prev, [key]: progress }));
+            // Seed the start time on the very first event for this stage (even at 0%)
+            setStageStartTimes((prev) => prev[key] !== undefined ? prev : { ...prev, [key]: Date.now() });
+        },
+        [],
+    );
 
-    useFileEvents(handleWsProgress);
+    const handleWsSnapshot = useCallback(
+        (snapshotFiles: Array<{ id: string; processingStage: string; uploadStatus: string; processingStatus?: string }>) => {
+            // The server marks genuinely stuck UPLOAD files as FAILED before sending the
+            // snapshot. Propagate that to any matching entry in pollingFiles.
+            const failedIds = new Set(
+                snapshotFiles.filter(f => f.uploadStatus === 'FAILED').map(f => f.id)
+            );
+            if (failedIds.size === 0) return;
+            setPollingFiles((prev) =>
+                prev.map((pf) => failedIds.has(pf.id) ? { ...pf, failed: true } : pf)
+            );
+        },
+        [],
+    );
+
+    const { connected, hasConnectedOnce } = useFileEvents(handleWsProgress, handleWsSnapshot);
 
     const uploadMutation = useUploadFile();
     const abortMutation = useAbortMultipartUpload();
     const deleteMutation = useDeleteFile();
     const youtubeSubmitMutation = useSubmitYouTubeLink();
-    const reprocessMutation = useReprocessFile();
 
     const completedFiles = completedFilesData?.files || [];
 
@@ -126,6 +157,15 @@ const FilesPage = () => {
                             const next = { ...prev };
                             delete next[pollingId];
                             return { ...next, [fileRecord.id]: 0 };
+                        });
+                        setStageStartTimes((prev) => {
+                            const next = { ...prev };
+                            const uploadKey = `${pollingId}:UPLOAD`;
+                            if (next[uploadKey]) {
+                                next[`${fileRecord.id}:UPLOAD`] = next[uploadKey];
+                                delete next[uploadKey];
+                            }
+                            return next;
                         });
                     },
                     onProgress: (fileRecord, progress) => {
@@ -180,6 +220,7 @@ const FilesPage = () => {
                     failed: false,
                 }]);
                 setUploadProgress((prev) => ({ ...prev, [fakeId]: 0 }));
+                setStageStartTimes((prev) => ({ ...prev, [`${fakeId}:UPLOAD`]: Date.now() }));
                 uploadSingleFile(file, fakeId);
             });
         },
@@ -189,20 +230,12 @@ const FilesPage = () => {
     const handleRetryUpload = useCallback(
         (id: string) => {
             const fileToRetry = pollingFiles.find((f) => f.id === id);
-            if (!fileToRetry) return;
-
-            if (fileToRetry.rawFile) {
-                // Retry the S3 upload from scratch
-                setPollingFiles((prev) => prev.map((pf) => pf.id === id ? { ...pf, failed: false } : pf));
-                setUploadProgress((prev) => ({ ...prev, [id]: 0 }));
-                uploadSingleFile(fileToRetry.rawFile, id);
-            } else {
-                // File is already on S3 but processing failed — trigger server-side reprocess
-                setPollingFiles((prev) => prev.map((pf) => pf.id === id ? { ...pf, failed: false } : pf));
-                reprocessMutation.mutate(id);
-            }
+            if (!fileToRetry?.rawFile) return;
+            setPollingFiles((prev) => prev.map((pf) => pf.id === id ? { ...pf, failed: false } : pf));
+            setUploadProgress((prev) => ({ ...prev, [id]: 0 }));
+            uploadSingleFile(fileToRetry.rawFile, id);
         },
-        [pollingFiles, uploadSingleFile, reprocessMutation]
+        [pollingFiles, uploadSingleFile]
     );
 
     const handleCancelUpload = useCallback(
@@ -346,12 +379,28 @@ const FilesPage = () => {
                             <h3 className="text-sm font-semibold text-text-primary">
                                 Processing ({allProcessingFiles.length})
                             </h3>
+                            {hasConnectedOnce && !connected && (
+                                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-warning)' }}>
+                                    <span
+                                        className="inline-block w-1.5 h-1.5 rounded-full"
+                                        style={{ backgroundColor: 'var(--color-warning)' }}
+                                    />
+                                    Reconnecting...
+                                </span>
+                            )}
                         </div>
                         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                            {allProcessingFiles.map(({ id, file, rawFile, failed }) => {
+                            {allProcessingFiles.map(({ id, file, failed }) => {
                                 const latestFile = processingFilesData?.files.find(f => f.id === id);
-                                // Upload progress for active S3 uploads; WS progress for server-side stages
-                                const progress = uploadProgress[id] ?? wsProgress[id] ?? 0;
+                                const stage = (latestFile ?? file).processingStage;
+                                // Use XHR progress during upload, then stage-keyed WS progress.
+                                // Keying by stage means EMBEDDING events never reset
+                                // SCENE_DETECTION progress, and each stage starts cleanly at 0%.
+                                const progress = uploadProgress[id] !== undefined
+                                    ? uploadProgress[id]
+                                    : wsProgress[`${id}:${stage}`] ?? 0;
+                                const stageStart = stageStartTimes[`${id}:${stage}`];
+                                const eta = stageStart ? formatEta(Date.now() - stageStart, progress) : undefined;
 
                                 return (
                                     <ProcessingFileItem
@@ -364,6 +413,8 @@ const FilesPage = () => {
                                         onCancel={handleCancelUpload}
                                         onRetry={handleRetryUpload}
                                         failed={failed || latestFile?.processingStatus === 'FAILED'}
+                                        eta={eta}
+                                        processingRetryCount={latestFile?.processingRetryCount}
                                     />
                                 );
                             })}

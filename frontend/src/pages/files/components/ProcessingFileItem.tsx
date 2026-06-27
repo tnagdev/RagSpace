@@ -11,6 +11,8 @@ interface ProcessingFileItemProps {
     onRetry?: (id: string) => void;
     latestFile?: FileResponseDto;
     failed?: boolean;
+    eta?: string;
+    processingRetryCount?: number;
 }
 
 export const ProcessingFileItem: FC<ProcessingFileItemProps> = ({
@@ -22,6 +24,8 @@ export const ProcessingFileItem: FC<ProcessingFileItemProps> = ({
     onRetry,
     latestFile,
     failed,
+    eta,
+    processingRetryCount,
 }) => {
     const file = latestFile || initialFile;
 
@@ -40,6 +44,8 @@ export const ProcessingFileItem: FC<ProcessingFileItemProps> = ({
             onCancel={onCancel}
             onRetry={onRetry}
             failed={isFailed}
+            eta={eta}
+            processingRetryCount={processingRetryCount}
         />
     );
 };

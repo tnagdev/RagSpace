@@ -40,6 +40,7 @@ class UploadManagerClient:
                 "processingStage",
                 "metadata",
                 "errorMessage",
+                "processingRetryCount",
                 "processingStartedAt",
                 "processingCompletedAt"
             ]

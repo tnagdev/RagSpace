@@ -18,6 +18,8 @@ export enum FileEventType {
     UPLOAD_COMPLETED = 'file.upload.completed',
     UPLOAD_FAILED = 'file.upload.failed',
     PROCESSING_STARTED = 'file.processing.started',
+    PROCESSING_PROGRESS = 'file.processing.progress',
+    PROCESSING_RETRYING = 'file.processing.retrying',
     PROCESSING_COMPLETED = 'file.processing.completed',
     PROCESSING_FAILED = 'file.processing.failed',
     FILE_DELETED = 'file.deleted',
@@ -114,7 +116,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
                         },
                     });
 
-                    await channel.bindQueue(this.queue, this.exchange, 'file.*');
+                    await channel.bindQueue(this.queue, this.exchange, 'file.#');
 
                     this.logger.log(
                         `Exchange "${this.exchange}" and queue "${this.queue}" are ready (DLX: ${dlxName})`,
@@ -131,7 +133,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
                         autoDelete: true,
                         durable: false,
                     });
-                    await channel.bindQueue(sseQueue.queue, this.exchange, 'file.*');
+                    await channel.bindQueue(sseQueue.queue, this.exchange, 'file.#');
                     await channel.consume(
                         sseQueue.queue,
                         (msg) => this.handleSseMessage(msg),
@@ -172,16 +174,25 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
                     fileSize: true, mimeType: true, fileType: true, s3Key: true,
                     s3Url: true, uploadStatus: true, processingStatus: true,
                     processingStage: true, thumbnailPath: true, errorMessage: true,
-                    createdAt: true, updatedAt: true,
+                    processingRetryCount: true, createdAt: true, updatedAt: true,
                 },
             });
             if (!file) return;
 
+            const stage = body.data?.stage ?? body.stage;
+
+            // Always broadcast the DB-authoritative file object. The `stage` field in the
+            // payload tells the frontend what kind of progress this is (may differ from
+            // file.processingStage during simultaneous pipeline stages such as EMBEDDING +
+            // SCENE_DETECTION running in parallel). Never override processingStage here —
+            // doing so corrupts the React Query cache and causes stage-label flips.
+            const progressValue = body.data?.progress ?? undefined;
+
             this.wsService.broadcast(file.userId, {
                 fileId: file.id,
                 type: body.type,
-                // Forward progress percentage if the event carries it
-                progress: body.data?.progress ?? undefined,
+                progress: progressValue,
+                stage,
                 file,
             });
         } catch (error) {

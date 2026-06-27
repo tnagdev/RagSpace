@@ -287,34 +287,25 @@ class UploadManagerService:
         processing_status: Optional[str] = None,
         processing_stage: Optional[str] = None,
         error_message: Optional[str] = None,
+        processing_retry_count: Optional[int] = None,
     ) -> bool:
-        """
-        Update file processing status and stage.
-        
-        Args:
-            file_id: The file ID to update
-            processing_status: New processing status (e.g., 'COMPLETED', 'FAILED')
-            processing_stage: New processing stage (e.g., 'COMPLETED', 'INDEXING')
-            error_message: Optional error message if status is FAILED
-            
-        Returns:
-            True if successful, False otherwise
-        """
         try:
             url = f"{self.upload_manager_url}/upload/{file_id}"
             payload = {}
-            
+
             if processing_status is not None:
                 payload["processingStatus"] = processing_status
             if processing_stage is not None:
                 payload["processingStage"] = processing_stage
             if error_message is not None:
                 payload["errorMessage"] = error_message
-            
+            if processing_retry_count is not None:
+                payload["processingRetryCount"] = processing_retry_count
+
             if not payload:
                 logger.warning(f"No status fields provided for file {file_id}")
                 return False
-            
+
             await self.client.send_request("PUT", url, json=payload)
             logger.info(f"Updated file {file_id} status: {payload}")
             return True

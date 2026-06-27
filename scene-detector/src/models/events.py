@@ -131,6 +131,7 @@ class UpdateFileStatusParams(BaseModel):
     processingStage: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     errorMessage: Optional[str] = None
+    processingRetryCount: Optional[int] = None
     processingStartedAt: Optional[datetime] = None
     processingCompletedAt: Optional[datetime] = None
 

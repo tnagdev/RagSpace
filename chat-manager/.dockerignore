@@ -45,8 +45,6 @@ PRISMA_SETUP.md
 .git/
 .gitignore
 
-# Prisma migrations
-prisma/migrations/
 
 # Test files
 test/

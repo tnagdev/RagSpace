@@ -6,7 +6,7 @@ import re
 import json
 from pathlib import Path
 from typing import Optional
-from openai import AsyncOpenAI, RateLimitError
+from openai import AsyncOpenAI, RateLimitError, APITimeoutError
 from pydantic import BaseModel, ValidationError
 from src.config import settings
 from src.decorators.singleton import SingletonMeta
@@ -61,7 +61,13 @@ class LLMService(metaclass=SingletonMeta):
         else:
             self.client = AsyncOpenAI(
                 api_key=settings.nvidia_api_key,
-                base_url=settings.nvidia_base_url
+                base_url=settings.nvidia_base_url,
+                # Disable the openai client's own retry loop — our LLMService retry
+                # logic handles both rate-limit and timeout errors and is the single
+                # source of truth. Without this, a 504 from NVIDIA could hold the
+                # consumer for timeout × 2 openai retries × N LLMService attempts.
+                timeout=settings.llm_request_timeout,
+                max_retries=0,
             )
             self.model = settings.llm_model
             logger.info(f"LLM service initialized with model: {self.model}")
@@ -210,15 +216,18 @@ class LLMService(metaclass=SingletonMeta):
                         logger.error(f"Invalid description structure: {e}")
                         return None
                     
-                except RateLimitError:
+                except (RateLimitError, APITimeoutError) as e:
                     wait_time = (2 ** attempt) + 1
                     if attempt < max_retries - 1:
-                        logger.warning(f"Rate limited, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        logger.warning(
+                            f"LLM {type(e).__name__}, retrying in {wait_time}s "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
                         await asyncio.sleep(wait_time)
                     else:
-                        logger.error(f"Rate limit exceeded after {max_retries} retries")
+                        logger.error(f"LLM {type(e).__name__} after {max_retries} retries")
                         return None
-                        
+
                 except Exception as e:
                     logger.error(f"Error generating description for {image_path}: {e}", exc_info=True)
                     return None

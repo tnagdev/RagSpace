@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 from typing import Optional, Dict
@@ -30,7 +29,10 @@ class S3Service(metaclass=SingletonMeta):
         self.client_config = Config(
             signature_version='s3v4',
             s3={'addressing_style': 'path'},
-            request_checksum_calculation='when_required'
+            request_checksum_calculation='when_required',
+            connect_timeout=10,
+            read_timeout=120,
+            retries={'max_attempts': 2, 'mode': 'standard'},
         )
         
         logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
@@ -137,15 +139,12 @@ class S3Service(metaclass=SingletonMeta):
             upload_metadata.setdefault('uploadedby', 'scene-detector-service')
             
             async with self._get_client() as s3_client:
-                await asyncio.wait_for(
-                    s3_client.put_object(
-                        Bucket=upload_bucket,
-                        Key=s3_key,
-                        Body=file_data,
-                        ContentType=content_type,
-                        Metadata=upload_metadata
-                    ),
-                    timeout=30.0
+                await s3_client.put_object(
+                    Bucket=upload_bucket,
+                    Key=s3_key,
+                    Body=file_data,
+                    ContentType=content_type,
+                    Metadata=upload_metadata
                 )
 
             url = self._build_s3_url(upload_bucket, s3_key)

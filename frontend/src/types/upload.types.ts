@@ -50,6 +50,7 @@ export interface FileResponseDto {
     processingStage: ProcessingStage;
     metadata?: any;
     errorMessage?: string;
+    processingRetryCount?: number;
     uploadedAt?: Date;
     processingStartedAt?: Date;
     processingCompletedAt?: Date;

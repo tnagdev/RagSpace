@@ -134,16 +134,24 @@ class S3ClientService(metaclass=SingletonMeta):
     
     async def download(self, s3_url: Optional[str], s3_key: str, local_path: str) -> str:
         """Download a file using either a signed URL or S3 key.
-        
+
         Args:
-            s3_url: Optional signed URL (preferred if available)
-            s3_key: S3 object key (fallback if URL not provided)
+            s3_url: Optional signed URL (preferred if available and reachable)
+            s3_key: S3 object key (fallback if URL not provided or is a localhost URL)
             local_path: Local destination path
-            
+
         Returns:
             Local file path
         """
-        if s3_url:
+        # Public s3_url may contain `localhost` (browser-accessible only).
+        # Inside Docker containers that URL is unreachable — always use the
+        # boto3 client with the internal endpoint instead.
+        use_url = (
+            s3_url
+            and 'localhost' not in s3_url
+            and '127.0.0.1' not in s3_url
+        )
+        if use_url:
             return await self.download_from_url(s3_url, local_path)
         else:
             return await self.download_file(s3_key, local_path)

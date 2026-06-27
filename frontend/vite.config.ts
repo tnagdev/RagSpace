@@ -14,7 +14,7 @@ const config = defineConfig({
   server: {
     proxy: {
       '/ws': {
-        target: process.env.VITE_UPLOAD_MANAGER_URL || 'http://localhost:8002',
+        target: process.env.VITE_UPLOAD_MANAGER_URL || 'http://localhost:8080',
         ws: true,
         changeOrigin: true,
       },
