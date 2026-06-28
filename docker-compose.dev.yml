@@ -92,8 +92,8 @@ services:
   api-gateway:
     container_name: ragspace-api-gateway
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api-gateway/Dockerfile
     env_file:
       - ./api-gateway/.env.docker
     ports:
@@ -107,8 +107,8 @@ services:
   auth-service:
     container_name: ragspace-auth-service
     build:
-      context: ./auth-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: auth-service/Dockerfile
     env_file:
       - ./auth-service/.env.docker
     ports:
@@ -122,8 +122,8 @@ services:
   upload-manager:
     container_name: ragspace-upload-manager
     build:
-      context: ./upload-manager
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: upload-manager/Dockerfile
     env_file:
       - ./upload-manager/.env.docker
     ports:
@@ -138,8 +138,8 @@ services:
   payment-service:
     container_name: ragspace-payment-service
     build:
-      context: ./payment-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: payment-service/Dockerfile
     env_file:
       - ./payment-service/.env.docker
     ports:
@@ -153,8 +153,8 @@ services:
   scene-detector-server:
     container_name: ragspace-scene-detector-server
     build:
-      context: ./scene-detector
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: scene-detector/Dockerfile
     command: ["./docker-entrypoint.sh", "main_server.py"]
     env_file:
       - ./scene-detector/.env.docker
@@ -175,8 +175,8 @@ services:
   scene-detector-consumer:
     container_name: ragspace-scene-detector-consumer
     build:
-      context: ./scene-detector
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: scene-detector/Dockerfile
     command: ["./docker-entrypoint.sh", "main_consumer.py"]
     env_file:
       - ./scene-detector/.env.docker
@@ -200,8 +200,8 @@ services:
   file-embedder-server:
     container_name: ragspace-file-embedder-server
     build:
-      context: ./file-embedder
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: file-embedder/Dockerfile
     command: ["./docker-entrypoint.sh", "main_server.py"]
     env_file:
       - ./file-embedder/.env.docker
@@ -225,8 +225,8 @@ services:
   file-embedder-consumer:
     container_name: ragspace-file-embedder-consumer
     build:
-      context: ./file-embedder
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: file-embedder/Dockerfile
     command: ["./docker-entrypoint.sh", "main_consumer.py"]
     env_file:
       - ./file-embedder/.env.docker
@@ -251,8 +251,8 @@ services:
   chat-manager:
     container_name: ragspace-chat-manager
     build:
-      context: ./chat-manager
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: chat-manager/Dockerfile
     env_file:
       - ./chat-manager/.env.docker
     environment:

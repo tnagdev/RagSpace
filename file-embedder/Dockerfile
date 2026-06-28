@@ -8,8 +8,16 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY contracts/ ./contracts/
+COPY packages/shared-py ./packages/shared-py
+RUN pip install --no-cache-dir datamodel-code-generator && \
+    python packages/shared-py/scripts/generate.py
+COPY file-embedder/requirements.txt ./requirements.txt
+
+RUN pip install --no-cache-dir ./packages/shared-py && \
+    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-filtered.txt
 
 FROM python:3.11-slim
 
@@ -40,9 +48,8 @@ RUN mkdir -p /app/chroma_data /home/appuser/.cache /home/appuser/.cache/huggingf
     chown -R appuser:appuser /tmp/file-embedder && \
     chmod -R 755 /tmp/file-embedder
 
-COPY --chown=appuser:appuser . .
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh
+COPY --chown=appuser:appuser file-embedder/ .
+RUN chmod +x docker-entrypoint.sh
 
 USER appuser
 

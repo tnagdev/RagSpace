@@ -13,33 +13,19 @@ export class AuthenticationService {
     ) { }
 
     async findUserByEmail(email: string): Promise<AuthUser | null> {
-        return this.prisma.user.findUnique({
+        const user = await this.prisma.user.findUnique({
             where: { email },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                image: true,
-                emailVerified: true,
-                createdAt: true,
-                updatedAt: true
-            }
+            select: { id: true, email: true, name: true, image: true, emailVerified: true, createdAt: true, updatedAt: true },
         });
+        return user ? { ...user, createdAt: user.createdAt.toISOString(), updatedAt: user.updatedAt.toISOString() } : null;
     }
 
     async findUserById(id: string): Promise<AuthUser | null> {
-        return this.prisma.user.findUnique({
+        const user = await this.prisma.user.findUnique({
             where: { id },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                image: true,
-                emailVerified: true,
-                createdAt: true,
-                updatedAt: true
-            },
+            select: { id: true, email: true, name: true, image: true, emailVerified: true, createdAt: true, updatedAt: true },
         });
+        return user ? { ...user, createdAt: user.createdAt.toISOString(), updatedAt: user.updatedAt.toISOString() } : null;
     }
 
 

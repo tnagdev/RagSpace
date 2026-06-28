@@ -1,6 +1,7 @@
+-e ../packages/shared-py
 fastapi
 uvicorn[standard]
-pydantic
+pydantic[email]
 pydantic-settings
 aio-pika
 chromadb==0.6.3

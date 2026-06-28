@@ -23,6 +23,7 @@
     "prisma:studio": "npx dotenv -e .env.development -- prisma studio --schema ./src/modules/prisma/schema.prisma"
   },
   "dependencies": {
+    "@ragspace/shared-ts": "file:../packages/shared-ts",
     "@aws-sdk/client-s3": "^3.990.0",
     "@aws-sdk/lib-storage": "^3.990.0",
     "@aws-sdk/s3-request-presigner": "^3.990.0",

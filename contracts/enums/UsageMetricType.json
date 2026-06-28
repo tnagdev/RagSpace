@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "UsageMetricType",
+  "title": "UsageMetricType",
+  "description": "Quota metric keys tracked by the payment service.",
+  "type": "string",
+  "enum": [
+    "CONVERSATIONS",
+    "STORAGE",
+    "FILE_CONVERSATIONS",
+    "YOUTUBE_VIDEOS",
+    "MAX_VIDEO_LENGTH",
+    "MAX_AUDIO_DURATION"
+  ]
+}

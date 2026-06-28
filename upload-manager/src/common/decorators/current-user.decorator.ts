@@ -1,24 +1,7 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { AuthUser, AuthSession } from '@ragspace/shared-ts';
 
-export interface AuthUser {
-    id: string;
-    email: string;
-    username?: string;
-    name?: string;
-    emailVerified?: boolean;
-    image?: string;
-    createdAt?: string;
-    updatedAt?: string;
-}
-
-export interface AuthSession {
-    id: string;
-    token: string;
-    userId: string;
-    expiresAt: string;
-    ipAddress?: string;
-    userAgent?: string;
-}
+export type { AuthUser, AuthSession };
 
 export const CurrentUser = createParamDecorator(
     (data: unknown, ctx: ExecutionContext): AuthUser => {

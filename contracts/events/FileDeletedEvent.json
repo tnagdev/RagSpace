@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "FileDeletedEvent",
+  "title": "FileDeletedEvent",
+  "description": "RabbitMQ message published by upload-manager when a file (or batch) is deleted.",
+  "type": "object",
+  "required": ["type", "user", "timestamp", "data"],
+  "properties": {
+    "type":      { "type": "string", "const": "file.deleted" },
+    "fileId":    { "type": ["string", "null"] },
+    "fileIds":   { "type": "array", "items": { "type": "string" } },
+    "user":      { "$ref": "../schemas/AuthUser.json" },
+    "timestamp": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["fileType", "fileName"],
+      "properties": {
+        "fileType": { "$ref": "../enums/FileType.json" },
+        "fileName": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

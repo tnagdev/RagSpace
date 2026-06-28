@@ -1,0 +1,24 @@
+{
+  "name": "@ragspace/shared-ts",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types, interfaces, and HTTP utilities for RagSpace services.",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "npm run generate && tsc -p tsconfig.build.json",
+    "build:no-gen": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.9.2"
+  }
+}

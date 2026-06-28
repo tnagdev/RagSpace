@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ProcessingCompletedEvent",
+  "title": "ProcessingCompletedEvent",
+  "description": "RabbitMQ message published by scene-detector when scene detection finishes.",
+  "type": "object",
+  "required": ["type", "fileId", "fileType", "user", "timestamp", "data"],
+  "properties": {
+    "type":      { "type": "string", "const": "file.processing.completed" },
+    "fileId":    { "type": "string" },
+    "fileName":  { "type": ["string", "null"] },
+    "fileType":  { "$ref": "../enums/FileType.json" },
+    "user":      { "$ref": "../schemas/AuthUser.json" },
+    "session":   { "$ref": "../schemas/AuthSession.json" },
+    "timestamp": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["scenes", "scenes_detected"],
+      "properties": {
+        "scenes_detected": { "type": "integer" },
+        "scenes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sceneNumber", "startTime", "endTime", "startFrame", "endFrame", "keyframe", "thumbnailUrl", "thumbnailS3Key"],
+            "properties": {
+              "id":            { "type": ["string", "null"] },
+              "sceneNumber":   { "type": "integer" },
+              "startTime":     { "type": "number" },
+              "endTime":       { "type": "number" },
+              "startFrame":    { "type": "integer" },
+              "endFrame":      { "type": "integer" },
+              "keyframe":      { "type": "integer" },
+              "thumbnailUrl":  { "type": "string" },
+              "thumbnailS3Key":{ "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

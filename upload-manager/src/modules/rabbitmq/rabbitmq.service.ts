@@ -8,25 +8,16 @@ import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqp-connection-manager';
 import { ChannelWrapper } from 'amqp-connection-manager';
 import { Channel, ConsumeMessage } from 'amqplib';
-import { AuthSession, AuthUser } from 'src/common/decorators/current-user.decorator';
+import type { AuthUser, AuthSession } from '@ragspace/shared-ts';
+import { EventType } from '@ragspace/shared-ts';
 import { WsService } from '../ws/ws.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-export enum FileEventType {
-    UPLOAD_STARTED = 'file.upload.started',
-    UPLOAD_PROGRESS = 'file.upload.progress',
-    UPLOAD_COMPLETED = 'file.upload.completed',
-    UPLOAD_FAILED = 'file.upload.failed',
-    PROCESSING_STARTED = 'file.processing.started',
-    PROCESSING_PROGRESS = 'file.processing.progress',
-    PROCESSING_RETRYING = 'file.processing.retrying',
-    PROCESSING_COMPLETED = 'file.processing.completed',
-    PROCESSING_FAILED = 'file.processing.failed',
-    FILE_DELETED = 'file.deleted',
-}
+// Re-export EventType as FileEventType for backward compatibility with callers
+export { EventType as FileEventType };
 
 export interface FileEvent {
-    type: FileEventType;
+    type: EventType;
     fileId?: string;
     fileIds?: string[];
     user: AuthUser;

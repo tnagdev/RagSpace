@@ -166,7 +166,7 @@ export class AuthenticationController {
                         headers: { cookie: cookieHeader } as any,
                     });
                     if (session?.user?.id) {
-                        await this.paymentService.createFreeSubscription(session.user as AuthUser);
+                        await this.paymentService.createFreeSubscription(session.user as unknown as AuthUser);
                         this.logger.log(`Ensured free subscription for OAuth user ${session.user.id}`);
                     }
                 } catch (err: any) {

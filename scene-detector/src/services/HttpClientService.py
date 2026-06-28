@@ -1,67 +1,13 @@
-"""HTTP client for making requests to other microservices."""
-import httpx
-import logging
-from json import dumps as json_dumps
-from typing import Dict, Any, Optional, List
+"""HTTP client for scene-detector inter-service communication."""
+from ragspace_shared.http import BaseHttpClient
 from src.config.settings import settings
 
-logger = logging.getLogger(__name__)
 
-_shared_client: httpx.AsyncClient | None = None
+class HttpClient(BaseHttpClient):
+    """Scene-detector HTTP client — sets service identity and exposes service URLs."""
 
+    service_name = "scene-detector"
 
-def _get_shared_client(timeout: httpx.Timeout) -> httpx.AsyncClient:
-    global _shared_client
-    if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(timeout=timeout)
-    return _shared_client
-
-
-class HttpClient:
-    """HTTP client for inter-service communication."""
-    
-    def __init__(self, user, session):
-        self.timeout = httpx.Timeout(30.0, connect=10.0)
+    def __init__(self, user, session) -> None:
+        super().__init__(user, session)
         self.upload_manager_url = settings.upload_manager_url
-        self.user = user
-        self.session = session
-    
-
-    async def send_request(self, method: str, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, Any]] = None, json: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """
-        Send an HTTP request.
-        
-        Args:
-            method: HTTP method (GET, POST, etc.)
-            url: The URL to send the request to
-            headers: Optional headers to include
-            params: Optional query parameters
-            json: Optional JSON body data
-            
-        Returns:
-            Response JSON as a dictionary or None on failure
-        """
-        try:
-            logger.info(f"Sending {method} request to: {url}")
-            client = _get_shared_client(self.timeout)
-            headers = headers or {}
-
-            if self.user:
-                user_data = self.user.model_dump() if hasattr(self.user, 'model_dump') else self.user
-                headers['x-user'] = json_dumps(user_data) if isinstance(user_data, dict) else str(user_data)
-
-            if self.session:
-                session_data = self.session.model_dump() if hasattr(self.session, 'model_dump') else self.session
-                headers['x-session'] = json_dumps(session_data) if isinstance(session_data, dict) else str(session_data)
-
-            headers['x-service'] = 'scene-detector'
-            response = await client.request(method, url, headers=headers, params=params, json=json)
-            response.raise_for_status()
-            return response.json()
-                
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error during {method} request to {url}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Error during {method} request to {url}: {e}")
-            return None

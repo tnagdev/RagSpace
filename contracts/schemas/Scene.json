@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "Scene",
+  "title": "Scene",
+  "description": "Video scene record returned by the scene-detector service.",
+  "type": "object",
+  "required": ["id", "file_id", "scene_number", "start_time", "end_time", "start_frame", "end_frame", "keyframe", "thumbnail_url", "thumbnail_s3_key"],
+  "properties": {
+    "id":               { "type": "string" },
+    "file_id":          { "type": "string" },
+    "scene_number":     { "type": "integer" },
+    "start_time":       { "type": "number" },
+    "end_time":         { "type": "number" },
+    "start_frame":      { "type": "integer" },
+    "end_frame":        { "type": "integer" },
+    "keyframe":         { "type": "integer" },
+    "thumbnail_url":    { "type": "string" },
+    "thumbnail_s3_key": { "type": "string" },
+    "created_at":       { "type": ["string", "null"] },
+    "updated_at":       { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

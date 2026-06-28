@@ -2,16 +2,27 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY prisma.config.* ./
-COPY src/modules/prisma ./src/modules/prisma/
+# ── shared-ts: install deps + build (with codegen) ───────────────────────────
+COPY contracts/ ./contracts/
+COPY packages/shared-ts/package*.json ./packages/shared-ts/
+RUN cd packages/shared-ts && npm ci
+COPY packages/shared-ts/ ./packages/shared-ts/
+RUN cd packages/shared-ts && npm run build
 
+# ── upload-manager: install deps ─────────────────────────────────────────────
+COPY upload-manager/package*.json ./upload-manager/
+COPY upload-manager/prisma.config.* ./upload-manager/
+COPY upload-manager/src/modules/prisma ./upload-manager/src/modules/prisma/
+
+WORKDIR /app/upload-manager
 RUN npm ci
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/modules/prisma/schema.prisma
 
-COPY . .
+# ── upload-manager: build ────────────────────────────────────────────────────
+COPY upload-manager/ ./
 RUN npm run build
 
+# ── Production image ─────────────────────────────────────────────────────────
 FROM node:20-alpine
 
 RUN addgroup -g 1001 -S nodejs && \
@@ -19,15 +30,20 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY --chown=nodejs:nodejs package*.json ./
-COPY --chown=nodejs:nodejs prisma.config.* ./
-COPY --chown=nodejs:nodejs src/modules/prisma ./src/modules/prisma/
+COPY packages/shared-ts/package*.json ./packages/shared-ts/
+COPY --from=builder /app/packages/shared-ts/dist ./packages/shared-ts/dist
+
+WORKDIR /app/upload-manager
+
+COPY --chown=nodejs:nodejs upload-manager/package*.json ./
+COPY --chown=nodejs:nodejs upload-manager/prisma.config.* ./
+COPY --chown=nodejs:nodejs upload-manager/src/modules/prisma ./src/modules/prisma/
 
 RUN npm ci --omit=dev
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/modules/prisma/schema.prisma
 
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --chown=nodejs:nodejs docker-entrypoint.sh ./
+COPY --from=builder --chown=nodejs:nodejs /app/upload-manager/dist ./dist
+COPY --chown=nodejs:nodejs upload-manager/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
 USER nodejs

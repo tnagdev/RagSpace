@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "PlanValidationResult",
+  "title": "PlanValidationResult",
+  "description": "Response from payment-service /validation/plan-type endpoint.",
+  "type": "object",
+  "required": ["hasAccess"],
+  "properties": {
+    "hasAccess":     { "type": "boolean" },
+    "currentPlan":   { "type": ["string", "null"] },
+    "requiredPlan":  { "type": ["string", "null"] },
+    "message":       { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

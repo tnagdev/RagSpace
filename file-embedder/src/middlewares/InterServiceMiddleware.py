@@ -1,27 +1,26 @@
-"""Middleware for handling inter-service authentication and context propagation."""
-import logging
+"""
+File-embedder inter-service middleware.
+
+Extends the shared InterServiceMiddleware to also handle correlation IDs,
+which are used for distributed tracing across services.
+"""
 import uuid
 from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-import json
+
+from ragspace_shared.middleware import InterServiceMiddleware as BaseInterServiceMiddleware
 from src.context import correlation_id_var
 
-logger = logging.getLogger(__name__)
 
-
-class InterServiceMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp):
+class InterServiceMiddleware(BaseInterServiceMiddleware):
+    def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next):
-        x_user = request.headers.get("x-user")
-        x_session = request.headers.get("x-session")
-        request.state.x_user = x_user
-        request.state.user = json.loads(x_user) if x_user else None
-        request.state.x_session = x_session
-        request.state.session = json.loads(x_session) if x_session else None
+        # Parse x-user / x-session (from shared base)
+        self.extract_context(request)
 
+        # Add correlation ID tracking
         correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
         request.state.correlation_id = correlation_id
         token = correlation_id_var.set(correlation_id)

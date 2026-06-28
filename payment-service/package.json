@@ -24,6 +24,7 @@
     "prisma:seed": "dotenv -e .env.development -- ts-node src/prisma/seed.ts"
   },
   "dependencies": {
+    "@ragspace/shared-ts": "file:../packages/shared-ts",
     "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
     "@nestjs/common": "^11.1.13",
     "@nestjs/config": "^4.0.3",

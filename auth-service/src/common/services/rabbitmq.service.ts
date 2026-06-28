@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqp-connection-manager';
 import { ChannelWrapper } from 'amqp-connection-manager';
 import { Channel, ConsumeMessage } from 'amqplib';
-import { AuthUser } from 'src/authentication/types/user.type';
+import type { AuthUser } from '@ragspace/shared-ts';
 
 export enum UserEventType {
     USER_CREATED = 'user.created',
