@@ -19,6 +19,8 @@ class S3Service(metaclass=SingletonMeta):
         self.bucket: str = settings.aws_s3_bucket
         self.region: str = settings.aws_region
         self.endpoint_url: Optional[str] = settings.aws_s3_endpoint
+        # Pre-signed URLs must use a browser-accessible hostname (e.g. localhost:9000, not minio:9000)
+        self.public_endpoint_url: Optional[str] = settings.aws_s3_public_endpoint or settings.aws_s3_endpoint
         
         self.session = aioboto3.Session(
             aws_access_key_id=settings.aws_access_key_id,
@@ -329,14 +331,19 @@ class S3Service(metaclass=SingletonMeta):
         
         try:
             logger.info(f"Generating signed URL for: s3://{target_bucket}/{s3_key}")
-            
-            async with self._get_client() as s3_client:
+
+            # Use public endpoint so the browser-facing URL is resolvable (localhost, not Docker-internal)
+            sign_kwargs = {'config': self.client_config}
+            if self.public_endpoint_url:
+                sign_kwargs['endpoint_url'] = self.public_endpoint_url
+
+            async with self.session.client('s3', **sign_kwargs) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     'get_object',
                     Params={'Bucket': target_bucket, 'Key': s3_key},
                     ExpiresIn=expiration
                 )
-            
+
             logger.info(f"✓ Generated signed URL (expires in {expiration}s)")
             return url
             

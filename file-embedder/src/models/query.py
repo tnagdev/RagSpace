@@ -118,6 +118,8 @@ class VideoContentResponse(BaseModel):
     total_segments: int = 0
     content: List[VideoContentSegment] = []
     summary_context: str = ""
+    character_registry: Optional[Dict[str, Any]] = None
+    narrative_summary: Optional[Dict[str, Any]] = None
 
 
 class RouterFileContentRequest(BaseModel):

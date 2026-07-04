@@ -240,6 +240,18 @@ const FileChatPage: FC = () => {
         setIsLeftPanelCollapsed(true);
     };
 
+    const handleTimestampClick = (seconds: number, msgSearchResults?: SearchResult[]) => {
+        const pool = msgSearchResults?.length ? msgSearchResults : streamingResults;
+        const match =
+            pool.find((r) => r.file_url && r.start_time !== undefined && r.start_time <= seconds && (r.end_time ?? Infinity) >= seconds) ??
+            pool.find((r) => r.file_url || r.youtube_url) ??
+            pool[0];
+        if (match) {
+            setSelectedResult({ ...match, start_time: seconds });
+            setIsLeftPanelCollapsed(true);
+        }
+    };
+
     if (fileQuery.isLoading) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -426,7 +438,7 @@ const FileChatPage: FC = () => {
                             </div>
                         ) : (
                             <>
-                                <MessageList messages={messages} onResultClick={handleResultClick} />
+                                <MessageList messages={messages} onResultClick={handleResultClick} onTimestampClick={handleTimestampClick} />
                                 {streamingMessage && (
                                     <div className="flex gap-3 justify-start mt-4">
                                         <div className="w-8 h-8 rounded-full bg-accent-primary/20 flex items-center justify-center shrink-0">
@@ -434,7 +446,7 @@ const FileChatPage: FC = () => {
                                         </div>
                                         <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
                                             <div className="text-sm break-words">
-                                                <Markdown content={streamingMessage} />
+                                                <Markdown content={streamingMessage} searchResults={streamingResults} onTimestampClick={handleTimestampClick} />
                                                 <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
                                             </div>
 

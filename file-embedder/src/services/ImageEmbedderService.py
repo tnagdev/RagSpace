@@ -42,22 +42,31 @@ class ImageEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
         self.model.eval().to(self.device)
         super().__init__(text_model_name=text_model_name, **kwargs)
     
-    async def generate_image_description(self, image_path: str) -> ImageDescription | None:
-        """
-        Generate a text description for an image using LLM.
-        
-        Args:
-            image_path: Path to the image file
-        Returns:
-            ImageDescription with:
-            - summary: Descriptive summary of the image content
-            - objects: ["person","neon sign","car"] - tags based on the image objects
-            - setting: "city street at night" - context of the image
-            - style: "cyberpunk lighting" - artistic style if applicable
-            - colors: ["purple","teal","black"] - dominant colors in the image
+    async def generate_image_description(
+        self,
+        image_path: str,
+        transcript: str | None = None,
+        character_registry: dict | None = None,
+        scene_index: int | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        story_context: str = "",
+    ) -> ImageDescription | None:
+        """Generate a structured text description for an image using LLM.
+
+        When character_registry is provided, descriptions use character names instead of
+        generic labels ("Marie plays guitar" rather than "a girl plays guitar").
         """
         llm_service = LLMService()
-        return await llm_service.generate_image_description(image_path)
+        return await llm_service.generate_image_description(
+            image_path,
+            transcript=transcript,
+            character_registry=character_registry,
+            scene_index=scene_index,
+            start_time=start_time,
+            end_time=end_time,
+            story_context=story_context,
+        )
     
     def embed_image(self, image: Union[str, Image.Image]) -> np.ndarray | None:
         """Generate CLIP embedding for an image file path or a PIL Image."""

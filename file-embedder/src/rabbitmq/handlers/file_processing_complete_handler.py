@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import tempfile
@@ -8,6 +9,7 @@ from src.models.enums import EventType, FileType, ProcessingStatus, ProcessingSt
 from src.models.events import ProcessingCompletedEventModel
 from src.config import settings
 from src.services.VideoEmbedderService import VideoEmbedderService
+from src.services.LLMService import LLMService
 from src.services.S3ClientService import S3ClientService
 from src.services.UploadManagerService import UploadManagerService
 from src.db.chroma_db import ChromaDatabaseManager
@@ -35,6 +37,14 @@ def _delete_existing_embeddings(chroma_db, file_id: str) -> None:
         where={"$and": [{"file_id": file_id}, {"scene_index": {"$gte": 0}}]}
     )
     logger.info(f"Purged existing scene text embeddings from {chroma_db.text_index_name} for {file_id}")
+
+    # Also purge character registry and narrative documents from previous runs.
+    try:
+        chroma_db.text_collection.delete(
+            ids=[f"{file_id}#character_registry", f"{file_id}#narrative"]
+        )
+    except Exception:
+        pass
 
 
 async def _publish_indexing_progress(file_id: str, user_id: str, done: int, total: int) -> None:
@@ -142,6 +152,47 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                 f"No pre-computed audio segments found for {file_id}; scenes will use OCR text only"
             )
 
+        # Build full-video transcript and extract character registry before processing scenes.
+        # This single LLM call gives every per-scene vision call the context to name characters.
+        llm_configured = bool(settings.nvidia_api_key)
+        full_transcript = " ".join(
+            s["text"] for s in audio_segments if s.get("text", "").strip()
+        )
+        character_registry: dict = {"characters": [], "story_context": ""}
+        loop_outer = asyncio.get_running_loop()
+
+        if llm_configured and len(full_transcript.split()) >= 30:
+            try:
+                llm_svc = LLMService()
+                character_registry = await asyncio.wait_for(
+                    llm_svc.extract_character_registry(full_transcript),
+                    timeout=90.0,
+                ) or {"characters": [], "story_context": ""}
+                logger.info(
+                    f"Character registry for {file_id}: "
+                    f"{len(character_registry.get('characters', []))} characters, "
+                    f"story_context={repr(character_registry.get('story_context', '')[:80])}"
+                )
+
+                # Embed and store so chat-manager can retrieve it later
+                registry_text = json.dumps(character_registry)
+                registry_vec = await loop_outer.run_in_executor(
+                    cpu_executor, video_embedder.embed_text, registry_text
+                )
+                if registry_vec is not None:
+                    chroma_db.upsert_items(chroma_db.text_index_name, [{
+                        "chunk_id": f"{file_id}#character_registry",
+                        "file_id": file_id,
+                        "user_id": user_id,
+                        "content_type": "character_registry",
+                        "vector": registry_vec.tolist(),
+                        "text": registry_text,
+                    }])
+            except asyncio.TimeoutError:
+                logger.warning(f"Character registry extraction timed out for {file_id}")
+            except Exception as e:
+                logger.warning(f"Character registry extraction failed for {file_id}: {e}")
+
         dir_path = os.path.join(settings.temp_dir, file_id, 'scene')
         os.makedirs(dir_path, exist_ok=True)
         temp_dir = tempfile.mkdtemp(dir=dir_path)
@@ -154,7 +205,6 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
         descriptions_attempted = 0
         descriptions_succeeded = 0
         failed_count = 0
-        llm_configured = bool(settings.nvidia_api_key)
         abort_event = asyncio.Event()
         progress_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(settings.max_concurrent_scenes)
@@ -211,28 +261,28 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                             scene.startTime, scene.endTime, audio_segments
                         )
 
-                        # Primary search text: transcript preferred (richer semantics);
-                        # fall back to OCR for silent scenes or when audio not yet indexed
-                        search_text = transcript or ocr_text
-
                         logger.info(
                             f"Scene {i} [{scene.startTime:.2f}s – {scene.endTime:.2f}s] | "
                             f"OCR: {repr(ocr_text or '(none)')} | "
                             f"Transcript: {repr(transcript or '(none)')}"
                         )
 
-                        text_embedding = None
-                        if search_text:
-                            await asyncio.sleep(0)
-                            text_embedding = await loop.run_in_executor(
-                                cpu_executor, video_embedder.embed_text, search_text
-                            )
-
+                        # Generate character-aware LLM description before text embedding
+                        # so the description summary can be included in the search text.
+                        description = None
                         metadata_item = None
                         if llm_configured:
                             try:
                                 description = await asyncio.wait_for(
-                                    video_embedder.generate_image_description(thumbnail_path),
+                                    video_embedder.generate_image_description(
+                                        thumbnail_path,
+                                        transcript=transcript,
+                                        character_registry=character_registry,
+                                        scene_index=i,
+                                        start_time=scene.startTime,
+                                        end_time=scene.endTime,
+                                        story_context=character_registry.get("story_context", ""),
+                                    ),
                                     timeout=settings.llm_request_timeout * 3 + 30,
                                 )
                                 if description and scene_id:
@@ -257,6 +307,23 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                                 async with progress_lock:
                                     descriptions_attempted += 1
 
+                        # Combine description summary + transcript + OCR into search text
+                        # so character names from the description improve semantic retrieval.
+                        desc_summary = description.summary if description else None
+                        search_text_parts = [p for p in [desc_summary, transcript, ocr_text] if p and p.strip()]
+                        search_text = " | ".join(search_text_parts) or None
+
+                        text_embedding = None
+                        if search_text:
+                            await asyncio.sleep(0)
+                            text_embedding = await loop.run_in_executor(
+                                cpu_executor, video_embedder.embed_text, search_text
+                            )
+
+                        characters_present_json = json.dumps(
+                            description.characters_present if description else []
+                        )
+
                         visual_item = {
                             "chunk_id": f"{file_id}#scene_{i}",
                             "scene_index": i,
@@ -275,6 +342,8 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                             "text": search_text,
                             "ocr_text": ocr_text or "",
                             "transcript": transcript or "",
+                            "description_summary": desc_summary or "",
+                            "characters_present": characters_present_json,
                         }
 
                         text_item = None
@@ -297,6 +366,8 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
                                 "text": search_text,
                                 "ocr_text": ocr_text or "",
                                 "transcript": transcript or "",
+                                "description_summary": desc_summary or "",
+                                "characters_present": characters_present_json,
                             }
 
                         async with progress_lock:
@@ -364,15 +435,61 @@ async def _process_scenes_in_background(event_data: ProcessingCompletedEventMode
             return_exceptions=True
         )
 
+        scene_descriptions_for_narrative: list[dict] = []
         for result in results:
             if result and not isinstance(result, Exception):
                 visual_item, text_item, metadata_item = result
                 if visual_item:
                     visual_items.append(visual_item)
+                    if visual_item.get("description_summary"):
+                        scene_descriptions_for_narrative.append({
+                            "scene": visual_item.get("scene_number", 0),
+                            "time": f"{visual_item.get('start_time', 0):.1f}s-{visual_item.get('end_time', 0):.1f}s",
+                            "description": visual_item["description_summary"],
+                            "transcript": visual_item.get("transcript", ""),
+                        })
                 if text_item:
                     text_items.append(text_item)
                 if metadata_item:
                     metadata_items.append(metadata_item)
+
+        # Generate and store a global narrative summary after all scenes are described.
+        # This captures story arc, themes, and character roles lost in per-scene isolation.
+        if llm_configured and scene_descriptions_for_narrative:
+            try:
+                llm_svc = LLMService()
+                narrative = await asyncio.wait_for(
+                    llm_svc.generate_narrative_summary(
+                        full_transcript=full_transcript,
+                        scene_summaries=scene_descriptions_for_narrative,
+                        character_registry=character_registry,
+                    ),
+                    timeout=120.0,
+                )
+                if narrative:
+                    narrative_text = " ".join(filter(None, [
+                        narrative.get("summary", ""),
+                        narrative.get("story_arc", ""),
+                        "Themes: " + ", ".join(narrative.get("themes", [])) if narrative.get("themes") else "",
+                    ]))
+                    narrative_vec = await loop_outer.run_in_executor(
+                        cpu_executor, video_embedder.embed_text, narrative_text
+                    )
+                    if narrative_vec is not None:
+                        chroma_db.upsert_items(chroma_db.text_index_name, [{
+                            "chunk_id": f"{file_id}#narrative",
+                            "file_id": file_id,
+                            "user_id": user_id,
+                            "content_type": "narrative",
+                            "vector": narrative_vec.tolist(),
+                            "text": narrative_text,
+                            "narrative_json": json.dumps(narrative),
+                        }])
+                        logger.info(f"Stored narrative summary for {file_id}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Narrative summary generation timed out for {file_id}")
+            except Exception as e:
+                logger.warning(f"Narrative summary generation failed for {file_id}: {e}")
 
         # If the abort threshold was triggered (too many scenes failed with retries),
         # raise now so the file-level retry loop handles it (→ FAILED after max retries).

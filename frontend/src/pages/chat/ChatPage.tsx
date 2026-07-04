@@ -46,13 +46,13 @@ const convertToQueryResult = (result: SearchResult): QueryResult => {
             youtubeUrl: result.youtube_url,
         },
         scene_details: result.start_time !== undefined ? {
-            sceneNumber: 0,
-            startTime: result.start_time || 0,
-            endTime: result.end_time || 0,
+            sceneNumber: 1,
+            startTime: result.start_time ?? 0,
+            endTime: result.end_time ?? 0,
             startFrame: 0,
             endFrame: 0,
             keyframe: 0,
-            duration: (result.end_time || 0) - (result.start_time || 0),
+            duration: (result.end_time ?? 0) - (result.start_time ?? 0),
             thumbnailUrl: result.thumbnail_url,
         } : undefined,
     };
@@ -296,6 +296,24 @@ const ChatPage: React.FC = () => {
         setIsLeftPanelCollapsed(true);
     };
 
+    // Called when user clicks a timestamp badge inside the assistant message text.
+    // Picks the best matching video result and opens it at that timestamp.
+    const handleTimestampClick = (seconds: number, msgSearchResults?: SearchResult[]) => {
+        // Prefer a result already on screen (from the message that holds the timestamp)
+        const pool = msgSearchResults?.length ? msgSearchResults : streamingResults;
+        // Find a result that covers this timestamp, or just the first video result
+        const match =
+            pool.find((r) => r.file_url && r.start_time !== undefined && r.start_time <= seconds && (r.end_time ?? Infinity) >= seconds) ??
+            pool.find((r) => r.file_url || r.youtube_url) ??
+            pool[0];
+
+        if (match) {
+            // Clone and override start_time so VideoPreview seeks to the right position
+            setSelectedResult({ ...match, start_time: seconds });
+            setIsLeftPanelCollapsed(true);
+        }
+    };
+
     const handleNewChat = () => {
         navigate({ to: '/chat', search: {}, replace: true });
     };
@@ -368,6 +386,7 @@ const ChatPage: React.FC = () => {
                                     <MessageList
                                         messages={messages}
                                         onResultClick={handleResultClick}
+                                        onTimestampClick={handleTimestampClick}
                                     />
                                     {/* Show streaming message */}
                                     {(streamingMessage || streamingResults.length > 0) && (
@@ -378,7 +397,7 @@ const ChatPage: React.FC = () => {
                                             <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
                                                 {streamingMessage ? (
                                                     <div className="text-sm break-words">
-                                                        <Markdown content={streamingMessage} />
+                                                        <Markdown content={streamingMessage} searchResults={streamingResults} onTimestampClick={handleTimestampClick} />
                                                         <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
                                                     </div>
                                                 ) : (

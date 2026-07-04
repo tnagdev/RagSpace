@@ -203,10 +203,9 @@ async def _handle_agentic_chat(
             ):
                 event_type = event.get("type")
                 
-                if event_type == "tool_start":
-                    # Notify client about tool execution
+                if event_type in ("tool_start", "step_start", "step_done"):
                     yield f"data: {json.dumps(event)}\n\n"
-                    
+
                 elif event_type == "tool_result":
                     # Send search results to client
                     search_results = event.get("results", [])

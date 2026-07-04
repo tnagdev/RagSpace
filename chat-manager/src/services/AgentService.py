@@ -314,188 +314,68 @@ class AgentService:
         max_iterations: int = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Run the agent with streaming LLM response.
-        
-        Similar to run() but streams the final response token by token.
+        Run the agent with streaming LLM response via LangGraph StateGraph.
         """
-        if not self.client:
-            yield {"type": "error", "error": "LLM service not configured"}
+        from uuid import uuid4
+        from src.graph.orchestrator import compiled_graph
+
+        if compiled_graph is None:
+            yield {"type": "error", "error": "LangGraph graph not initialized"}
             return
-        
-        max_iterations = max_iterations or settings.max_agent_iterations
-        
-        # Fetch file details if file_ids are provided
-        attached_files = None
-        if file_ids and len(file_ids) > 0:
-            logger.info(f"run_streaming called with file_ids: {file_ids}")
-            try:
-                files_response = await self.upload_manager.get_files_batch(file_ids)
-                logger.info(f"run_streaming files_response: {files_response}")
-                if files_response and "files" in files_response:
-                    attached_files = files_response["files"]
-                    logger.info(f"Fetched {len(attached_files)} attached files for context: {[f.get('originalFilename', f.get('id')) for f in attached_files]}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch attached file details: {e}")
-        
-        # Check if we need to summarize
-        summary = conversation_summary
-        summary_updated = False
-        
-        if await self.summary_service.should_summarize(messages):
-            summary, messages = await self.summary_service.get_or_create_summary(
-                messages=messages,
-                existing_summary=conversation_summary
-            )
-            summary_updated = True
-        
-        api_messages = self._build_api_messages(messages, summary, attached_files)
-        
-        all_search_results = []
-        tools_used = []
-        executed_tool_calls = set()  # Track executed tool calls to prevent duplicates
-        iteration = 0
-        tools_executed_this_session = False  # Track if we've executed tools
-        
-        while iteration < max_iterations:
-            iteration += 1
-            
-            try:
-                # After tools have been executed, skip non-streaming check and go straight
-                # to streaming. The non-streaming check would generate a full response and
-                # discard it, wasting a round-trip and causing the flow to hang.
-                if tools_executed_this_session:
-                    logger.info("Generating final streaming response after tool execution")
-                    stream = await self.client.chat.completions.create(
-                        model=settings.agent_model,
-                        messages=api_messages,
-                        max_tokens=settings.max_tokens,
-                        temperature=settings.temperature,
-                        stream=True
-                    )
-                    
-                    async for chunk in stream:
-                        if chunk.choices and len(chunk.choices) > 0:
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                yield {
-                                    "type": "content",
-                                    "content": delta.content
-                                }
-                    
-                    yield {
-                        "type": "done",
-                        "search_results": all_search_results,
-                        "tools_used": tools_used,
-                        "summary_updated": summary_updated,
-                        "new_summary": summary if summary_updated else None
-                    }
-                    return
-                
-                # Check if tools are needed (non-streaming call)
-                logger.info(f"Agent iteration {iteration}: checking for tool calls")
-                response = await self.client.chat.completions.create(
-                    model=settings.agent_model,
-                    messages=api_messages,
-                    tools=TOOLS,
-                    tool_choice="auto",
-                    max_tokens=settings.max_tokens,
-                    temperature=settings.temperature,
-                    stream=False
-                )
-                
-                message = response.choices[0].message
-                
-                if message.tool_calls:
-                    # Process tools
-                    tool_results = []
-                    
-                    for tool_call in message.tool_calls:
-                        tool_name = tool_call.function.name
-                        
-                        # Create a unique key for this tool call
-                        tool_key = f"{tool_name}:{tool_call.function.arguments}"
-                        
-                        # Skip if we've already executed this exact call
-                        if tool_key in executed_tool_calls:
-                            logger.info(f"Skipping duplicate tool call: {tool_name}")
-                            continue
-                        
-                        executed_tool_calls.add(tool_key)
-                        tools_used.append(tool_name)
-                        
-                        yield {
-                            "type": "tool_start",
-                            "tool": tool_name,
-                            "arguments": tool_call.function.arguments
-                        }
-                        
-                        result = await self._execute_tool(
-                            tool_call=tool_call,
-                            file_ids=file_ids
-                        )
-                        tool_results.append(result)
-                        
-                        if result.search_results:
-                            all_search_results.extend(result.search_results)
-                        
-                        yield {
-                            "type": "tool_result",
-                            "tool": tool_name,
-                            "results": result.search_results or [],
-                            "result_count": len(result.search_results) if result.search_results else 0
-                        }
-                    
-                    # Add to conversation
-                    api_messages.append({
-                        "role": "assistant",
-                        "content": message.content or "",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments
-                                }
-                            }
-                            for tc in message.tool_calls
-                        ]
-                    })
-                    
-                    for result in tool_results:
-                        api_messages.append({
-                            "role": "tool",
-                            "tool_call_id": result.tool_call_id,
-                            "content": json.dumps(result.result)
-                        })
-                    
-                    # Mark that tools have been executed - next iteration goes straight to streaming
-                    tools_executed_this_session = True
-                    continue
-                
-                # No tool calls - model responded directly; use the content already received
-                # to avoid a redundant second LLM call
-                if message.content:
-                    yield {
-                        "type": "content",
-                        "content": message.content
-                    }
-                
-                yield {
-                    "type": "done",
-                    "search_results": all_search_results,
-                    "tools_used": tools_used,
-                    "summary_updated": summary_updated,
-                    "new_summary": summary if summary_updated else None
-                }
-                return
-                
-            except Exception as e:
-                logger.error(f"Agent streaming error: {e}", exc_info=True)
-                yield {"type": "error", "error": str(e)}
-                return
-        
-        yield {"type": "error", "error": "Maximum tool iterations reached"}
+
+        user_id = self.user_context.get("id", "")
+        correlation_id = self.user_context.get("correlation_id", str(uuid4()))
+
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+
+        user_message = ""
+        for msg in reversed(messages):
+            if msg.role == "user":
+                user_message = msg.content
+                break
+
+        from src.services.S3Service import S3Service
+
+        initial_state: Dict[str, Any] = {
+            "user_message": user_message,
+            "conversation_id": "",
+            "user_id": user_id,
+            "file_ids": file_ids,
+            "conversation_history": conversation_history,
+            "conversation_summary": conversation_summary,
+            "attached_files": None,
+            "intent": None,
+            "file_types": None,
+            "search_results": None,
+            "tool_outputs": None,
+            "retrieved_context": None,
+            "messages": [],
+            "final_response": None,
+            "tools_used": [],
+            "sse_events": []
+        }
+
+        config = {
+            "configurable": {
+                "thread_id": f"{user_id}-{uuid4()}",
+                "correlation_id": correlation_id,
+                "file_embedder_service": self.file_embedder,
+                "upload_manager_service": self.upload_manager,
+                "s3_service": S3Service(),
+            }
+        }
+
+        try:
+            async for event in compiled_graph.astream(initial_state, config=config, stream_mode="updates"):
+                for node_name, state_delta in event.items():
+                    for sse_event in state_delta.get("sse_events", []):
+                        yield sse_event
+        except Exception as e:
+            logger.error(f"[{correlation_id}] run_streaming graph error: {e}", exc_info=True)
+            yield {"type": "error", "error": str(e)}
     
     def _build_api_messages(
         self,
@@ -607,7 +487,7 @@ class AgentService:
                     result_data = {
                         "file_id": result.get("file_id", ""),
                         "scene_id": result.get("scene_id"),
-                        "file_name":file_details.get("originalFilename", "") or result.get("file_name", "Unknown"),
+                        "file_name": file_details.get("fileName", "") or result.get("file_name", "Unknown"),
                         "score": result.get("score", 0.0),
                         "timestamp": result.get("start_time") or result.get("timestamp"),
                         "thumbnail_s3_key": scene_details.get("thumbnailS3Key") or file_details.get("thumbnailPath"),

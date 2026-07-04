@@ -11,7 +11,9 @@
     "userId":      { "type": "string" },
     "expiresAt":   { "type": "string" },
     "ipAddress":   { "type": "string" },
-    "userAgent":   { "type": "string" }
+    "userAgent":   { "type": "string" },
+    "createdAt":   { "type": "string" },
+    "updatedAt":   { "type": "string" }
   },
   "additionalProperties": false
 }

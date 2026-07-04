@@ -173,7 +173,6 @@ services:
       - ragspace-network
 
   scene-detector-consumer:
-    container_name: ragspace-scene-detector-consumer
     build:
       context: .
       dockerfile: scene-detector/Dockerfile
@@ -196,6 +195,8 @@ services:
       disable: true
     networks:
       - ragspace-network
+    deploy:
+      replicas: ${SCENE_DETECTOR_CONSUMER_REPLICAS:-1}
 
   file-embedder-server:
     container_name: ragspace-file-embedder-server
@@ -223,7 +224,6 @@ services:
       - ragspace-network
 
   file-embedder-consumer:
-    container_name: ragspace-file-embedder-consumer
     build:
       context: .
       dockerfile: file-embedder/Dockerfile
@@ -247,6 +247,8 @@ services:
       disable: true
     networks:
       - ragspace-network
+    deploy:
+      replicas: ${FILE_EMBEDDER_CONSUMER_REPLICAS:-1}
 
   chat-manager:
     container_name: ragspace-chat-manager

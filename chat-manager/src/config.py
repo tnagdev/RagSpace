@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     aws_region: str = "ap-south-1"
     aws_s3_bucket: str = "user-uploads"
     s3_endpoint_url: Optional[str] = None
+    s3_public_endpoint_url: Optional[str] = None  # Public-facing URL for pre-signed URLs (browser-accessible)
     s3_url_expiration: int = 3600
     
     # Conversation Settings

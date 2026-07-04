@@ -1,4 +1,5 @@
 """ChromaDB manager for storing and querying embeddings."""
+import json
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 import numpy as np
@@ -281,6 +282,30 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         logger.info(f"Returning {len(final_results)} final results after merging and ranking")
         return final_results
     
+    def get_special_docs_for_file(self, file_id: str) -> dict:
+        """Return character_registry and narrative documents stored for this file."""
+        result = {"character_registry": None, "narrative": None}
+        try:
+            raw = self.text_collection.get(
+                ids=[f"{file_id}#character_registry", f"{file_id}#narrative"],
+                include=["documents", "metadatas"],
+            )
+            for doc, meta in zip(raw.get("documents", []), raw.get("metadatas", [])):
+                ctype = (meta or {}).get("content_type")
+                if ctype == "character_registry" and doc:
+                    try:
+                        result["character_registry"] = json.loads(doc)
+                    except Exception:
+                        pass
+                elif ctype == "narrative" and meta.get("narrative_json"):
+                    try:
+                        result["narrative"] = json.loads(meta["narrative_json"])
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"get_special_docs_for_file({file_id}): {e}")
+        return result
+
     def delete_by_file_id(self, file_id: str) -> None:
         """Delete all embeddings associated with a file ID across all collections."""
         # Delete from text collection
@@ -358,17 +383,20 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             )
             
             if text_results and text_results["ids"]:
+                _special = {"narrative", "character_registry"}
                 for idx, (metadata, doc) in enumerate(zip(
                     text_results["metadatas"],
                     text_results["documents"]
                 )):
+                    if metadata.get("content_type") in _special:
+                        continue
                     segment_data = {
                         **metadata,
                         "text": doc,
                         "type": "audio"
                     }
                     segments.append(segment_data)
-                
+
                 logger.info(f"Retrieved {len(segments)} audio segments for file {file_id}")
         except Exception as e:
             logger.error(f"Error getting text embeddings for file {file_id}: {e}")

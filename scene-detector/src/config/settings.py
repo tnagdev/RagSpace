@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     aws_secret_access_key: Optional[str] = None
     aws_s3_bucket: str = "user-uploads"
     aws_s3_endpoint: Optional[str] = None
+    aws_s3_public_endpoint: Optional[str] = None  # Public-facing URL for pre-signed URLs (browser-accessible)
     
     # YouTube Download
     youtube_cookies_file: Optional[str] = None  # Path to Netscape-format cookies.txt

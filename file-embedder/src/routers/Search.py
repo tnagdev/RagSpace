@@ -199,12 +199,14 @@ async def advanced_search(
             scene_id = None
             if ftype == "VIDEO":
                 if scene_idx is not None and fid in scenes_cache:
-                    scene = scenes_cache[fid].get(scene_idx)
+                    # scene_index in ChromaDB is 0-based; sceneNumber in Prisma is 1-based.
+                    # Add 1 to convert before looking up in scenes_cache.
+                    scene = scenes_cache[fid].get(scene_idx + 1)
                     if scene:
                         scene_id = scene.get("id")
                         scene_details = SceneDetails(
                             id=scene_id,
-                            sceneNumber=scene.get("sceneNumber", scene_idx),
+                            sceneNumber=scene.get("sceneNumber", scene_idx + 1),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
                             startFrame=scene.get("startFrame", 0),
@@ -215,11 +217,11 @@ async def advanced_search(
                             thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
-                        logger.debug(f"Scene {scene_idx} not found in cache for file {fid}. Creating fallback from metadata.")
+                        logger.debug(f"Scene {scene_idx} (sceneNumber={scene_idx + 1}) not found in cache for file {fid}. Creating fallback from metadata.")
                         # Create partial scene details from embedding metadata
                         if result.get("start_time") is not None:
                             scene_details = SceneDetails(
-                                sceneNumber=scene_idx,
+                                sceneNumber=scene_idx + 1,
                                 startTime=result.get("start_time", 0.0),
                                 endTime=result.get("end_time", 0.0),
                                 startFrame=result.get("start_frame", 0),
@@ -473,6 +475,8 @@ async def get_video_content(
         
         summary_context = "\n".join(summary_parts)
         
+        special_docs = chroma_db.get_special_docs_for_file(body.file_id)
+
         return VideoContentResponse(
             file_id=body.file_id,
             file_name=file_details.get("filename"),
@@ -481,7 +485,9 @@ async def get_video_content(
             total_scenes=content_data.get("total_scenes", 0),
             total_segments=content_data.get("total_segments", 0),
             content=all_content,
-            summary_context=summary_context
+            summary_context=summary_context,
+            character_registry=special_docs.get("character_registry"),
+            narrative_summary=special_docs.get("narrative"),
         )
         
     except HTTPException:

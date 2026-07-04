@@ -21,6 +21,8 @@ class S3Service(metaclass=SingletonMeta):
         self.default_bucket = settings.aws_s3_bucket
         self.url_expiration = settings.s3_url_expiration
         self.endpoint_url = settings.s3_endpoint_url
+        # Pre-signed URLs must use a browser-accessible hostname (e.g. localhost:9000, not minio:9000)
+        self.public_endpoint_url = settings.s3_public_endpoint_url or settings.s3_endpoint_url
     
     async def get_signed_url(self, s3_key: str, bucket: Optional[str] = None) -> Optional[str]:
         """
@@ -40,9 +42,9 @@ class S3Service(metaclass=SingletonMeta):
         
         try:
             client_config = {}
-            if self.endpoint_url:
-                client_config['endpoint_url'] = self.endpoint_url
-            
+            if self.public_endpoint_url:
+                client_config['endpoint_url'] = self.public_endpoint_url
+
             async with self.session.client('s3', **client_config) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     'get_object',
@@ -74,9 +76,9 @@ class S3Service(metaclass=SingletonMeta):
         
         try:
             client_config = {}
-            if self.endpoint_url:
-                client_config['endpoint_url'] = self.endpoint_url
-            
+            if self.public_endpoint_url:
+                client_config['endpoint_url'] = self.public_endpoint_url
+
             async with self.session.client('s3', **client_config) as s3_client:
                 for key, bucket in s3_items:
                     if key:

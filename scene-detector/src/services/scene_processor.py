@@ -387,7 +387,7 @@ class SceneProcessor:
                     'fileId': file_id,
                     'fileName': file_record.get('originalFilename') or file_record.get('filename'),
                     'fileType': file_record.get('fileType'),
-                    'user': user.model_dump() if hasattr(user, 'model_dump') else user,
+                    'user': user.model_dump(by_alias=True) if hasattr(user, 'model_dump') else user,
                     'timestamp': datetime.utcnow().isoformat(),
                     'data': {
                         'stage': ProcessingStage.SCENE_DETECTION.value,

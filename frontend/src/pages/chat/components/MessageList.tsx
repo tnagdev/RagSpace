@@ -6,6 +6,7 @@ import Markdown from '@/components/Markdown';
 interface MessageListProps {
     messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>;
     onResultClick?: (result: SearchResult) => void;
+    onTimestampClick?: (seconds: number, searchResults?: SearchResult[]) => void;
 }
 
 const formatRelativeTime = (date: string) => {
@@ -26,6 +27,7 @@ const formatRelativeTime = (date: string) => {
 const MessageList: React.FC<MessageListProps> = ({
     messages,
     onResultClick,
+    onTimestampClick,
 }) => {
     return (
         <div className="space-y-4">
@@ -83,7 +85,13 @@ const MessageList: React.FC<MessageListProps> = ({
 
                         <div className="text-sm break-words">
                             {message.role === 'assistant' ? (
-                                <Markdown content={message.content} />
+                                <Markdown
+                                    content={message.content}
+                                    searchResults={message.searchResults}
+                                    onTimestampClick={onTimestampClick
+                                        ? (s) => onTimestampClick(s, message.searchResults)
+                                        : undefined}
+                                />
                             ) : (
                                 <span className="whitespace-pre-wrap">{message.content}</span>
                             )}
