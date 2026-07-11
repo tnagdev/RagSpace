@@ -63,8 +63,33 @@ export interface ChatToolStart {
 export interface ChatToolResult {
     type: 'tool_result';
     tool: string;
-    results: SearchResult[];
-    result_count: number;
+    results?: SearchResult[];
+    result_count?: number;
+}
+
+export interface ChatStepStart {
+    type: 'step_start';
+    step: string;
+    label: string;
+}
+
+export interface ChatStepDone {
+    type: 'step_done';
+    step: string;
+    label?: string;
+}
+
+export interface ChatStepError {
+    type: 'step_error';
+    step: string;
+    error: string;
+    error_code?: string;
+}
+
+export interface ChatSceneThumbnails {
+    type: 'scene_thumbnails';
+    scenes: SearchResult[];
+    count: number;
 }
 
 export interface ChatDone {
@@ -86,7 +111,7 @@ export interface ChatError {
     error: string;
 }
 
-export type ChatSSEEvent = ChatMetadata | ChatContent | ChatResults | ChatToolStart | ChatToolResult | ChatDone | ChatConversationId | ChatError;
+export type ChatSSEEvent = ChatMetadata | ChatContent | ChatResults | ChatToolStart | ChatToolResult | ChatDone | ChatConversationId | ChatError | ChatStepStart | ChatStepDone | ChatStepError | ChatSceneThumbnails;
 
 export interface ConversationSummary {
     id: string;

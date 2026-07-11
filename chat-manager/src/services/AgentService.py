@@ -369,10 +369,25 @@ class AgentService:
         }
 
         try:
-            async for event in compiled_graph.astream(initial_state, config=config, stream_mode="updates"):
-                for node_name, state_delta in event.items():
-                    for sse_event in state_delta.get("sse_events", []):
-                        yield sse_event
+            async for mode, event in compiled_graph.astream(
+                initial_state, config=config, stream_mode=["updates", "messages"]
+            ):
+                if mode == "messages":
+                    chunk, _metadata = event
+                    # Only forward tokens from the synthesizer — other nodes (intent_classifier,
+                    # etc.) also invoke LLMs and would otherwise pollute the content stream.
+                    if (
+                        _metadata.get("langgraph_node") == "synthesize"
+                        and hasattr(chunk, "content")
+                        and chunk.content
+                    ):
+                        yield {"type": "content", "content": chunk.content}
+                elif mode == "updates":
+                    for node_name, state_delta in event.items():
+                        for sse_event in state_delta.get("sse_events", []):
+                            # Content tokens are delivered via messages channel; skip duplicates.
+                            if sse_event.get("type") != "content":
+                                yield sse_event
         except Exception as e:
             logger.error(f"[{correlation_id}] run_streaming graph error: {e}", exc_info=True)
             yield {"type": "error", "error": str(e)}

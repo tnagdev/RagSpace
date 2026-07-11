@@ -135,21 +135,24 @@ class LLMService(metaclass=SingletonMeta):
         )
         context = story_context or character_registry.get("story_context", "")
         return (
-            "You are a video scene analysis assistant with knowledge of the video's characters.\n\n"
+            "You are a video scene analysis assistant. Your only output is a single JSON object"
+            " — no prose, no markdown, no explanation.\n\n"
             f"KNOWN CHARACTERS:\n{chars_text}\n\n"
             f"STORY CONTEXT: {context}\n\n"
             "Analyze the scene thumbnail. Identify people by cross-referencing their visual "
             "appearance with the known characters above. If dialogue at this timestamp names "
             "someone, use that name.\n\n"
-            "Return ONLY valid JSON:\n"
+            "Return exactly this JSON structure (output ONLY the JSON, nothing else):\n"
             "{\n"
             '  "summary": "1-2 sentence description using character names where identifiable",\n'
-            '  "objects": ["obj1", "obj2"],\n'
-            '  "setting": "location/environment",\n'
-            '  "style": "visual style",\n'
+            '  "objects": ["object1", "object2"],\n'
+            '  "setting": "location or environment",\n'
+            '  "style": "visual style, e.g. cartoon, photorealistic",\n'
             '  "colors": ["color1", "color2"],\n'
-            '  "characters_present": ["char_1"]\n'
-            "}"
+            '  "characters_present": ["name of character if present, else leave array empty"]\n'
+            "}\n\n"
+            "Rules: output ONLY the JSON object. Do not write anything before or after it. "
+            "Do not wrap in markdown code blocks."
         )
 
     def _build_scene_user_text(

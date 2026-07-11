@@ -1,1 +1,1 @@
-Analyze this image and provide a structured description as JSON:
+Analyze this scene thumbnail and return the JSON object described in your instructions.

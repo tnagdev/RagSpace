@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { FileResponseDto, FileType } from '@/types/upload.types';
+import { FileResponseDto } from '@/types/upload.types';
 import { SearchResult, ChatSSEEvent } from '@/types/chat.types';
 import { QueryResult } from '@/types/search.types';
 import { Collection, CollectionAttachment } from '@/types/collection.types';
@@ -18,9 +18,8 @@ import CollectionPickerModal from '../search/components/CollectionPickerModal';
 import VideoPreview from '../search/components/VideoPreview';
 import ImagePreview from '../search/components/ImagePreview';
 import YouTubePlayer from '../search/components/YouTubePlayer';
-import Button from '@/components/Button';
 import { IconButton } from '@/components/IconButton';
-import { RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Markdown from '@/components/Markdown';
 import { AlertCircle, MessageSquare, Film, X, Folder, FilePlus } from 'lucide-react';
 
@@ -74,24 +73,78 @@ const ChatPage: React.FC = () => {
     const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>>([]);
     const [streamingMessage, setStreamingMessage] = useState<string>('');
     const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
+    const [statusLabel, setStatusLabel] = useState<string>('Thinking...');
+    const [displayedLabel, setDisplayedLabel] = useState<string>('');
+    const [streamKey, setStreamKey] = useState(0);
+    const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+    // Prevents loadMessagesWithFiles from overwriting messages that were just
+    // set from the stream's done event before the server query can refetch.
+    const justSetFromStreamRef = useRef(false);
+    const pendingScrollRef = useRef(false);
+    // True while handleSendMessage's SSE loop is active. Used to prevent
+    // loadMessagesWithFiles (triggered by the /chat → /chat?conversation_id=id
+    // route change) from overwriting streaming state mid-stream.
+    const isStreamingRef = useRef(false);
 
     const conversationsQuery = useConversations();
     const conversationQuery = useConversation(currentConversationId);
 
+    // Debug: trace key state changes
+    useEffect(() => {
+        console.log('[STATE] isStreaming changed:', isStreaming, '| messages.length=', messages.length, '| statusLabel=', statusLabel);
+    }, [isStreaming]);
+
+    useEffect(() => {
+        console.log('[STATE] statusLabel changed:', statusLabel);
+    }, [statusLabel]);
+
+    useEffect(() => {
+        console.log('[STATE] streamingResults changed: count=', streamingResults.length);
+    }, [streamingResults]);
+
     // Filter to only show global conversations (no file_id or collection_id)
     const globalConversations = conversationsQuery.data?.filter(conv => !conv.file_id && !conv.collection_id) || [];
 
-    // Auto-scroll to bottom when messages change
+    // Typewriter animation: retype displayedLabel whenever statusLabel changes
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, streamingMessage]);
+        if (typewriterRef.current) clearInterval(typewriterRef.current);
+        setDisplayedLabel('');
+        if (!statusLabel) return;
+        let i = 0;
+        typewriterRef.current = setInterval(() => {
+            i++;
+            setDisplayedLabel(statusLabel.slice(0, i));
+            if (i >= statusLabel.length) {
+                clearInterval(typewriterRef.current!);
+                typewriterRef.current = null;
+            }
+        }, 25);
+        return () => {
+            if (typewriterRef.current) clearInterval(typewriterRef.current);
+        };
+    }, [statusLabel, streamKey]);
+
+    // Auto-scroll only at the two intentional points set by pendingScrollRef:
+    // 1) when the user message is added (stream starts)
+    // 2) when the assistant message is committed (stream ends)
+    // Background React Query refetches that also call setMessages will NOT scroll.
+    useEffect(() => {
+        if (pendingScrollRef.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            pendingScrollRef.current = false;
+        }
+    }, [messages]);
 
     // Load conversation messages when selected or clear when new chat
     useEffect(() => {
         const loadMessagesWithFiles = async () => {
+            console.log('[EFFECT] loadMessagesWithFiles triggered:',
+                'justSetFromStreamRef=', justSetFromStreamRef.current,
+                'conversationQuery.data?.messages=', conversationQuery.data?.messages?.length ?? 'null',
+                'currentConversationId=', currentConversationId);
             if (conversationQuery.data?.messages) {
                 const apiMessages = conversationQuery.data.messages;
 
@@ -128,11 +181,29 @@ const ChatPage: React.FC = () => {
                     attachedFiles: msg.fileIds?.map(id => fileDetailsMap[id]).filter(Boolean) || undefined
                 }));
 
+                // Never overwrite messages while the SSE loop is running. The route
+                // change /chat → /chat?conversation_id=id triggers this effect, but
+                // the stream is still live and has the authoritative in-progress state.
+                if (isStreamingRef.current) {
+                    console.log('[EFFECT] loadMessagesWithFiles: SKIPPED (isStreamingRef=true — stream in progress)');
+                    return;
+                }
+                // Skip one refetch after the stream's done handler already set messages.
+                if (justSetFromStreamRef.current) {
+                    console.log('[EFFECT] loadMessagesWithFiles: SKIPPED (justSetFromStreamRef=true)');
+                    justSetFromStreamRef.current = false;
+                    return;
+                }
+                console.log('[EFFECT] loadMessagesWithFiles: setting messages count=', messagesWithFiles.length);
                 setMessages(messagesWithFiles);
             } else if (!currentConversationId) {
-                setMessages([]);
-                setAttachedFiles([]);
-                setError(null);
+                // Don't reset message state if the stream hasn't finished yet — the
+                // route briefly re-evaluates on TanStack Router's transition.
+                if (!isStreamingRef.current) {
+                    setMessages([]);
+                    setAttachedFiles([]);
+                    setError(null);
+                }
             }
         };
 
@@ -144,14 +215,30 @@ const ChatPage: React.FC = () => {
 
         setError(null);
         setIsStreaming(true);
+        isStreamingRef.current = true;
         setStreamingMessage('');
         setStreamingResults([]);
+        setStreamKey(k => k + 1);
+        setStatusLabel('Thinking...');
+        setDisplayedLabel('');
 
         // Capture attached files and collections before clearing
         const currentAttachedFiles = [...attachedFiles];
         const currentAttachedCollections = [...attachedCollections];
 
-        // Resolve collection file IDs
+        // Add user message and clear attachments BEFORE any awaits so the streaming
+        // bubble is visible immediately (messages.length > 0 + isStreaming = true).
+        const userMessage = {
+            role: 'user' as const,
+            content: message,
+            attachedFiles: currentAttachedFiles.length > 0 ? currentAttachedFiles : undefined
+        };
+        pendingScrollRef.current = true;
+        setMessages(prev => [...prev, userMessage]);
+        setAttachedFiles([]);
+        setAttachedCollections([]);
+
+        // Resolve collection file IDs (async — user message is already in state)
         let collectionFileIds: string[] = [];
         try {
             const fileIdPromises = currentAttachedCollections.map(c => collectionAPI.getCollectionFiles(c.id));
@@ -164,18 +251,6 @@ const ChatPage: React.FC = () => {
         // Combine file IDs from direct attachments and collections
         const allFileIds = [...new Set([...currentAttachedFiles.map(f => f.id), ...collectionFileIds])];
 
-        // Add user message immediately with attached files
-        const userMessage = {
-            role: 'user' as const,
-            content: message,
-            attachedFiles: currentAttachedFiles.length > 0 ? currentAttachedFiles : undefined
-        };
-        setMessages(prev => [...prev, userMessage]);
-
-        // Clear attachments after adding to message
-        setAttachedFiles([]);
-        setAttachedCollections([]);
-
         // Prepare payload
         const payload = {
             message,
@@ -185,12 +260,15 @@ const ChatPage: React.FC = () => {
             include_context: true,
         };
 
+        console.log('[CHAT DEBUG] setMessages called with userMessage, about to sendMessage. messages will be:', messages.length + 1);
+
         try {
             const response = await chatAPI.sendMessage(payload);
 
             if (!response.ok) {
                 throw new Error('Failed to send message');
             }
+            console.log('[CHAT DEBUG] sendMessage response ok, status=', response.status);
 
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
@@ -202,58 +280,126 @@ const ChatPage: React.FC = () => {
             let assistantMessage = '';
             let conversationId = currentConversationId;
             let messageSearchResults: SearchResult[] = [];
+            // Scene thumbnails from video_content_node — used as searchResults fallback in summarize mode.
+            let messageSceneResults: SearchResult[] = [];
+            // SSE events can span multiple reader.read() chunks (especially large
+            // scene_thumbnails payloads with many signed S3 URLs). Buffer the
+            // incomplete last line so it's prepended to the next chunk.
+            let sseBuffer = '';
+
+            console.log('[CHAT DEBUG] Stream started. isStreaming=true messages.length will be:', messages.length + 1);
+
+            const processSSELine = (line: string) => {
+                if (!line.startsWith('data: ')) return;
+
+                const data = line.slice(6);
+                if (data === '[DONE]') return;
+
+                try {
+                    const event: ChatSSEEvent = JSON.parse(data);
+                    console.log('[SSE EVENT]', event.type, event);
+
+                    if (event.type === 'metadata') {
+                        conversationId = event.conversation_id;
+                        console.log('[SSE] metadata: conversation_id=', conversationId, 'results=', event.results?.length ?? 0);
+                        // Update the URL so the user can bookmark/share mid-stream, but
+                        // bypass TanStack Router's navigate() to avoid any route
+                        // re-evaluation (which can reset isStreaming/messages state).
+                        // The single navigate() in the 'done' handler updates the
+                        // router's internal state once the stream is complete.
+                        window.history.replaceState(null, '', `/chat?conversation_id=${conversationId}`);
+                        // Handle results if present (direct_search mode) - show immediately
+                        if (event.results && event.results.length > 0) {
+                            messageSearchResults = event.results;
+                            setStreamingResults(event.results);
+                        }
+                    } else if (event.type === 'results' || event.type === 'tool_result') {
+                        const evResults = (event as { results?: SearchResult[] }).results;
+                        console.log('[SSE] results/tool_result: count=', evResults?.length ?? 'no results field', 'first=', evResults?.[0]?.file_name);
+                        if (evResults?.length) {
+                            messageSearchResults = [...messageSearchResults, ...evResults];
+                            setStreamingResults(prev => [...prev, ...evResults]);
+                        }
+                    } else if (event.type === 'step_start') {
+                        console.log('[SSE] step_start: step=', event.step, 'label=', event.label);
+                        if (event.label) setStatusLabel(event.label);
+                    } else if (event.type === 'step_done') {
+                        console.log('[SSE] step_done: step=', event.step, 'label=', event.label);
+                    } else if (event.type === 'step_error') {
+                        console.warn('[SSE] step_error: step=', event.step, 'error=', event.error);
+                    } else if (event.type === 'scene_thumbnails') {
+                        console.log('[SSE] scene_thumbnails: scenes=', event.scenes?.length ?? 0);
+                        if (event.scenes?.length) {
+                            messageSceneResults = event.scenes;
+                            // Treat exactly like search results: add to messageSearchResults so
+                            // the done handler picks them up on the primary path (not just fallback),
+                            // and append to streamingResults so thumbnail cards appear in the bubble.
+                            messageSearchResults = [...messageSearchResults, ...event.scenes];
+                            setStreamingResults(prev => [...prev, ...event.scenes]);
+                        }
+                    } else if (event.type === 'tool_start') {
+                        const toolFriendlyLabels: Record<string, string> = {
+                            get_video_content: 'Analyzing video scenes...',
+                            search_files: 'Searching your library...',
+                            get_file_content: 'Analyzing file content...',
+                        };
+                        const toolLabel = toolFriendlyLabels[(event as any).tool];
+                        if (toolLabel) setStatusLabel(toolLabel);
+                        console.log('[SSE] tool_start: tool=', (event as any).tool);
+                    } else if (event.type === 'content') {
+                        assistantMessage += event.content;
+                        setStreamingMessage(assistantMessage);
+                    } else if (event.type === 'done') {
+                        conversationId = event.conversation_id ?? conversationId;
+                        console.log('[SSE] done: conversationId=', conversationId,
+                            'messageSearchResults=', messageSearchResults.length,
+                            'messageSceneResults=', messageSceneResults.length,
+                            'assistantMessage.length=', assistantMessage.length);
+                        navigate({ to: '/chat', search: { conversation_id: conversationId }, replace: true });
+                        // Flag so the subsequent React Query refetch doesn't overwrite these messages.
+                        justSetFromStreamRef.current = true;
+                        // scene_thumbnails scenes are now merged into messageSearchResults, so
+                        // the primary path works for both search and summarize intents.
+                        // messageSceneResults kept as a safety fallback.
+                        const finalSearchResults = messageSearchResults.length
+                            ? messageSearchResults
+                            : messageSceneResults;
+                        console.log('[SSE] done: finalSearchResults=', finalSearchResults.length);
+                        pendingScrollRef.current = true;
+                        setMessages(prev => {
+                            console.log('[SSE] setMessages in done: prev.length=', prev.length, '→', prev.length + 1);
+                            return [...prev, {
+                                role: 'assistant',
+                                content: assistantMessage,
+                                searchResults: finalSearchResults
+                            }];
+                        });
+                        setStreamingMessage('');
+                        setStreamingResults([]);
+                    } else if (event.type === 'error') {
+                        console.error('[SSE] error event:', (event as any).error);
+                        setError((event as any).error);
+                    }
+                } catch (e) {
+                    console.error('[SSE] Failed to parse SSE event:', e, 'raw line:', line);
+                }
+            };
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-
+                if (done) {
+                    console.log('[CHAT DEBUG] reader done (stream closed)');
+                    // Flush any remaining buffered data (incomplete last line)
+                    if (sseBuffer.trim()) processSSELine(sseBuffer);
+                    break;
+                }
+                // Accumulate decoded bytes; keep the last (possibly incomplete) line
+                // in sseBuffer so split events are reassembled across read() calls.
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split('\n');
+                sseBuffer = lines.pop() ?? '';
                 for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-
-                    try {
-                        const event: ChatSSEEvent = JSON.parse(data);
-
-                        if (event.type === 'metadata') {
-                            conversationId = event.conversation_id;
-                            navigate({ to: '/chat', search: { conversation_id: conversationId }, replace: true });
-                            // Handle results if present (direct_search mode) - show immediately
-                            if (event.results && event.results.length > 0) {
-                                messageSearchResults = event.results;
-                                setStreamingResults(event.results);
-                            }
-                        } else if (event.type === 'results' || event.type === 'tool_result') {
-                            // Handle search results from agentic mode - show immediately
-                            messageSearchResults = [...messageSearchResults, ...event.results];
-                            setStreamingResults(prev => [...prev, ...event.results]);
-                        } else if (event.type === 'tool_start') {
-                            // Tool is being executed - could show loading indicator
-                            console.log('Tool started:', event.tool);
-                        } else if (event.type === 'content') {
-                            assistantMessage += event.content;
-                            setStreamingMessage(assistantMessage);
-                        } else if (event.type === 'done') {
-                            conversationId = event.conversation_id;
-                            navigate({ to: '/chat', search: { conversation_id: conversationId }, replace: true });
-                            // Add the complete assistant message with search results
-                            setMessages(prev => [...prev, {
-                                role: 'assistant',
-                                content: assistantMessage,
-                                searchResults: messageSearchResults
-                            }]);
-                            setStreamingMessage('');
-                            setStreamingResults([]);
-                        } else if (event.type === 'error') {
-                            setError(event.error);
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse SSE event:', e);
-                    }
+                    processSSELine(line);
                 }
             }
 
@@ -265,6 +411,7 @@ const ChatPage: React.FC = () => {
             // Remove the user message on error
             setMessages(prev => prev.slice(0, -1));
         } finally {
+            isStreamingRef.current = false;
             setIsStreaming(false);
         }
     };
@@ -307,10 +454,18 @@ const ChatPage: React.FC = () => {
             pool.find((r) => r.file_url || r.youtube_url) ??
             pool[0];
 
+        console.log('[TIMESTAMP] click: seconds=', seconds,
+            'msgSearchResults=', msgSearchResults?.length ?? 0,
+            'streamingResults=', streamingResults.length,
+            'pool=', pool.length,
+            'match=', match ? { file_name: match.file_name, youtube_url: match.youtube_url, start_time: match.start_time } : null);
+
         if (match) {
             // Clone and override start_time so VideoPreview seeks to the right position
             setSelectedResult({ ...match, start_time: seconds });
             setIsLeftPanelCollapsed(true);
+        } else {
+            console.warn('[TIMESTAMP] No match found in pool — timestamp badge click has no video to open');
         }
     };
 
@@ -376,20 +531,22 @@ const ChatPage: React.FC = () => {
                     <div className="flex-1 flex flex-col min-h-0 relative">
                         {/* Messages */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
-                            {messages.length === 0 ? (
+                            {messages.length === 0 && !isStreaming ? (
                                 <div className="h-full flex flex-col items-center justify-center text-text-secondary">
                                     <MessageSquare size={48} className="mb-4 opacity-50" />
                                     <p>Start a conversation or select one from the sidebar</p>
                                 </div>
                             ) : (
                                 <>
-                                    <MessageList
-                                        messages={messages}
-                                        onResultClick={handleResultClick}
-                                        onTimestampClick={handleTimestampClick}
-                                    />
+                                    {messages.length > 0 && (
+                                        <MessageList
+                                            messages={messages}
+                                            onResultClick={handleResultClick}
+                                            onTimestampClick={handleTimestampClick}
+                                        />
+                                    )}
                                     {/* Show streaming message */}
-                                    {(streamingMessage || streamingResults.length > 0) && (
+                                    {isStreaming && (
                                         <div className="flex gap-3 justify-start mb-4">
                                             <div className="w-8 h-8 rounded-full bg-accent-primary/20 flex items-center justify-center shrink-0">
                                                 <MessageSquare size={18} className="text-accent-primary" />
@@ -403,7 +560,8 @@ const ChatPage: React.FC = () => {
                                                 ) : (
                                                     <div className="text-sm text-text-secondary flex items-center gap-2">
                                                         <span className="inline-block w-2 h-2 bg-accent-primary rounded-full animate-pulse" />
-                                                        Searching...
+                                                        {displayedLabel}
+                                                        <span className="inline-block w-0.5 h-3.5 bg-text-secondary/60 animate-pulse" />
                                                     </div>
                                                 )}
 

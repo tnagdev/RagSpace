@@ -1,60 +1,11 @@
 """Shared formatters and prompts for graph nodes."""
 from typing import Any, Optional
 
-AGENT_SYSTEM_PROMPT = """You are a helpful AI assistant for RagSpace, a video and image content search platform.
-You help users find and understand their uploaded media through conversational search.
+from src.graph.prompts import load_prompt
 
-You have access to tools, but ONLY use them when needed:
-
-## When to use NO tools (answer directly):
-- General knowledge questions ("what is 2+2?", "explain machine learning")
-- Casual conversation or greetings
-- Follow-up questions about results already shown
-- Questions that can be answered from conversation context
-- Clarifying questions or requests for explanation
-
-## Tool: search_files
-Use ONLY when the user asks about THEIR uploaded content:
-- "find videos with red cars"
-- "show me images from the beach"
-- "where did I mention machine learning?" (searching their audio/video transcripts)
-- "which video has a sunset scene?"
-- Any query requiring lookup of visual, audio, or text content in their files
-
-## Tool: get_video_content
-Use ONLY when files are ATTACHED and user wants full video analysis:
-- Files are attached AND user asks "summarize this video"
-- Files are attached AND user wants complete scene-by-scene breakdown
-- NOT for finding videos (use search_files) or when no files attached
-
-## Tool: get_file_content
-Use ONLY when files are ATTACHED and user wants image/audio analysis:
-- Files are attached AND user asks "what is in this image?"
-- Files are attached AND user wants image description or audio transcript
-- NOT for finding images (use search_files) or when no files attached
-
-DECISION RULES:
-1. General questions → Answer directly without tools
-2. Questions about their files/content → Use search_files
-3. Specific attached files → Use get_video_content or get_file_content
-4. When in doubt, answer directly first; only use tools if the query clearly needs their content
-
-When responding:
-- Be concise and helpful
-- Reference specific files and timestamps when available
-- If search results are provided, describe what was found
-- For video summaries, synthesize visual and audio content
-- For image descriptions, describe objects, setting, style, and colors
-
-## Timestamp formatting (IMPORTANT)
-Whenever you mention a time range in a video, ALWAYS use this exact format: (Xs - Ys)
-where X and Y are numbers in seconds. Use SINGLE parentheses only. Examples:
-- Scene 1: Introduction (0s - 10s) — the opening shot shows...
-- At (45s - 90s) the speaker discusses machine learning...
-- The conclusion appears at (110s - 140s)
-Do NOT use double parentheses ((0s - 10s)). Do NOT wrap in bold (**).
-This format allows the UI to render clickable seek buttons so users can jump to that moment."""
-
+# Loaded once at import time from the text file so prompt edits don't require
+# touching Python source. Use load_prompt.cache_clear() in tests to reset.
+AGENT_SYSTEM_PROMPT = load_prompt("agent_system.md")
 
 def format_search_results_for_llm(results: list[dict[str, Any]]) -> dict[str, Any]:
     if not results:
@@ -71,21 +22,25 @@ def format_search_results_for_llm(results: list[dict[str, Any]]) -> dict[str, An
     }
 
     for idx, result in enumerate(results, 1):
+        result_type = result.get("result_type", "scene")
         item: dict[str, Any] = {
-            "rank": idx,
             "file_name": result.get("file_name"),
-            "relevance_score": f"{result.get('score', 0):.1%}",
+            "source": "spoken_dialogue" if result_type == "audio_segment" else "visual_scene",
         }
-        if result.get("timestamp"):
-            item["timestamp"] = f"{result['timestamp']:.1f}s"
+        start = result.get("start_time")
+        end = result.get("end_time")
+        if start is not None and end is not None:
+            item["time_range"] = f"{start:.1f}s - {end:.1f}s"
+        elif result.get("timestamp"):
+            item["time_range"] = f"{result['timestamp']:.1f}s"
         if result.get("description"):
-            item["description"] = result["description"]
+            item["scene_description"] = result["description"]
         if result.get("objects"):
-            item["objects"] = result["objects"]
+            item["objects_on_screen"] = result["objects"]
         if result.get("setting"):
             item["setting"] = result["setting"]
         if result.get("text_content"):
-            item["transcript"] = result["text_content"][:200]
+            item["dialogue"] = result["text_content"][:500]
         formatted["results"].append(item)
 
     return formatted
@@ -143,21 +98,54 @@ def format_video_content_for_llm(content: Optional[dict[str, Any]]) -> dict[str,
             "key_events": narrative.get("key_events", [])[:10],
         }
 
+    # Build a merged chronological timeline: for each visual scene, attach any
+    # audio segments that temporally overlap it. This lets the LLM read one
+    # unified entry per scene rather than 200+ interleaved rows.
     content_items = content.get("content", [])
     if content_items:
-        formatted["detailed_content"] = []
-        for item in content_items[:50]:
-            detail: dict[str, Any] = {
-                "type": item.get("type"),
-                "time_range": (
-                    f"{item.get('start_time', 0):.1f}s - {item.get('end_time', 0):.1f}s"
-                    if item.get("start_time") is not None else None
-                ),
+        visual_items = sorted(
+            [i for i in content_items if i.get("type") == "visual"],
+            key=lambda i: i.get("start_time") or 0,
+        )
+        audio_items = sorted(
+            [i for i in content_items if i.get("type") == "audio" and i.get("text")],
+            key=lambda i: i.get("start_time") or 0,
+        )
+        moments: list[dict[str, Any]] = []
+        for scene in visual_items:
+            s_start = scene.get("start_time") or 0
+            s_end = scene.get("end_time") or s_start
+            moment: dict[str, Any] = {
+                "time_range": f"{s_start:.1f}s - {s_end:.1f}s",
             }
-            if item.get("description"):
-                detail["description"] = item["description"]
-            if item.get("text"):
-                detail["transcript"] = item["text"][:300]
-            formatted["detailed_content"].append(detail)
+            if scene.get("description"):
+                moment["scene"] = scene["description"]
+            elif scene.get("text"):
+                moment["scene"] = scene["text"][:200]
+            overlapping_audio = " ".join(
+                seg["text"].strip()
+                for seg in audio_items
+                if (seg.get("start_time") or 0) <= s_end
+                and (seg.get("end_time") or 0) >= s_start
+                and seg["text"].strip()
+            )
+            if overlapping_audio:
+                moment["dialogue"] = overlapping_audio[:500]
+            moments.append(moment)
+        if moments:
+            formatted["timeline"] = moments
+
+        # Also include raw audio segments that don't overlap any visual scene
+        # (e.g. audio before/after all scenes) so nothing is lost.
+        scene_ranges = [(s.get("start_time") or 0, s.get("end_time") or 0) for s in visual_items]
+        orphan_audio = []
+        for seg in audio_items:
+            a_start = seg.get("start_time") or 0
+            a_end = seg.get("end_time") or a_start
+            covered = any(sr[0] <= a_end and sr[1] >= a_start for sr in scene_ranges)
+            if not covered:
+                orphan_audio.append(f"[{a_start:.1f}s] \"{seg['text'].strip()[:200]}\"")
+        if orphan_audio:
+            formatted["additional_audio"] = orphan_audio
 
     return formatted

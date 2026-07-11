@@ -3,10 +3,23 @@ import json
 import logging
 from langchain_core.runnables import RunnableConfig
 
+from src.config import settings
 from src.graph.state import AgentState
 from src.graph.formatters import format_search_results_for_llm
+from src.graph.utilities.metadata_service import fetch_metadata_maps, sign_s3_urls_inplace
+from src.logging.node_logger import NodeLogger
 
 logger = logging.getLogger(__name__)
+
+# Text/image retrieval weights keyed by query modality.
+# Visual queries prioritise CLIP embeddings; audio/thematic lean on text embeddings.
+_MODALITY_WEIGHTS: dict[str, dict[str, float]] = {
+    "visual":    {"text_weight": 0.25, "image_weight": 0.75},
+    "audio":     {"text_weight": 0.95, "image_weight": 0.05},
+    "thematic":  {"text_weight": 0.80, "image_weight": 0.20},
+    "character": {"text_weight": 0.75, "image_weight": 0.25},
+    "both":      {"text_weight": 0.50, "image_weight": 0.50},
+}
 
 
 async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -19,20 +32,18 @@ async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
     user_id = state["user_id"]
     file_ids = state.get("file_ids") or None
     query_modality = state.get("query_modality") or "both"
+    weights = _MODALITY_WEIGHTS.get(query_modality, _MODALITY_WEIGHTS["both"])
 
-    # Adjust text/image retrieval weights based on query type so visual queries
-    # prioritise CLIP results while thematic/character queries lean on transcripts.
-    _modality_weights = {
-        "visual":    {"text_weight": 0.25, "image_weight": 0.75},
-        "thematic":  {"text_weight": 0.80, "image_weight": 0.20},
-        "character": {"text_weight": 0.75, "image_weight": 0.25},
-        "both":      {"text_weight": 0.50, "image_weight": 0.50},
-    }
-    weights = _modality_weights.get(query_modality, _modality_weights["both"])
+    # Broader queries need more results to cover the full video timeline.
+    max_results = 25 if query_modality in ("thematic", "both", "audio") else 15
 
-    logger.info(
-        f"[{correlation_id}] video_search_node: searching for '{user_message[:80]}' "
-        f"(modality={query_modality}, weights={weights})"
+    log = NodeLogger(logger, correlation_id, "video_search")
+    log.info(
+        "start",
+        query=user_message[:80],
+        modality=query_modality,
+        max_results=max_results,
+        weights=weights,
     )
 
     sse_events = [
@@ -40,27 +51,42 @@ async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
         {"type": "tool_start", "tool": "search_files", "arguments": {"query": user_message}},
     ]
 
-    raw_results = []
+    raw_results: list[dict] = []
     try:
         search_response = await asyncio.wait_for(
             file_embedder_service.search(
                 query=user_message,
                 user_id=user_id,
                 file_ids=file_ids,
-                max_results=10,
+                max_results=max_results,
                 use_dynamic_retrieval=True,
                 adaptive_scoring=True,
                 enable_query_expansion=True,
                 use_enhanced=True,
                 **weights,
             ),
-            timeout=30.0
+            timeout=settings.video_search_timeout,
         )
         if search_response and "results" in search_response:
             raw_results = search_response["results"]
+            _audio = sum(1 for r in raw_results if r.get("segment_index") is not None)
+            _scene = len(raw_results) - _audio
+            log.info("raw_results", total=len(raw_results), scene=_scene, audio=_audio)
+            for i, r in enumerate(raw_results):
+                logger.info(
+                    "[%s] RAW_RESULT[%d] file_id=%s scene_idx=%s seg_idx=%s "
+                    "score=%.4f text_score=%.4f image_score=%.4f "
+                    "start=%s end=%s text_len=%d text=%r",
+                    correlation_id, i,
+                    r.get("file_id"), r.get("scene_index"), r.get("segment_index"),
+                    r.get("score", 0), r.get("text_score", 0), r.get("image_score", 0),
+                    r.get("start_time"), r.get("end_time"),
+                    len(r.get("text") or ""), (r.get("text") or "")[:200],
+                )
     except asyncio.TimeoutError:
-        logger.error(f"[{correlation_id}] video_search_node: search timed out")
+        log.error("timeout", timeout_s=settings.video_search_timeout)
         sse_events += [
+            {"type": "step_error", "step": "video_search", "error": "Search timed out", "error_code": "TIMEOUT"},
             {"type": "tool_result", "tool": "search_files", "results": [], "result_count": 0},
             {"type": "step_done", "step": "video_search", "label": "Search timed out"},
         ]
@@ -71,65 +97,45 @@ async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
             "sse_events": sse_events,
         }
 
-    # Bulk-fetch metadata from upload-manager
-    scene_ids = [r["scene_id"] for r in raw_results if r.get("scene_id")]
-    file_ids_set = list({r["file_id"] for r in raw_results if r.get("file_id")})
-    scene_metadata_map: dict = {}
-    file_metadata_map: dict = {}
+    scene_metadata_map, file_metadata_map = await fetch_metadata_maps(
+        upload_manager_service, raw_results, correlation_id
+    )
 
-    if upload_manager_service:
-        try:
-            if scene_ids:
-                scene_meta = await upload_manager_service.get_metadata_batch_by_scenes(scene_ids)
-                if scene_meta:
-                    for m in scene_meta:
-                        if m.get("sceneId"):
-                            scene_metadata_map[m["sceneId"]] = m
-            if file_ids_set:
-                file_meta = await upload_manager_service.get_metadata_batch_by_files(file_ids_set)
-                if file_meta:
-                    for m in file_meta:
-                        fid = m.get("fileId")
-                        if fid and not m.get("sceneId"):
-                            file_metadata_map[fid] = m
-        except Exception as e:
-            logger.warning(f"[{correlation_id}] video_search_node: metadata fetch failed: {e}")
-
-    results = []
+    results: list[dict] = []
     for r in raw_results:
         file_details = r.get("file_details") or {}
         scene_details = r.get("scene_details") or {}
         file_id = r.get("file_id", "")
         scene_id = r.get("scene_id")
 
-        metadata = None
-        if scene_id and scene_id in scene_metadata_map:
-            metadata = scene_metadata_map[scene_id]
-        elif file_id and file_id in file_metadata_map:
-            metadata = file_metadata_map[file_id]
+        metadata = (
+            scene_metadata_map.get(scene_id)
+            if scene_id
+            else file_metadata_map.get(file_id)
+        )
 
         thumbnail_s3_key = scene_details.get("thumbnailS3Key") or file_details.get("thumbnailPath")
         file_s3_key = file_details.get("s3Key")
         s3_bucket = file_details.get("s3Bucket")
 
         if not thumbnail_s3_key:
-            logger.warning(
-                f"[{correlation_id}] video_search_node: no thumbnail S3 key for "
-                f"file_id={file_id} scene_id={scene_id} "
-                f"thumbnailS3Key={scene_details.get('thumbnailS3Key')!r} "
-                f"thumbnailPath={file_details.get('thumbnailPath')!r}"
+            log.warning(
+                "no_thumbnail_key",
+                file_id=file_id,
+                scene_id=scene_id,
+                thumbnailS3Key=scene_details.get("thumbnailS3Key"),
+                thumbnailPath=file_details.get("thumbnailPath"),
             )
         if not file_s3_key and not file_details.get("youtubeUrl"):
-            logger.warning(
-                f"[{correlation_id}] video_search_node: no file S3 key for "
-                f"file_id={file_id} s3Key={file_details.get('s3Key')!r}"
-            )
+            log.warning("no_file_key", file_id=file_id, s3Key=file_details.get("s3Key"))
 
-        result_data: dict = {
+        is_audio_segment = r.get("segment_index") is not None
+        results.append({
             "file_id": file_id,
             "scene_id": scene_id,
             "file_name": file_details.get("fileName") or r.get("file_name", "Unknown"),
             "file_type": file_details.get("fileType"),
+            "result_type": "audio_segment" if is_audio_segment else "scene",
             "score": r.get("score", 0.0),
             "timestamp": r.get("start_time") or r.get("timestamp"),
             "thumbnail_s3_key": thumbnail_s3_key,
@@ -147,43 +153,28 @@ async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
             "setting": metadata.get("setting") if metadata else None,
             "style": metadata.get("style") if metadata else None,
             "colors": metadata.get("colors") if metadata else None,
-        }
+        })
 
-        results.append(result_data)
+    await sign_s3_urls_inplace(s3_service, results, correlation_id)
 
-    # Batch-generate fresh signed URLs for all results in one S3 client session
-    if s3_service:
-        try:
-            s3_items = []
-            for r in results:
-                if r.get("thumbnail_s3_key"):
-                    s3_items.append((r["thumbnail_s3_key"], r.get("thumbnail_s3_bucket")))
-                if r.get("file_s3_key"):
-                    s3_items.append((r["file_s3_key"], r.get("file_s3_bucket")))
-
-            logger.info(f"[{correlation_id}] video_search_node: signing {len(s3_items)} S3 items")
-            if s3_items:
-                signed_map = await s3_service.get_signed_urls_batch(s3_items)
-                logger.info(f"[{correlation_id}] video_search_node: got {len(signed_map)}/{len(s3_items)} signed URLs")
-                for r in results:
-                    if r.get("thumbnail_s3_key") and r["thumbnail_s3_key"] in signed_map:
-                        r["thumbnail_url"] = signed_map[r["thumbnail_s3_key"]]
-                    if r.get("file_s3_key") and r["file_s3_key"] in signed_map:
-                        r["file_url"] = signed_map[r["file_s3_key"]]
-        except Exception as e:
-            logger.error(f"[{correlation_id}] video_search_node: batch S3 URL generation failed: {e}", exc_info=True)
-    else:
-        logger.warning(f"[{correlation_id}] video_search_node: s3_service is None, skipping URL signing")
+    # Sort by file then timestamp so the LLM reads events in chronological order.
+    results.sort(key=lambda r: (r.get("file_id") or "", r.get("start_time") or 0.0))
 
     formatted = format_search_results_for_llm(results)
     retrieved_context = json.dumps(formatted, indent=2)
+
+    logger.info(
+        "[%s] RETRIEVED_CONTEXT_FOR_LLM (%d chars):\n%s",
+        correlation_id, len(retrieved_context), retrieved_context,
+    )
 
     sse_events += [
         {"type": "tool_result", "tool": "search_files", "results": results, "result_count": len(results)},
         {"type": "step_done", "step": "video_search", "label": f"Found {len(results)} results"},
     ]
 
-    logger.info(f"[{correlation_id}] video_search_node: done, {len(results)} results")
+    _audio_final = sum(1 for r in results if r.get("result_type") == "audio_segment")
+    log.done(results=len(results), scene=len(results) - _audio_final, audio=_audio_final)
 
     return {
         "search_results": results,

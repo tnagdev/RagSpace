@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { QueryResult } from '@/types/search.types';
 import { SearchResult } from '@/types/chat.types';
 import { Clock, Youtube, FileText } from 'lucide-react';
@@ -10,19 +10,15 @@ interface YouTubePlayerProps {
 
 const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ result, youtubeUrl }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    
-    // Extract video ID from YouTube URL
+
     const getYouTubeVideoId = (url: string): string | null => {
         const patterns = [
             /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
             /youtube\.com\/shorts\/([^&\n?#]+)/
         ];
-        
         for (const pattern of patterns) {
             const match = url.match(pattern);
-            if (match && match[1]) {
-                return match[1];
-            }
+            if (match && match[1]) return match[1];
         }
         return null;
     };
@@ -34,16 +30,32 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ result, youtubeUrl }) => 
     };
 
     const videoId = getYouTubeVideoId(youtubeUrl);
-    
-    // Get start time from result
-    const startTime = 'scene_details' in result 
-        ? result.scene_details?.startTime 
+    const startTime = 'scene_details' in result
+        ? result.scene_details?.startTime
         : result.start_time;
-    
-    // Build YouTube embed URL with timestamp
-    const embedUrl = videoId 
-        ? `https://www.youtube.com/embed/${videoId}${startTime ? `?start=${Math.floor(startTime)}` : ''}` 
-        : null;
+
+    // Stable embed URL — keyed to videoId only. startTime is intentionally excluded
+    // from deps so timestamp badge clicks do NOT reload the iframe. autoplay=1
+    // starts playback on first load (allowed because the user just clicked a badge).
+    // Subsequent seeks use the YouTube IFrame postMessage API (seekTo effect below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const embedUrl = useMemo(() => {
+        if (!videoId) return null;
+        const start = startTime != null ? `&start=${Math.floor(startTime)}` : '';
+        const url = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1${start}`;
+        console.log('[YouTube] embedUrl computed: videoId=', videoId, 'startTime=', startTime, 'url=', url);
+        return url;
+    }, [videoId]);
+
+    // Seek and resume playback when startTime changes (timestamp badge click on same video).
+    useEffect(() => {
+        const win = iframeRef.current?.contentWindow;
+        console.log('[YouTube] seekTo effect: startTime=', startTime, 'win=', !!win, 'videoId=', videoId);
+        if (startTime == null || !win) return;
+        console.log('[YouTube] Sending seekTo + playVideo postMessage to iframe');
+        win.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [startTime, true] }), '*');
+        win.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+    }, [startTime]);
 
     const sceneDetails = 'scene_details' in result ? result.scene_details : undefined;
     const fileName = 'file_details' in result ? result.file_details?.fileName : result.file_name;
@@ -139,9 +151,9 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ result, youtubeUrl }) => 
 
                 {/* YouTube URL */}
                 <div className="pt-4 border-t border-border-input">
-                    <a 
-                        href={youtubeUrl} 
-                        target="_blank" 
+                    <a
+                        href={youtubeUrl}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-accent-primary hover:text-accent-secondary transition-colors flex items-center gap-1"
                     >
