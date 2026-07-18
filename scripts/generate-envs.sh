@@ -85,6 +85,10 @@ PAYMENT_SERVICE_URL=http://payment-service:8080
 UPLOAD_MANAGER_URL=http://upload-manager:8080
 FILE_EMBEDDER_URL=http://file-embedder-server:8080
 SCENE_DETECTOR_URL=http://scene-detector-server:8080
+RABBITMQ_URL=${RABBITMQ_URL}
+RABBITMQ_EXCHANGE=user.events
+RABBITMQ_QUEUE=user.events.queue
+RABBITMQ_ROUTING_KEY=user.events.key
 EOF
 echo "  ✓ auth-service/.env.prod"
 

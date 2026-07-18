@@ -15,7 +15,7 @@ if [ ! -d "$HF_HUB_DIR" ] || [ -z "$(ls -A "$HF_HUB_DIR" 2>/dev/null)" ]; then
     echo "Model cache is empty — downloading models (first run, this may take several minutes)..."
 
     echo "  → Downloading Whisper model (base)..."
-    python -c "import whisper; whisper.load_model('base')" 2>&1 | grep -v "FutureWarning" || true
+    python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')" 2>&1 | grep -v "FutureWarning" || true
 
     echo "  → Downloading BGE sentence transformer..."
     python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-base-en-v1.5')" 2>&1 | grep -v "FutureWarning" || true

@@ -30,7 +30,7 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: unless-stopped
     networks:
-      - ragspace-net
+      - ragspace-network
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 15s
@@ -56,7 +56,7 @@ services:
       - chromadb-data:/chroma/chroma
     restart: unless-stopped
     networks:
-      - ragspace-net
+      - ragspace-network
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')\""]
       interval: 15s
@@ -84,7 +84,7 @@ services:
       <<: *node-env
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -109,7 +109,7 @@ services:
       - api-gateway
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -130,7 +130,7 @@ services:
       <<: *node-env
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -154,7 +154,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -175,7 +175,7 @@ services:
       <<: *node-env
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -202,7 +202,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     volumes:
       - scene-detector-temp:/tmp/scene-detector
       - ./scene-detector/cookies:/app/cookies:ro
@@ -233,7 +233,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     volumes:
       - scene-detector-temp:/tmp/scene-detector
       - ./scene-detector/cookies:/app/cookies:ro
@@ -279,7 +279,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -316,7 +316,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,time; s=os.stat('/tmp/consumer-health'); exit(0 if time.time()-s.st_mtime<60 else 1)"]
       interval: 30s
@@ -347,7 +347,7 @@ services:
         condition: service_healthy
     restart: on-failure
     networks:
-      - ragspace-net
+      - ragspace-network
     deploy:
       resources:
         limits:
@@ -359,7 +359,8 @@ services:
 
 # ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
-  ragspace-net:
+  ragspace-network:
+    name: ragspace-network
     driver: bridge
 
 # ─── Volumes ──────────────────────────────────────────────────────────────────
