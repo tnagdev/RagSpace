@@ -14,6 +14,8 @@ from src.services.LangChainLLMClient import LangChainLLMClient
 logger = logging.getLogger(__name__)
 
 _SUMMARIZE_INSTRUCTIONS = load_prompt("summarize_instructions.md")
+_VIDEO_INSTRUCTIONS = load_prompt("video_instructions.md")
+_IMAGE_INSTRUCTIONS = load_prompt("image_instructions.md")
 
 
 async def response_synthesizer_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -40,20 +42,41 @@ async def response_synthesizer_node(state: AgentState, config: RunnableConfig) -
         streaming=True,
     )
 
-    # Build the system message: base prompt + optional summarize instructions
-    # + attached file list + retrieved context + conversation summary
+    # Build the system message: base prompt + file-type-specific speaking/citation
+    # instructions + attached file list + retrieved context + conversation summary.
+    attached_files = state.get("attached_files") or []
+    search_results = state.get("search_results") or []
+    # Union attached_files (explicit attachments, e.g. summarize intent) with
+    # search_results (what the response actually draws from, e.g. a broad search
+    # intent with no attachment) so citation-style instructions are gated on what
+    # the response is really discussing, not just what the user attached.
+    types_present = {(f.get("fileType") or "").upper() for f in attached_files}
+    types_present |= {(r.get("file_type") or "").upper() for r in search_results}
+    has_video = bool(types_present & {"VIDEO", "YOUTUBE_VIDEO"})
+    has_image = "IMAGE" in types_present
+
     system_content = AGENT_SYSTEM_PROMPT
 
-    if is_summary_request:
-        system_content += "\n\n" + _SUMMARIZE_INSTRUCTIONS
+    if has_video:
+        system_content += "\n\n" + _VIDEO_INSTRUCTIONS
+        if is_summary_request:
+            system_content += "\n\n" + _SUMMARIZE_INSTRUCTIONS
+    if has_image:
+        system_content += "\n\n" + _IMAGE_INSTRUCTIONS
 
-    attached_files = state.get("attached_files") or []
     if attached_files:
         file_names = [
             f.get("originalFilename") or f.get("original_filename") or f.get("filename") or "Unknown"
             for f in attached_files
         ]
-        system_content += f"\n\n### Attached video(s): {', '.join(file_names)}\n"
+        attached_types = {(f.get("fileType") or "").upper() for f in attached_files}
+        if attached_types == {"IMAGE"}:
+            label = "Attached image(s)"
+        elif attached_types <= {"VIDEO", "YOUTUBE_VIDEO"}:
+            label = "Attached video(s)"
+        else:
+            label = "Attached file(s)"
+        system_content += f"\n\n### {label}: {', '.join(file_names)}\n"
 
     if retrieved_context:
         system_content += f"\n\n### Relevant context from the user's files:\n{retrieved_context}"

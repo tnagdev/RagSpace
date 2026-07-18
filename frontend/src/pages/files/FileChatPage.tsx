@@ -32,10 +32,20 @@ const fileTypeConfig: Record<FileType, {
     OTHER: { icon: File, color: 'text-gray-400', bgGradient: 'from-gray-500/10 to-gray-600/5' },
 };
 
+// Resolve 'video' | 'image' from the backend's real file_type (VIDEO/IMAGE/
+// YOUTUBE_VIDEO/AUDIO/DOCUMENT/OTHER) when present; falls back to the old
+// URL/filename heuristic for legacy results that predate the field.
+const resolvePreviewKind = (result: SearchResult): 'video' | 'image' => {
+    const type = result.file_type?.toUpperCase();
+    if (type === 'VIDEO' || type === 'YOUTUBE_VIDEO') return 'video';
+    if (type === 'IMAGE') return 'image';
+    return result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image';
+};
+
 // Helper function to convert SearchResult to QueryResult for preview components
 const convertToQueryResult = (result: SearchResult): QueryResult => {
-    const fileType = result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image';
-    
+    const fileType = resolvePreviewKind(result);
+
     return {
         file_id: result.file_id,
         file_name: result.file_name,

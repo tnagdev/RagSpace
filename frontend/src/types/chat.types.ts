@@ -10,6 +10,7 @@ export interface SearchResult {
     file_id: string;
     scene_id?: string;
     file_name: string;
+    file_type?: string; // VIDEO/IMAGE/AUDIO/DOCUMENT/YOUTUBE_VIDEO/OTHER
     score: number;
     timestamp?: number;
     youtube_url?: string;

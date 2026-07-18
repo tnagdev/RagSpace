@@ -7,6 +7,7 @@ interface MessageListProps {
     messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>;
     onResultClick?: (result: SearchResult) => void;
     onTimestampClick?: (seconds: number, searchResults?: SearchResult[]) => void;
+    onImageClick?: (fileId: string, searchResults?: SearchResult[]) => void;
 }
 
 const formatRelativeTime = (date: string) => {
@@ -28,6 +29,7 @@ const MessageList: React.FC<MessageListProps> = ({
     messages,
     onResultClick,
     onTimestampClick,
+    onImageClick,
 }) => {
     return (
         <div className="space-y-4">
@@ -90,6 +92,9 @@ const MessageList: React.FC<MessageListProps> = ({
                                     searchResults={message.searchResults}
                                     onTimestampClick={onTimestampClick
                                         ? (s) => onTimestampClick(s, message.searchResults)
+                                        : undefined}
+                                    onImageClick={onImageClick
+                                        ? (fileId) => onImageClick(fileId, message.searchResults)
                                         : undefined}
                                 />
                             ) : (

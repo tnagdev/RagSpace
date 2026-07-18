@@ -274,7 +274,7 @@ class SceneProcessor:
 
             if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
                 logger.info(f"Skipping scene detection for non-video file type: {file_type}")
-                return await self.upload_manager_client.update_file_status(
+                result = await self.upload_manager_client.update_file_status(
                     file_id,
                     UpdateFileStatusParams(
                         processingStatus=ProcessingStatus.COMPLETED.value,
@@ -282,6 +282,30 @@ class SceneProcessor:
                         processingCompletedAt=datetime.utcnow()
                     )
                 )
+                # Images finish here (no scene-detection/indexing phase follows).
+                # Publish so upload-manager's WS broadcaster (bound to routing key
+                # `file.#`) pushes the COMPLETED state to the frontend immediately —
+                # without this, the UI only updates on manual refresh. Uses
+                # INDEXING_COMPLETED, not PROCESSING_COMPLETED: the latter is
+                # strictly schema-validated by file-embedder's video-scene consumer
+                # (requires a scenes[] array) and would risk purging this image's
+                # already-correct embeddings. INDEXING_COMPLETED has no registered
+                # consumers, so it's a safe "pipeline reached COMPLETED" signal for
+                # upload-manager's WS broadcaster only.
+                try:
+                    await self.rabbitmq_service.publish_event(
+                        EventType.INDEXING_COMPLETED.value,
+                        {
+                            'type': EventType.INDEXING_COMPLETED.value,
+                            'fileId': file_id,
+                            'userId': user_id,
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'data': {'stage': ProcessingStage.COMPLETED.value},
+                        }
+                    )
+                except Exception as pub_err:
+                    logger.warning(f"Failed to publish indexing-completed event for image {file_id}: {pub_err}")
+                return result
 
             # Build a sync callback that schedules async progress publishes from the
             # executor thread (0-49% range = frame analysis phase).

@@ -5,8 +5,12 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import TimestampBadge from '@/components/TimestampBadge';
+import ImageBadge from '@/components/ImageBadge';
 
 interface TimestampSource {
+    file_id?: string;
+    file_name?: string;
+    file_type?: string | null;
     start_time?: number | null;
     thumbnail_url?: string | null;
 }
@@ -15,6 +19,7 @@ interface MarkdownProps {
     content: string;
     className?: string;
     onTimestampClick?: (seconds: number) => void;
+    onImageClick?: (fileId: string) => void;
     searchResults?: TimestampSource[];
 }
 
@@ -22,10 +27,20 @@ interface MarkdownProps {
 // Group 1 = start seconds, group 2 = end seconds (optional).
 const SEEK_PATTERN = /\({1,2}(\d+(?:\.\d+)?)s?(?:\s*[-–—]\s*(\d+(?:\.\d+)?)s?)?\){1,2}/g;
 
+// Matches [Image: filename.ext] — the citation format image_instructions.md
+// instructs the LLM to use when referencing a specific attached image.
+const IMAGE_REF_PATTERN = /\[Image:\s*([^[\]]+)\]/g;
+
 function injectTimestampCodes(content: string): string {
     return content.replace(SEEK_PATTERN, (match, startSecs, endSecs) => {
         const key = endSecs ? `${startSecs}:${endSecs}` : startSecs;
         return `\`@@seek:${key}@@${match}\``;
+    });
+}
+
+function injectImageCodes(content: string): string {
+    return content.replace(IMAGE_REF_PATTERN, (match, fileName) => {
+        return `\`@@img:${fileName.trim()}@@${match}\``;
     });
 }
 
@@ -39,6 +54,12 @@ function findThumbnail(results: TimestampSource[] | undefined, seconds: number):
         if (d < bestDist) { bestDist = d; best = r; }
     }
     return best?.thumbnail_url ?? undefined;
+}
+
+function findImageResult(results: TimestampSource[] | undefined, fileName: string): TimestampSource | undefined {
+    if (!results?.length) return undefined;
+    return results.find((r) => r.file_name === fileName)
+        ?? results.find((r) => r.file_name?.toLowerCase() === fileName.toLowerCase());
 }
 
 const customTheme = {
@@ -77,17 +98,38 @@ const CopyButton = ({ code }: { code: string }) => {
     );
 };
 
-const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestampClick, searchResults }) => {
-    const processedContent = onTimestampClick ? injectTimestampCodes(content) : content;
+const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestampClick, onImageClick, searchResults }) => {
+    let processedContent = onTimestampClick ? injectTimestampCodes(content) : content;
+    if (onImageClick) processedContent = injectImageCodes(processedContent);
 
     return (
         <div className={`markdown-content ${className}`}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                    // Code blocks — also intercepts @@seek: timestamp tokens
+                    // Code blocks — also intercepts @@seek: timestamp and @@img: image tokens
                     code({ className, children, ...props }) {
                         const codeString = String(children).replace(/\n$/, '');
+
+                        // Image reference token injected by injectImageCodes
+                        if (codeString.startsWith('@@img:') && onImageClick) {
+                            const sepIdx = codeString.indexOf('@@', 6);
+                            const fileName = codeString.slice(6, sepIdx);
+                            const matched = findImageResult(searchResults, fileName);
+                            if (matched?.file_id) {
+                                return (
+                                    <ImageBadge
+                                        fileName={fileName}
+                                        thumbnailUrl={matched.thumbnail_url ?? undefined}
+                                        fileId={matched.file_id}
+                                        onClick={onImageClick}
+                                    />
+                                );
+                            }
+                            // No matching search result — fall back to plain text
+                            // rather than rendering a badge that can't be clicked.
+                            return <>{fileName}</>;
+                        }
 
                         // Timestamp token injected by injectTimestampCodes
                         if (codeString.startsWith('@@seek:') && onTimestampClick) {

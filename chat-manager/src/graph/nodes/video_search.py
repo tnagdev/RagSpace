@@ -83,6 +83,13 @@ async def video_search_node(state: AgentState, config: RunnableConfig) -> dict:
                     r.get("start_time"), r.get("end_time"),
                     len(r.get("text") or ""), (r.get("text") or "")[:200],
                 )
+            # file-embedder already sorts by combined score descending; max_results
+            # above is retrieval breadth for its reranker, not a display count.
+            # Keep only the top-scoring subset for the LLM context and UI so a
+            # simple query doesn't flood the results grid with low-relevance hits.
+            if len(raw_results) > settings.video_search_display_limit:
+                raw_results = raw_results[: settings.video_search_display_limit]
+                log.info("truncated_to_top_k", kept=len(raw_results))
     except asyncio.TimeoutError:
         log.error("timeout", timeout_s=settings.video_search_timeout)
         sse_events += [

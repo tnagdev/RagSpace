@@ -23,12 +23,23 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Markdown from '@/components/Markdown';
 import { AlertCircle, MessageSquare, Film, X, Folder, FilePlus } from 'lucide-react';
 
+// Resolve 'video' | 'image' from the backend's real file_type (VIDEO/IMAGE/
+// YOUTUBE_VIDEO/AUDIO/DOCUMENT/OTHER) when present; falls back to the old
+// URL/filename heuristic for legacy results that predate the field.
+const resolvePreviewKind = (result: SearchResult): 'video' | 'image' => {
+    const type = result.file_type?.toUpperCase();
+    if (type === 'VIDEO' || type === 'YOUTUBE_VIDEO') return 'video';
+    if (type === 'IMAGE') return 'image';
+    return result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image';
+};
+
 // Helper function to convert SearchResult to QueryResult for preview components
 const convertToQueryResult = (result: SearchResult): QueryResult => {
+    const previewKind = resolvePreviewKind(result);
     return {
         file_id: result.file_id,
         file_name: result.file_name,
-        file_type: result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image',
+        file_type: previewKind,
         score: result.score,
         confidence: result.score,
         text_score: 0,
@@ -39,7 +50,7 @@ const convertToQueryResult = (result: SearchResult): QueryResult => {
         file_details: {
             id: result.file_id,
             fileName: result.file_name,
-            fileType: result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image',
+            fileType: previewKind,
             url: result.file_url,
             thumbnailUrl: result.thumbnail_url,
             youtubeUrl: result.youtube_url,
@@ -469,6 +480,16 @@ const ChatPage: React.FC = () => {
         }
     };
 
+    // Called when user clicks an image reference badge inside the assistant message text.
+    const handleImageClick = (fileId: string, msgSearchResults?: SearchResult[]) => {
+        const pool = msgSearchResults?.length ? msgSearchResults : streamingResults;
+        const match = pool.find((r) => r.file_id === fileId);
+        if (match) {
+            setSelectedResult(match);
+            setIsLeftPanelCollapsed(true);
+        }
+    };
+
     const handleNewChat = () => {
         navigate({ to: '/chat', search: {}, replace: true });
     };
@@ -543,6 +564,7 @@ const ChatPage: React.FC = () => {
                                             messages={messages}
                                             onResultClick={handleResultClick}
                                             onTimestampClick={handleTimestampClick}
+                                            onImageClick={handleImageClick}
                                         />
                                     )}
                                     {/* Show streaming message */}
@@ -554,7 +576,7 @@ const ChatPage: React.FC = () => {
                                             <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
                                                 {streamingMessage ? (
                                                     <div className="text-sm break-words">
-                                                        <Markdown content={streamingMessage} searchResults={streamingResults} onTimestampClick={handleTimestampClick} />
+                                                        <Markdown content={streamingMessage} searchResults={streamingResults} onTimestampClick={handleTimestampClick} onImageClick={handleImageClick} />
                                                         <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
                                                     </div>
                                                 ) : (

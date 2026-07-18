@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     video_search_timeout: float = 30.0
     video_content_timeout: float = 60.0
     scene_thumbnail_timeout: float = 20.0
+    file_content_timeout: float = 60.0
+
+    # video_search_node over-fetches candidates (15-25) so adaptive scoring has
+    # enough to rank; only the top-scoring subset should reach the LLM context
+    # and UI. Kept separate from the retrieval breadth above.
+    video_search_display_limit: int = 8
 
     # Conversation Settings
     max_conversation_history: int = 10

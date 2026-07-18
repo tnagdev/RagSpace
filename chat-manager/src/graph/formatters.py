@@ -149,3 +149,38 @@ def format_video_content_for_llm(content: Optional[dict[str, Any]]) -> dict[str,
             formatted["additional_audio"] = orphan_audio
 
     return formatted
+
+
+def format_file_content_for_llm(content: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Format a /embed/content/file (RouterFileContentResponse) payload for LLM
+    consumption. Sibling to format_video_content_for_llm — used for image/audio
+    file types, which have no scene timeline."""
+    if not content:
+        return {"found": False, "message": "No content found for this file."}
+
+    file_type = (content.get("file_type") or "").upper()
+    formatted: dict[str, Any] = {
+        "found": True,
+        "file_name": content.get("file_name", "Unknown file"),
+        "file_id": content.get("file_id"),
+        "file_type": file_type,
+        "content_summary": content.get("summary_context", ""),
+    }
+    for key in ("description", "objects", "setting", "style", "colors", "transcript"):
+        if content.get(key):
+            formatted[key] = content[key]
+
+    if file_type == "IMAGE":
+        formatted["instructions"] = (
+            "Use the content_summary and metadata above (description, objects, "
+            "setting, style, colors) to describe or answer questions about this image."
+        )
+    elif file_type == "AUDIO":
+        formatted["instructions"] = (
+            "Use the transcript above to answer questions about this audio file."
+        )
+    else:
+        formatted["instructions"] = (
+            "Use the content_summary above to answer questions about this file."
+        )
+    return formatted
