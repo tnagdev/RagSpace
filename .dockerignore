@@ -57,7 +57,6 @@ yarn-error.log*
 **/*.db
 **/*.sqlite
 **/*.sqlite3
-**/prisma/migrations/
 
 # Data directories
 **/chroma_data/
