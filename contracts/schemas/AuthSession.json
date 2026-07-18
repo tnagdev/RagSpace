@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "AuthSession",
+  "title": "AuthSession",
+  "description": "Session context forwarded between services via the x-session header.",
+  "type": "object",
+  "required": ["id", "token"],
+  "properties": {
+    "id":          { "type": "string" },
+    "token":       { "type": "string" },
+    "userId":      { "type": "string" },
+    "expiresAt":   { "type": "string" },
+    "ipAddress":   { "type": "string" },
+    "userAgent":   { "type": "string" },
+    "createdAt":   { "type": "string" },
+    "updatedAt":   { "type": "string" }
+  },
+  "additionalProperties": false
+}

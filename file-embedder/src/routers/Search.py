@@ -2,8 +2,11 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Request
 from typing import List, Optional
-from pydantic import BaseModel
-from src.models.query import QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails
+from src.models.query import (
+    QueryRequest, QueryResponse, QueryResult, FileDetails, SceneDetails,
+    VideoContentRequest, VideoContentSegment, VideoContentResponse,
+    RouterFileContentRequest, RouterFileContentResponse,
+)
 from src.db.chroma_db import ChromaDatabaseManager
 from src.services.UploadManagerService import UploadManagerService
 from src.services.SceneDetectionService import SceneDetectionService
@@ -78,7 +81,12 @@ async def advanced_search(
             filters = {"$and": filter_conditions}
         
         logger.info(f"Advanced search filters: {filters}")
-        
+
+        # Dump raw inventory of what is stored for these files so the caller can verify
+        if user_id:
+            chroma_db_for_dump = ChromaDatabaseManager()
+            chroma_db_for_dump.dump_content_summary(user_id=user_id, file_ids=body.file_ids or [])
+
         # Query enhancement: expand into related queries
         queries = [body.query]
         if body.enable_query_expansion:
@@ -103,7 +111,63 @@ async def advanced_search(
         # Get retrieval statistics
         retrieval_stats = retriever.get_retrieval_stats(results)
         logger.info(f"Advanced search stats: {retrieval_stats}")
-        
+
+        # Inject Whisper transcripts into scene results whose stored `transcript` metadata
+        # is empty.  This happens when scene embeddings were created before the upload
+        # handler had a chance to store audio segments (pipeline race condition).
+        # We fetch all audio segments per file once and match by timestamp overlap.
+        scene_file_ids_missing_tx = list({
+            r.get("file_id") for r in results
+            if r.get("scene_index") is not None and not r.get("transcript")
+        })
+        if scene_file_ids_missing_tx:
+            db_for_tx = ChromaDatabaseManager()
+            for fid in scene_file_ids_missing_tx:
+                try:
+                    audio_raw = db_for_tx.text_collection.get(
+                        where={"$and": [{"file_id": fid}, {"segment_index": {"$gte": 0}}]},
+                        include=["metadatas", "documents"],
+                    )
+                    audio_segs = sorted(
+                        [
+                            {
+                                "start_time": m.get("start_time", 0),
+                                "end_time": m.get("end_time", 0),
+                                "text": d or "",
+                            }
+                            for m, d in zip(
+                                audio_raw.get("metadatas", []), audio_raw.get("documents", [])
+                            )
+                            if m.get("start_time") is not None
+                        ],
+                        key=lambda x: x["start_time"],
+                    )
+                    logger.info(
+                        f"[TRANSCRIPT_INJECT] file={fid}: "
+                        f"fetched {len(audio_segs)} audio segments for injection"
+                    )
+                    for r in results:
+                        if r.get("file_id") != fid or r.get("scene_index") is None:
+                            continue
+                        if r.get("transcript"):
+                            continue
+                        s_start = r.get("start_time") or 0
+                        s_end = r.get("end_time") or 0
+                        matched_text = " ".join(
+                            s["text"].strip()
+                            for s in audio_segs
+                            if s["start_time"] <= s_end and s["end_time"] >= s_start and s["text"].strip()
+                        )
+                        if matched_text:
+                            r["transcript"] = matched_text
+                            logger.info(
+                                f"[TRANSCRIPT_INJECT] scene_idx={r.get('scene_index')} "
+                                f"t={s_start:.1f}-{s_end:.1f}s "
+                                f"injected='{matched_text[:100]}'"
+                            )
+                except Exception as exc:
+                    logger.warning(f"[TRANSCRIPT_INJECT] failed for file {fid}: {exc}")
+
         # Fetch file and scene details
         upload_manager = UploadManagerService(user=request.state.user, session=request.state.session)
         scene_detector = SceneDetectionService(user=request.state.user, session=request.state.session)
@@ -196,12 +260,14 @@ async def advanced_search(
             scene_id = None
             if ftype == "VIDEO":
                 if scene_idx is not None and fid in scenes_cache:
-                    scene = scenes_cache[fid].get(scene_idx)
+                    # scene_index in ChromaDB is 0-based; sceneNumber in Prisma is 1-based.
+                    # Add 1 to convert before looking up in scenes_cache.
+                    scene = scenes_cache[fid].get(scene_idx + 1)
                     if scene:
                         scene_id = scene.get("id")
                         scene_details = SceneDetails(
                             id=scene_id,
-                            sceneNumber=scene.get("sceneNumber", scene_idx),
+                            sceneNumber=scene.get("sceneNumber", scene_idx + 1),
                             startTime=scene.get("startTime", 0.0),
                             endTime=scene.get("endTime", 0.0),
                             startFrame=scene.get("startFrame", 0),
@@ -212,11 +278,11 @@ async def advanced_search(
                             thumbnailS3Key=scene.get("thumbnailS3Key")
                         )
                     else:
-                        logger.debug(f"Scene {scene_idx} not found in cache for file {fid}. Creating fallback from metadata.")
+                        logger.debug(f"Scene {scene_idx} (sceneNumber={scene_idx + 1}) not found in cache for file {fid}. Creating fallback from metadata.")
                         # Create partial scene details from embedding metadata
                         if result.get("start_time") is not None:
                             scene_details = SceneDetails(
-                                sceneNumber=scene_idx,
+                                sceneNumber=scene_idx + 1,
                                 startTime=result.get("start_time", 0.0),
                                 endTime=result.get("end_time", 0.0),
                                 startFrame=result.get("start_frame", 0),
@@ -268,6 +334,24 @@ async def advanced_search(
                 logger.warning(f"File details not found for file {fid}, skipping result")
                 continue
             
+            # For scene entries the ChromaDB document stores the combined search text
+            # (description | whisper_transcript | ocr_text).  We only want to surface
+            # the Whisper-matched transcript so the LLM doesn't see the visual description
+            # duplicated in the transcript field.  The "transcript" metadata field contains
+            # the Whisper-only content (empty string when no speech was detected).
+            # For audio segment entries the document IS the Whisper segment text — use as-is.
+            if scene_idx is not None:
+                result_text = result.get("transcript", "")
+            else:
+                result_text = result.get("text", "")
+
+            logger.info(
+                f"[SEARCH_RESULT] type={'scene' if scene_idx is not None else 'audio'} "
+                f"scene_idx={scene_idx} seg_idx={segment_idx} "
+                f"text_len={len(result_text)} "
+                f"text={repr(result_text[:120])}"
+            )
+
             query_results.append(QueryResult(
                 file_id=fid,
                 file_name=file_details.fileName,
@@ -279,7 +363,7 @@ async def advanced_search(
                 end_time=result.get("end_time"),
                 start_frame=result.get("start_frame"),
                 end_frame=result.get("end_frame"),
-                text=result.get("text"),
+                text=result_text,
                 score=result.get("score", 0.0),
                 confidence=result.get("confidence", 0.0),
                 text_score=result.get("text_score", 0.0),
@@ -318,43 +402,6 @@ async def advanced_search(
     except Exception as e:
         logger.error(f"Error in advanced search: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-class VideoContentRequest(BaseModel):
-    """Request model for getting full video content."""
-    file_id: str
-    include_metadata: bool = True
-
-
-class VideoContentSegment(BaseModel):
-    """A segment of video content (scene or audio segment)."""
-    type: str  # "visual" or "audio"
-    scene_id: Optional[str] = None
-    scene_index: Optional[int] = None
-    segment_index: Optional[int] = None
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
-    duration: Optional[float] = None
-    text: Optional[str] = None
-    # Metadata fields
-    description: Optional[str] = None
-    objects: Optional[List[str]] = None
-    setting: Optional[str] = None
-    style: Optional[str] = None
-    colors: Optional[List[str]] = None
-    thumbnail_url: Optional[str] = None
-
-
-class VideoContentResponse(BaseModel):
-    """Response model for full video content."""
-    file_id: str
-    file_name: Optional[str] = None
-    file_type: Optional[str] = None
-    total_duration: Optional[float] = None
-    total_scenes: int = 0
-    total_segments: int = 0
-    content: List[VideoContentSegment] = []
-    summary_context: str = ""  # Formatted for LLM consumption
 
 
 @router.post("/content/video")
@@ -507,6 +554,8 @@ async def get_video_content(
         
         summary_context = "\n".join(summary_parts)
         
+        special_docs = chroma_db.get_special_docs_for_file(body.file_id)
+
         return VideoContentResponse(
             file_id=body.file_id,
             file_name=file_details.get("filename"),
@@ -515,7 +564,9 @@ async def get_video_content(
             total_scenes=content_data.get("total_scenes", 0),
             total_segments=content_data.get("total_segments", 0),
             content=all_content,
-            summary_context=summary_context
+            summary_context=summary_context,
+            character_registry=special_docs.get("character_registry"),
+            narrative_summary=special_docs.get("narrative"),
         )
         
     except HTTPException:
@@ -525,35 +576,9 @@ async def get_video_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class FileContentRequest(BaseModel):
-    """Request model for getting file content (images, audio, or any file type)."""
-    file_id: str
-    include_metadata: bool = True
-
-
-class FileContentResponse(BaseModel):
-    """Response model for file content."""
-    file_id: str
-    file_name: Optional[str] = None
-    file_type: Optional[str] = None
-    mime_type: Optional[str] = None
-    file_url: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    # Metadata fields
-    description: Optional[str] = None
-    objects: Optional[List[str]] = None
-    setting: Optional[str] = None
-    style: Optional[str] = None
-    colors: Optional[List[str]] = None
-    # For audio files
-    transcript: Optional[str] = None
-    # Summary context for LLM
-    summary_context: str = ""
-
-
 @router.post("/content/file")
 async def get_file_content(
-    body: FileContentRequest,
+    body: RouterFileContentRequest,
     request: Request,
 ):
     """
@@ -649,7 +674,7 @@ async def get_file_content(
         
         summary_context = "\n".join(summary_parts)
         
-        return FileContentResponse(
+        return RouterFileContentResponse(
             file_id=body.file_id,
             file_name=file_name,
             file_type=file_type,

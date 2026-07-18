@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ServiceStatus",
+  "title": "ServiceStatus",
+  "description": "Operational status of a service, reported by /health endpoints.",
+  "type": "string",
+  "enum": ["operational", "degraded", "down", "error"]
+}

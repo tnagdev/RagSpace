@@ -3,15 +3,11 @@ import logging
 from PIL import Image
 
 import cv2
-import open_clip
-import torch
-import whisper
+import numpy as np
+from pydantic import validate_call, ValidationError
 from src.decorators.singleton import SingletonMeta
 from src.services.AudioEmbedderService import AudioEmbedderService
 from src.services.ImageEmbedderService import ImageEmbedderService
-from torch import Tensor, cuda;
-import numpy as np
-from pydantic import validate_call, ValidationError
 
 
 
@@ -50,29 +46,11 @@ class VideoEmbedderService(ImageEmbedderService, AudioEmbedderService, metaclass
 
     
     def embed_frame(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Generate embedding for a video frame using CLIP.
-        
-        Args:
-            frame: Frame as numpy array (BGR format from OpenCV)
-            
-        Returns:
-            Normalized embedding vector
-        """
+        """Generate CLIP embedding for a video frame (BGR numpy array from OpenCV)."""
         try:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(frame_rgb)
-            
-            # Preprocess and embed
-            image_tensor = self.preprocess(image).unsqueeze(0).to(self.device) # type: ignore
-            
-            with torch.no_grad():
-                image_features = self.model.encode_image(image_tensor) # type: ignore
-                image_features = image_features.cpu().numpy()[0]
-                
-            # Normalize
-            image_features = image_features / np.linalg.norm(image_features)
-            return image_features
+            pil_image = Image.fromarray(frame_rgb)
+            return self.embed_image(pil_image)
         except ValidationError as e:
             logger.error(f"Validation error during frame embedding: {e}")
             return None

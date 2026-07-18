@@ -7,8 +7,17 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY contracts/ ./contracts/
+COPY packages/shared-py ./packages/shared-py
+RUN pip install --no-cache-dir --user datamodel-code-generator && \
+    python -m datamodel_code_generator --version && \
+    python packages/shared-py/scripts/generate.py
+COPY chat-manager/requirements.txt ./requirements.txt
+
+RUN pip install --no-cache-dir --user ./packages/shared-py && \
+    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir --user -r /tmp/reqs-filtered.txt
 
 FROM python:3.11-slim
 
@@ -27,9 +36,8 @@ RUN groupadd -g 1001 appuser && \
 WORKDIR /app
 
 COPY --from=builder /root/.local /home/appuser/.local
-COPY --chown=appuser:appuser . .
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh && \
+COPY --chown=appuser:appuser chat-manager/ .
+RUN chmod +x docker-entrypoint.sh && \
     mkdir -p /home/appuser/.cache && \
     chown -R appuser:appuser /home/appuser && \
     chown -R appuser:appuser /home/appuser/.local

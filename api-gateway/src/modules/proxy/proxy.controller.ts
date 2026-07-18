@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
+import 'multer';
+import { randomUUID } from 'crypto';
 import { ProxyService } from './proxy.service';
 
 @Controller()
@@ -48,8 +50,17 @@ export class ProxyController {
         }, {} as Record<string, Express.Multer.File[]>);
 
         const enrichedHeaders = { ...req.headers };
+
+        // Correlation ID — generate if not present, always forward
+        const correlationId = (req.headers['x-correlation-id'] as string) || randomUUID();
+        enrichedHeaders['x-correlation-id'] = correlationId;
+
         if (req['user']) {
-            enrichedHeaders['x-user'] = JSON.stringify(req['user']);
+            const user = req['user'];
+            enrichedHeaders['x-user'] = JSON.stringify(user);
+            enrichedHeaders['x-user-id'] = user.id ?? '';
+            enrichedHeaders['x-user-email'] = user.email ?? '';
+            enrichedHeaders['x-user-name'] = (user as any).name ?? (user as any).username ?? '';
         }
 
         if (req['session']) {
@@ -66,7 +77,7 @@ export class ProxyController {
             filesObj,
         );
 
-        if (result.headers['content-type']?.includes('text/event-stream')) {
+        if (result.isStream) {
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
@@ -80,7 +91,9 @@ export class ProxyController {
         }
 
         res.status(result.status);
+        res.setHeader('x-correlation-id', correlationId);
         for (const [key, value] of Object.entries(result.headers || {})) {
+            this.logger.debug(`Response header → ${key}: ${value}`);
             if (value === undefined || value === null) continue;
             if (key.toLowerCase() === 'set-cookie') {
                 res.setHeader('set-cookie', Array.isArray(value) ? value : [value]);

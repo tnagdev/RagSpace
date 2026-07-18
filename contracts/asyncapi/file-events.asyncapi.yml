@@ -1,0 +1,95 @@
+asyncapi: '2.6.0'
+info:
+  title: RagSpace File Events
+  version: '1.0.0'
+  description: |
+    RabbitMQ topic exchange for file lifecycle events.
+    Exchange name is set via RABBITMQ_EXCHANGE env var (default: file-events).
+    All messages are JSON. Producers set persistent=true and contentType=application/json.
+
+servers:
+  development:
+    url: amqp://localhost:5672
+    protocol: amqp
+    description: Local RabbitMQ via Docker Compose
+
+channels:
+  file.upload.completed:
+    description: Emitted by upload-manager when a file finishes uploading to S3.
+    subscribe:
+      operationId: onUploadCompleted
+      message:
+        $ref: '#/components/messages/UploadCompletedEvent'
+    bindings:
+      amqp:
+        exchange:
+          name: file-events
+          type: topic
+          durable: true
+
+  file.processing.completed:
+    description: Emitted by scene-detector after scenes are extracted and stored.
+    subscribe:
+      operationId: onProcessingCompleted
+      message:
+        $ref: '#/components/messages/ProcessingCompletedEvent'
+    bindings:
+      amqp:
+        exchange:
+          name: file-events
+          type: topic
+          durable: true
+
+  file.indexing.completed:
+    description: Emitted by file-embedder after embeddings are stored in ChromaDB.
+    subscribe:
+      operationId: onIndexingCompleted
+      message:
+        $ref: '#/components/messages/IndexingCompletedEvent'
+    bindings:
+      amqp:
+        exchange:
+          name: file-events
+          type: topic
+          durable: true
+
+  file.deleted:
+    description: Emitted by upload-manager when a file or batch of files is deleted.
+    subscribe:
+      operationId: onFileDeleted
+      message:
+        $ref: '#/components/messages/FileDeletedEvent'
+    bindings:
+      amqp:
+        exchange:
+          name: file-events
+          type: topic
+          durable: true
+
+components:
+  messages:
+    UploadCompletedEvent:
+      name: UploadCompletedEvent
+      payload:
+        $ref: '../../contracts/events/UploadCompletedEvent.json'
+
+    ProcessingCompletedEvent:
+      name: ProcessingCompletedEvent
+      payload:
+        $ref: '../../contracts/events/ProcessingCompletedEvent.json'
+
+    IndexingCompletedEvent:
+      name: IndexingCompletedEvent
+      payload:
+        type: object
+        properties:
+          type:    { type: string, const: 'file.indexing.completed' }
+          fileId:  { type: string }
+          user:
+            $ref: '../../contracts/schemas/AuthUser.json'
+          timestamp: { type: string }
+
+    FileDeletedEvent:
+      name: FileDeletedEvent
+      payload:
+        $ref: '../../contracts/events/FileDeletedEvent.json'

@@ -1,15 +1,58 @@
 import logging
 import os
-from typing import List, Dict, Optional, Tuple
+import threading
+from typing import Callable, List, Dict, Optional, Tuple
 from contextlib import contextmanager
 from scenedetect import detect, FrameTimecode
 from scenedetect.detectors import AdaptiveDetector
+import scenedetect.scene_manager as _sd_sm
 from PIL import Image, ImageOps
 import cv2
 from src.config.settings import settings
 from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
+
+# Serialize scene detection so the tqdm monkey-patch is thread-safe.
+# CPU-bound detection is already effectively single-threaded through cpu_executor,
+# so this lock adds no meaningful throughput cost.
+_detection_lock = threading.Lock()
+
+
+class _ProgressBridge:
+    """tqdm-compatible shim that routes PySceneDetect's frame counter to a sync callback.
+
+    PySceneDetect calls tqdm(total=<frame_count>) then update(1) per frame.
+    We intercept those updates, convert to a 0-49% range (detection phase),
+    and call `callback(pct)` only when the integer percentage changes to keep
+    the event rate reasonable (~50 events maximum during detection).
+    """
+
+    def __init__(self, callback: Callable[[int], None], total: int = 0, **kwargs):
+        self.n = 0
+        self.total = total
+        self._callback = callback
+        self._last_pct = -1
+
+    def update(self, n: int = 1) -> None:
+        self.n += n
+        if self.total > 0:
+            pct = min(int(self.n / self.total * 50), 49)
+            if pct != self._last_pct:
+                self._last_pct = pct
+                self._callback(pct)
+
+    def close(self) -> None:
+        pass
+
+    def set_description(self, *args, **kwargs) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        pass
 
 
 
@@ -81,23 +124,46 @@ class SceneDetectionService(metaclass=SingletonMeta):
         
         return subscenes
     
-    def detect_scenes(self, video_path: str, max_scene_duration: int = 5) -> List[Dict]:
+    def detect_scenes(
+        self,
+        video_path: str,
+        max_scene_duration: int = 5,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> List[Dict]:
         """Detect scenes in a video file and split long scenes.
-        
+
         Args:
             video_path: Path to the video file
             max_scene_duration: Maximum scene duration in seconds
-            
+            progress_callback: Optional sync callable(pct: int) called with 0-49 during
+                frame analysis. Runs in the executor thread — callers must use
+                asyncio.run_coroutine_threadsafe if they need to schedule async work.
+
         Returns:
             List of scene dictionaries with timing and frame information
         """
         try:
-            # Detect scenes using adaptive detector
-            scene_list = detect(
-                video_path,
-                detector=AdaptiveDetector(),
-                show_progress=True
-            )
+            if progress_callback is not None:
+                with _detection_lock:
+                    original_tqdm = _sd_sm.tqdm
+                    _sd_sm.tqdm = lambda *a, **kw: _ProgressBridge(
+                        callback=progress_callback,
+                        total=kw.get("total", 0),
+                    )
+                    try:
+                        scene_list = detect(
+                            video_path,
+                            detector=AdaptiveDetector(),
+                            show_progress=True,
+                        )
+                    finally:
+                        _sd_sm.tqdm = original_tqdm
+            else:
+                scene_list = detect(
+                    video_path,
+                    detector=AdaptiveDetector(),
+                    show_progress=False,
+                )
             
             logger.info(f"Detected {len(scene_list)} initial scenes")
             

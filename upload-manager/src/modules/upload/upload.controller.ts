@@ -14,6 +14,7 @@ import {
     Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import 'multer';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { AuthUser, AuthSession } from '../../common/decorators/current-user.decorator';
@@ -118,6 +119,15 @@ export class UploadController {
         return this.uploadService.deleteFile(id, user);
     }
 
+    @Post(':id/reprocess')
+    async reprocessFile(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthUser,
+        @CurrentSession() session: AuthSession,
+    ) {
+        return this.uploadService.reprocessFile(id, user, session);
+    }
+
     @Delete('user-data')
     async deleteAllUserFiles(@CurrentUser() user: AuthUser) {
         return this.uploadService.deleteAllUserFiles(user.id);
@@ -180,8 +190,4 @@ export class UploadController {
         return this.uploadService.submitYouTubeLink(dto.url, user, session);
     }
 
-    @Get('health')
-    health() {
-        return { status: 'ok', service: 'upload-manager' };
-    }
 }

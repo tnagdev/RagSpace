@@ -105,6 +105,7 @@ RABBITMQ_EXCHANGE=file.events
 RABBITMQ_QUEUE=file.upload.queue
 MAX_FILE_SIZE=${MAX_FILE_SIZE}
 ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES}
+AUTH_SERVICE_URL=http://auth-service:8080
 EOF
 echo "  ✓ upload-manager/.env.prod"
 

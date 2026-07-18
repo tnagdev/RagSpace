@@ -157,10 +157,13 @@ class RabbitMQConsumer:
                     return
                 
                 try:
-                    await asyncio.wait_for(handler(event_model), timeout=300.0)
+                    await asyncio.wait_for(handler(event_model), timeout=settings.message_handler_timeout)
                     logger.info(f"✓ Processed: {event_type}")
                 except asyncio.TimeoutError:
-                    logger.error(f"Handler timeout (5min) for {event_type}")
+                    logger.error(
+                        f"Handler timeout ({settings.message_handler_timeout}s) for {event_type} — "
+                        "handler should return quickly if it uses background_task_manager"
+                    )
                 except Exception as e:
                     logger.error(f"Handler error for {event_type}: {e}", exc_info=True)
                     

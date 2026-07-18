@@ -9,8 +9,16 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY contracts/ ./contracts/
+COPY packages/shared-py ./packages/shared-py
+RUN pip install --no-cache-dir datamodel-code-generator && \
+    python packages/shared-py/scripts/generate.py
+COPY scene-detector/requirements.txt ./requirements.txt
+
+RUN pip install --no-cache-dir ./packages/shared-py && \
+    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-filtered.txt
 
 FROM python:3.11-slim
 
@@ -30,14 +38,12 @@ RUN groupadd -g 1001 appuser && \
 
 WORKDIR /app
 
-# Copy Python packages and Prisma generated client from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Give appuser write permissions to site-packages for Prisma client generation
+# Prisma generates client files in site-packages at runtime
 RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
 
-# Create temp directory with proper permissions
 RUN mkdir -p /tmp/scene-detector /home/appuser/.cache /home/appuser/.config/yt-dlp && \
     echo "--js-runtimes node" > /home/appuser/.config/yt-dlp/config && \
     chown -R appuser:appuser /tmp/scene-detector && \
@@ -45,9 +51,8 @@ RUN mkdir -p /tmp/scene-detector /home/appuser/.cache /home/appuser/.config/yt-d
     chown -R appuser:appuser /home/appuser/.config && \
     chmod -R 755 /tmp/scene-detector
 
-COPY --chown=appuser:appuser . .
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown appuser:appuser docker-entrypoint.sh
+COPY --chown=appuser:appuser scene-detector/ .
+RUN chmod +x docker-entrypoint.sh
 
 USER appuser
 

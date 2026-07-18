@@ -254,3 +254,15 @@ pids/
 
 # Generated files
 *.generated.*
+packages/shared-ts/src/generated/
+# Auto-generated Python models — regenerated at build time by scripts/generate.py
+# events/ and __init__.py are handwritten and committed — not auto-generated
+packages/shared-py/ragspace_shared/generated/auth_user.py
+packages/shared-py/ragspace_shared/generated/auth_session.py
+packages/shared-py/ragspace_shared/generated/uploaded_file.py
+packages/shared-py/ragspace_shared/generated/scene.py
+packages/shared-py/ragspace_shared/generated/usage_check_result.py
+packages/shared-py/ragspace_shared/generated/plan_validation_result.py
+packages/shared-py/ragspace_shared/generated/enums/
+# Added by code-review-graph
+.code-review-graph/

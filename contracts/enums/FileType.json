@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "FileType",
+  "title": "FileType",
+  "description": "Classification of uploaded file content.",
+  "type": "string",
+  "enum": ["VIDEO", "IMAGE", "AUDIO", "DOCUMENT", "YOUTUBE_VIDEO", "OTHER"]
+}

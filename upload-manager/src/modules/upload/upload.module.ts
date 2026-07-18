@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
 import { FileValidationService } from './file-validation.service';
@@ -20,10 +19,6 @@ import { PaymentModule, FileQuotaGuard } from '../../common/payment';
         UploadService,
         FileValidationService,
         FileQuotaGuard,
-        {
-            provide: APP_GUARD,
-            useClass: FileQuotaGuard,
-        },
     ],
     exports: [UploadService, FileValidationService],
 })

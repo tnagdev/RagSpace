@@ -6,16 +6,25 @@ import {
     Logger,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { firstValueFrom } from 'rxjs';
-import { SERVICES } from '../config/services.config';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
+
+interface CachedSession {
+    user: any;
+    session: any;
+    expiresAt: number;
+}
 
 @Injectable()
 export class AuthGuard implements CanActivate {
     private readonly logger = new Logger(AuthGuard.name);
-    private publicRoutes: string[] = [
+    private readonly sessionCache = new Map<string, CachedSession>();
+    private readonly SESSION_CACHE_TTL_MS = 30_000;
+
+    private readonly publicRoutes: string[] = [
         '/api/auth/signup',
         '/api/auth/signin',
         '/api/auth/google',
@@ -31,7 +40,7 @@ export class AuthGuard implements CanActivate {
         '/webhooks/razorpay',
     ];
 
-    private publicRoutePrefixes: string[] = [
+    private readonly publicRoutePrefixes: string[] = [
         '/api/plans',
         '/api/auth/reset-password',
     ];
@@ -39,6 +48,7 @@ export class AuthGuard implements CanActivate {
     constructor(
         private readonly httpService: HttpService,
         private readonly reflector: Reflector,
+        private readonly configService: ConfigService,
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -50,20 +60,25 @@ export class AuthGuard implements CanActivate {
         if (isPublic) return true;
 
         const path = context.switchToHttp().getRequest<Request>().path;
-        if (this.publicRoutes.includes(path)) {
-            return true;
-        }
-
-        if (this.publicRoutePrefixes.some(prefix => path.startsWith(prefix))) {
-            return true;
-        }
+        if (this.isPublicRoute(path)) return true;
 
         const request = context.switchToHttp().getRequest<Request>();
+        const cacheKey = request.headers.cookie || '';
+
+        const cached = this.sessionCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            request['user'] = cached.user;
+            request['session'] = cached.session;
+            return true;
+        }
+        if (cached) this.sessionCache.delete(cacheKey);
+
         try {
-            const authServiceUrl = SERVICES.AUTH_SERVICE.url;
+            const authServiceUrl = this.configService.get<string>('AUTH_SERVICE_URL');
             const authHeaders = {
                 cookie: request.headers.cookie || '',
                 'user-agent': request.headers['user-agent'] || '',
+                ...(request.headers.authorization ? { authorization: request.headers.authorization } : {}),
             };
 
             const response = await firstValueFrom(
@@ -78,6 +93,20 @@ export class AuthGuard implements CanActivate {
                 this.logger.error('Invalid session response structure');
                 throw new UnauthorizedException('No authentication provided');
             }
+
+            this.sessionCache.set(cacheKey, {
+                user: sessionData.user,
+                session: sessionData.session,
+                expiresAt: Date.now() + this.SESSION_CACHE_TTL_MS,
+            });
+
+            if (this.sessionCache.size > 5_000) {
+                const now = Date.now();
+                for (const [key, value] of this.sessionCache) {
+                    if (value.expiresAt < now) this.sessionCache.delete(key);
+                }
+            }
+
             request['user'] = sessionData.user;
             request['session'] = sessionData.session;
             return true;
@@ -99,5 +128,12 @@ export class AuthGuard implements CanActivate {
             this.logger.error('Session validation failed', error?.response?.data || error.message);
             throw new UnauthorizedException('Authentication failed');
         }
+    }
+
+    private isPublicRoute(path: string): boolean {
+        return (
+            this.publicRoutes.includes(path) ||
+            this.publicRoutePrefixes.some(prefix => path.startsWith(prefix))
+        );
     }
 }

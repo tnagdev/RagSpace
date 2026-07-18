@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from typing import Optional
 import httpx
 import boto3
@@ -85,25 +86,25 @@ class S3ClientService(metaclass=SingletonMeta):
                         
                         logger.info(f"Downloading from S3: s3://{bucket}/{s3_key}")
                         
-                        # Use boto3 for direct S3 download
-                        self.s3_client.download_file(bucket, s3_key, local_path)
+                        await asyncio.to_thread(self.s3_client.download_file, bucket, s3_key, local_path)
                         
                         file_size = os.path.getsize(local_path)
-                        logger.info(f"✓ Downloaded {file_size:,} bytes to: {local_path}")
+                        logger.info(f"\u2713 Downloaded {file_size:,} bytes to: {local_path}")
                         return local_path
             
-            # Fallback to direct HTTP download for non-S3 URLs
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.get(url, follow_redirects=True)
-                response.raise_for_status()
-                
-                # Write to file
-                with open(local_path, 'wb') as f:
-                    f.write(response.content)
-                
-                file_size = len(response.content)
-                logger.info(f"✓ Downloaded {file_size:,} bytes to: {local_path}")
-                return local_path
+            # Stream HTTP download — never loads entire response into memory
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.s3_download_timeout_seconds, connect=10.0)
+            ) as client:
+                async with client.stream('GET', url, follow_redirects=True) as response:
+                    response.raise_for_status()
+                    total_bytes = 0
+                    with open(local_path, 'wb') as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8 * 1024 * 1024):
+                            f.write(chunk)
+                            total_bytes += len(chunk)
+                    logger.info(f"\u2713 Downloaded {total_bytes:,} bytes to: {local_path}")
+                    return local_path
                 
         except (ClientError, BotoCoreError) as e:
             logger.error(f"S3 download failed: {e}")
@@ -133,16 +134,24 @@ class S3ClientService(metaclass=SingletonMeta):
     
     async def download(self, s3_url: Optional[str], s3_key: str, local_path: str) -> str:
         """Download a file using either a signed URL or S3 key.
-        
+
         Args:
-            s3_url: Optional signed URL (preferred if available)
-            s3_key: S3 object key (fallback if URL not provided)
+            s3_url: Optional signed URL (preferred if available and reachable)
+            s3_key: S3 object key (fallback if URL not provided or is a localhost URL)
             local_path: Local destination path
-            
+
         Returns:
             Local file path
         """
-        if s3_url:
+        # Public s3_url may contain `localhost` (browser-accessible only).
+        # Inside Docker containers that URL is unreachable — always use the
+        # boto3 client with the internal endpoint instead.
+        use_url = (
+            s3_url
+            and 'localhost' not in s3_url
+            and '127.0.0.1' not in s3_url
+        )
+        if use_url:
             return await self.download_from_url(s3_url, local_path)
         else:
             return await self.download_file(s3_key, local_path)

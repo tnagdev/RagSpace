@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "UploadCompletedEvent",
+  "title": "UploadCompletedEvent",
+  "description": "RabbitMQ message published by upload-manager when a file finishes uploading.",
+  "type": "object",
+  "required": ["type", "fileId", "user", "timestamp", "data"],
+  "properties": {
+    "type":      { "type": "string", "const": "file.upload.completed" },
+    "fileId":    { "type": "string" },
+    "user":      { "$ref": "../schemas/AuthUser.json" },
+    "session":   { "$ref": "../schemas/AuthSession.json" },
+    "timestamp": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["s3Key", "fileType"],
+      "properties": {
+        "s3Key":      { "type": "string" },
+        "s3Url":      { "type": ["string", "null"] },
+        "fileType":   { "$ref": "../enums/FileType.json" },
+        "fileName":   { "type": ["string", "null"] },
+        "fileSize":   { "type": ["integer", "null"] },
+        "mimeType":   { "type": ["string", "null"] },
+        "youtubeUrl": { "type": ["string", "null"] },
+        "videoId":    { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

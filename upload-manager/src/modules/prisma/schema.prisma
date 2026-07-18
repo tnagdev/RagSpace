@@ -135,6 +135,7 @@ model File {
     processingStage       ProcessingStage  @default(UPLOAD)
     metadata              Json?
     errorMessage          String?
+    processingRetryCount  Int              @default(0)
     uploadedAt            DateTime?
     processingStartedAt   DateTime?
     processingCompletedAt DateTime?

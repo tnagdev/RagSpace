@@ -4,21 +4,21 @@ import { Logger } from '@nestjs/common';
 const logger = new Logger('EmailService');
 
 const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
+	host: process.env.SMTP_HOST || 'smtp.gmail.com',
+	port: parseInt(process.env.SMTP_PORT || '587'),
+	secure: process.env.SMTP_SECURE === 'true',
+	auth: {
+		user: process.env.SMTP_USER,
+		pass: process.env.SMTP_PASS,
+	},
 });
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-    const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@filorag.app';
-    const appName = process.env.APP_NAME || 'FiloRag';
-    const year = new Date().getFullYear();
+	const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@filorag.app';
+	const appName = process.env.APP_NAME || 'FiloRag';
+	const year = new Date().getFullYear();
 
-    const html = `<!DOCTYPE html>
+	const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -134,17 +134,17 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
 </body>
 </html>`;
 
-    try {
-        await transporter.sendMail({
-            from: `${appName} <${from}>`,
-            to,
-            subject: `Reset your ${appName} password`,
-            html,
-        });
-        logger.log(`Password reset email sent to ${to}`);
-    } catch (error) {
-        logger.error(`Failed to send reset email to ${to}:`, error.message);
-        // Do not re-throw — let the caller return success to prevent email enumeration
-        // and avoid exposing SMTP configuration errors to the client
-    }
+	try {
+		await transporter.sendMail({
+			from: `${appName} <${from}>`,
+			to,
+			subject: `Reset your ${appName} password`,
+			html,
+		});
+		logger.log(`Password reset email sent to ${to}`);
+	} catch (error: any) {
+		logger.error(`Failed to send reset email to ${to}:`, error.message);
+		// Do not re-throw — let the caller return success to prevent email enumeration
+		// and avoid exposing SMTP configuration errors to the client
+	}
 }

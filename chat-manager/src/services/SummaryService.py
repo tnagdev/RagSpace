@@ -9,19 +9,11 @@ from openai import AsyncOpenAI
 from src.config import settings
 from src.models.chat import ChatMessage
 from src.decorators.singleton import SingletonMeta
+from src.graph.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-# System prompt for summarization
-SUMMARY_SYSTEM_PROMPT = """You are a conversation summarizer. Your job is to create a concise summary of a conversation between a user and an AI assistant about their video/image files.
-
-Create a summary that captures:
-1. The main topics discussed
-2. Key files or content the user was looking for
-3. Important findings or results from searches
-4. Any preferences or context the user shared
-
-Keep the summary concise but informative. Focus on information that would be useful for continuing the conversation."""
+SUMMARY_SYSTEM_PROMPT = load_prompt("summary_system.md")
 
 
 class SummaryService(metaclass=SingletonMeta):

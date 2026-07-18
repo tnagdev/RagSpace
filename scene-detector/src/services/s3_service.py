@@ -19,6 +19,8 @@ class S3Service(metaclass=SingletonMeta):
         self.bucket: str = settings.aws_s3_bucket
         self.region: str = settings.aws_region
         self.endpoint_url: Optional[str] = settings.aws_s3_endpoint
+        # Pre-signed URLs must use a browser-accessible hostname (e.g. localhost:9000, not minio:9000)
+        self.public_endpoint_url: Optional[str] = settings.aws_s3_public_endpoint or settings.aws_s3_endpoint
         
         self.session = aioboto3.Session(
             aws_access_key_id=settings.aws_access_key_id,
@@ -29,7 +31,10 @@ class S3Service(metaclass=SingletonMeta):
         self.client_config = Config(
             signature_version='s3v4',
             s3={'addressing_style': 'path'},
-            request_checksum_calculation='when_required'
+            request_checksum_calculation='when_required',
+            connect_timeout=10,
+            read_timeout=120,
+            retries={'max_attempts': 2, 'mode': 'standard'},
         )
         
         logger.info(f"S3 Service initialized (bucket: {self.bucket}, region: {self.region})")
@@ -88,10 +93,9 @@ class S3Service(metaclass=SingletonMeta):
                     Key=s3_key
                 )
                 
-                async with response['Body'] as stream:
-                    data = await stream.read()
-                    with open(local_path, 'wb') as f:
-                        f.write(data)
+                with open(local_path, 'wb') as f:
+                    async for chunk in response['Body'].iter_chunks(8388608):
+                        f.write(chunk)
             
             file_size = os.path.getsize(local_path)
             logger.info(f"✓ Downloaded {file_size:,} bytes to: {local_path}")
@@ -144,12 +148,12 @@ class S3Service(metaclass=SingletonMeta):
                     ContentType=content_type,
                     Metadata=upload_metadata
                 )
-            
+
             url = self._build_s3_url(upload_bucket, s3_key)
             file_size = len(file_data)
             logger.info(f"✓ Uploaded {file_size:,} bytes: {url}")
             return url
-            
+
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
             logger.error(f"S3 upload failed ({error_code}): {s3_key}")
@@ -258,44 +262,51 @@ class S3Service(metaclass=SingletonMeta):
         s3_keys: list[str],
         bucket: Optional[str] = None
     ) -> int:
-        """Delete multiple files from S3 individually.
-        
+        """Delete multiple files from S3 using the batch delete_objects API.
+
         Args:
             s3_keys: List of S3 object keys to delete
             bucket: Optional bucket name (uses default if not provided)
-            
+
         Returns:
             Number of files successfully deleted
         """
         if not s3_keys:
             return 0
-        
+
         delete_bucket = bucket or self.bucket
         deleted_count = 0
-        
+        chunk_size = 1000
+
         try:
-            logger.info(f"Deleting {len(s3_keys)} files from S3")
-            
+            logger.info(f"Deleting {len(s3_keys)} files from S3 (batch)")
+
             async with self._get_client() as s3_client:
-                for key in s3_keys:
+                for i in range(0, len(s3_keys), chunk_size):
+                    chunk = s3_keys[i:i + chunk_size]
+                    objects = [{"Key": key} for key in chunk]
                     try:
-                        await s3_client.delete_object(
+                        response = await s3_client.delete_objects(
                             Bucket=delete_bucket,
-                            Key=key
+                            Delete={"Objects": objects, "Quiet": False}
                         )
-                        deleted_count += 1
+                        deleted = response.get("Deleted", [])
+                        errors = response.get("Errors", [])
+                        deleted_count += len(deleted)
+                        for err in errors:
+                            logger.warning(
+                                f"Failed to delete {err.get('Key')}: "
+                                f"{err.get('Code')} - {err.get('Message')}"
+                            )
                     except ClientError as e:
                         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-                        if error_code == 'NoSuchKey':
-                            deleted_count += 1  # Consider missing files as successfully deleted
-                        else:
-                            logger.warning(f"Failed to delete {key}: {error_code}")
+                        logger.warning(f"Batch delete error for chunk at index {i}: {error_code}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete {key}: {e}")
-            
+                        logger.warning(f"Batch delete error for chunk at index {i}: {e}")
+
             logger.info(f"✓ Deleted {deleted_count}/{len(s3_keys)} files from S3")
             return deleted_count
-            
+
         except Exception as e:
             logger.error(f"Delete operation error: {e}", exc_info=True)
             return deleted_count
@@ -320,14 +331,19 @@ class S3Service(metaclass=SingletonMeta):
         
         try:
             logger.info(f"Generating signed URL for: s3://{target_bucket}/{s3_key}")
-            
-            async with self._get_client() as s3_client:
+
+            # Use public endpoint so the browser-facing URL is resolvable (localhost, not Docker-internal)
+            sign_kwargs = {'config': self.client_config}
+            if self.public_endpoint_url:
+                sign_kwargs['endpoint_url'] = self.public_endpoint_url
+
+            async with self.session.client('s3', **sign_kwargs) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     'get_object',
                     Params={'Bucket': target_bucket, 'Key': s3_key},
                     ExpiresIn=expiration
                 )
-            
+
             logger.info(f"✓ Generated signed URL (expires in {expiration}s)")
             return url
             

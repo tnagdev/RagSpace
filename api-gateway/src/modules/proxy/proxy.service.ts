@@ -5,6 +5,13 @@ import { AxiosRequestConfig, AxiosError } from 'axios';
 import { SERVICES, ServiceConfig } from '../../config/services.config';
 import FormData from 'form-data';
 
+export interface ProxyResponse {
+    status: number;
+    headers: Record<string, any>;
+    data: any;
+    isStream: boolean;
+}
+
 @Injectable()
 export class ProxyService {
     private readonly logger = new Logger(ProxyService.name);
@@ -19,7 +26,7 @@ export class ProxyService {
         headers?: any,
         query?: any,
         files?: any,
-    ): Promise<any> {
+    ): Promise<ProxyResponse> {
         const service = this.getServiceByName(serviceName);
 
         if (!service) {
@@ -40,7 +47,7 @@ export class ProxyService {
         headers?: any,
         query?: any,
         files?: any,
-    ): Promise<any> {
+    ): Promise<ProxyResponse> {
         let servicePath = path.startsWith('/api') ? path.replace(/^\/api/, '') : path;
 
         if (!servicePath.startsWith('/')) {
@@ -77,6 +84,9 @@ export class ProxyService {
             sanitizedHeaders['content-type'] = 'application/json';
         }
 
+        const isStream = !!(headers['accept']?.includes('text/event-stream') ||
+            sanitizedHeaders['accept']?.includes('text/event-stream'));
+
         const config: AxiosRequestConfig = {
             method: method.toLowerCase() as any,
             url,
@@ -84,12 +94,12 @@ export class ProxyService {
             headers: sanitizedHeaders,
             params: query,
             withCredentials: true,
-            timeout: 30000,
+            timeout: isStream ? 0 : (service.timeout ?? 30_000),
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             maxRedirects: 0,
             validateStatus: () => true,
-            responseType: headers['accept']?.includes('text/event-stream') || sanitizedHeaders['accept']?.includes('text/event-stream') ? 'stream' : 'json',
+            responseType: isStream ? 'stream' : 'json',
         };
 
         this.logger.log(`Request config for ${service.name}:`, {
@@ -99,77 +109,18 @@ export class ProxyService {
         });
 
         try {
-            if (config.responseType === 'stream') {
-                const response = await firstValueFrom(
-                    this.httpService.request(config).pipe(
-                        catchError((error: AxiosError) => {
-                            this.logger.error(`Error forwarding request to ${service.name}:`, {
-                                message: error.message,
-                                code: error.code,
-                                status: error.response?.status,
-                            });
-
-                            if (error.response) {
-                                throw new HttpException(
-                                    error.response.data || 'Service error',
-                                    error.response.status || HttpStatus.INTERNAL_SERVER_ERROR,
-                                );
-                            }
-
-                            if (error.code === 'ECONNREFUSED') {
-                                throw new HttpException(
-                                    `Service ${service.name} is not available`,
-                                    HttpStatus.SERVICE_UNAVAILABLE,
-                                );
-                            }
-
-                            throw new HttpException(
-                                error.message || 'Service unavailable',
-                                HttpStatus.SERVICE_UNAVAILABLE,
-                            );
-                        }),
-                    ),
-                );
-
-                return {
-                    status: response.status,
-                    headers: response.headers,
-                    data: response.data,
-                };
-            }
-
             const response = await firstValueFrom(
                 this.httpService.request(config).pipe(
-                    catchError((error: AxiosError) => {
-                        this.logger.error(`Error forwarding request to ${service.name}:`, {
-                            message: error.message,
-                            code: error.code,
-                            status: error.response?.status,
-                        });
-
-                        if (error.response) {
-                            throw new HttpException(
-                                error.response.data || 'Service error',
-                                error.response.status || HttpStatus.INTERNAL_SERVER_ERROR,
-                            );
-                        }
-
-                        if (error.code === 'ECONNREFUSED') {
-                            throw new HttpException(
-                                `Service ${service.name} is not available`,
-                                HttpStatus.SERVICE_UNAVAILABLE,
-                            );
-                        }
-
-                        throw new HttpException(
-                            error.message || 'Service unavailable',
-                            HttpStatus.SERVICE_UNAVAILABLE,
-                        );
-                    }),
+                    catchError((error: AxiosError) => this.handleAxiosError(error, service.name)),
                 ),
             );
 
-            return response;
+            return {
+                status: response.status,
+                headers: response.headers,
+                data: response.data,
+                isStream,
+            };
         } catch (error: any) {
             if (error instanceof HttpException) {
                 throw error;
@@ -180,6 +131,33 @@ export class ProxyService {
                 HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }
+    }
+
+    private handleAxiosError(error: AxiosError, serviceName: string): never {
+        this.logger.error(`Error forwarding request to ${serviceName}:`, {
+            message: error.message,
+            code: error.code,
+            status: error.response?.status,
+        });
+
+        if (error.response) {
+            throw new HttpException(
+                error.response.data || 'Service error',
+                error.response.status || HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+
+        if (error.code === 'ECONNREFUSED') {
+            throw new HttpException(
+                `Service ${serviceName} is not available`,
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
+        }
+
+        throw new HttpException(
+            error.message || 'Service unavailable',
+            HttpStatus.SERVICE_UNAVAILABLE,
+        );
     }
 
     private getServiceByName(serviceName: string): ServiceConfig | undefined {

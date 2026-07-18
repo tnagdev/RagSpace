@@ -1,6 +1,7 @@
+-e ../packages/shared-py
 fastapi
 uvicorn[standard]
-pydantic
+pydantic[email]
 pydantic-settings
 aio-pika
 chromadb==0.6.3
@@ -10,8 +11,7 @@ torch
 opencv-python
 ffmpeg-python
 scenedetect
-whisper
-openai-whisper
+faster-whisper
 openai
 transformers>=4.30.0
 torchaudio
@@ -25,3 +25,4 @@ faiss-cpu
 spacy>=3.0.0
 networkx
 yt-dlp[default]>=2024.11.4
+yt-dlp-ejs

@@ -1,5 +1,5 @@
 import { type FC } from 'react';
-import { FileText, X, Image, Film, Music, File, Loader2 } from 'lucide-react';
+import { FileText, X, Image, Film, Music, File, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 import { IconButton } from '../../../components/IconButton';
 import { ProgressBar } from '../../../components/ProgressBar';
 import type { FileResponseDto, ProcessingStage } from '@/types/upload.types';
@@ -8,6 +8,10 @@ interface FileUploadItemProps {
     file: FileResponseDto;
     progress: number;
     onCancel?: (id: string) => void;
+    onRetry?: (id: string) => void;
+    failed?: boolean;
+    eta?: string;
+    processingRetryCount?: number;
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -35,7 +39,30 @@ const getStatusText = (stage: ProcessingStage): string => {
     }
 };
 
-export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCancel }) => {
+export const FileUploadItem: FC<FileUploadItemProps> = ({
+    file,
+    progress,
+    onCancel,
+    onRetry,
+    failed,
+    eta,
+    processingRetryCount,
+}) => {
+    const retryCount = processingRetryCount ?? 0;
+
+    // Upload failure: S3 upload failed or upload manager marked FAILED
+    const isUploadFailed = (failed || file.uploadStatus === 'FAILED') && file.processingStage !== 'SCENE_DETECTION' && file.processingStage !== 'INDEXING' && file.processingStage !== 'EMBEDDING';
+    // Permanent processing failure after all retries exhausted
+    const isPermanentlyFailed = !isUploadFailed && file.processingStatus === 'FAILED';
+    // Auto-retry in progress (retryCount > 0 means at least one retry has occurred)
+    const isRetrying = !isUploadFailed && !isPermanentlyFailed
+        && file.processingStatus === 'IN_PROGRESS'
+        && retryCount > 0;
+    const isCompleted = file.processingStage === 'COMPLETED';
+    const isProcessing = !isCompleted && !isUploadFailed && !isPermanentlyFailed;
+
+    const progressVariant = progress > 0 ? 'default' : 'shimmer';
+
     const getFileIcon = () => {
         const iconClass = 'w-10 h-10 rounded-lg flex items-center justify-center';
 
@@ -73,8 +100,6 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
         }
     };
 
-    const isProcessing = file.processingStage !== 'COMPLETED';
-
     return (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-bg-tertiary/50 border border-sidebar-border hover:border-sidebar-border/50 transition-all">
             {getFileIcon()}
@@ -83,7 +108,7 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
                     <p className="text-sm font-medium text-text-primary truncate">
                         {file.originalFilename}
                     </p>
-                    {onCancel && isProcessing && (
+                    {onCancel && !isCompleted && !isPermanentlyFailed && (
                         <IconButton
                             size="sm"
                             variant="ghost"
@@ -92,35 +117,78 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({ file, progress, onCanc
                         />
                     )}
                 </div>
-                <div className="flex items-center gap-2">
-                    <p className="text-xs text-text-muted">{formatFileSize(file.fileSize)}</p>
-                    <span className="text-xs text-text-muted">•</span>
-                    {isProcessing ? (
-                        <div className="flex items-center gap-1.5">
-                            <Loader2 className="w-3 h-3 text-accent-primary animate-spin" />
-                            <p className="text-xs text-text-secondary">
-                                {getStatusText(file.processingStage)}
-                            </p>
-                        </div>
-                    ) : (
-                        <p className="text-xs text-success">Complete</p>
-                    )}
-                    {file.processingStage === 'UPLOAD' && progress > 0 && progress < 100 && (
-                        <span className="text-xs text-accent-primary font-medium ml-auto">
-                            {progress}%
-                        </span>
-                    )}
-                </div>
-                {isProcessing && (
-                    <ProgressBar
-                        progress={progress}
-                        variant={file.processingStage === 'UPLOAD' ? 'default' : 'shimmer'}
-                        size="md"
-                        className="mt-2"
-                    />
+
+                {isUploadFailed && (
+                    <div className="flex items-center gap-2 mt-1">
+                        <AlertCircle className="w-3 h-3 text-danger shrink-0" />
+                        <p className="text-xs text-danger">Upload failed</p>
+                        {onRetry && (
+                            <button
+                                onClick={() => onRetry(file.id)}
+                                className="flex items-center gap-1 text-xs text-accent-primary hover:underline ml-auto"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Retry
+                            </button>
+                        )}
+                    </div>
                 )}
-                {file.uploadStatus === 'FAILED' && file.errorMessage && (
-                    <p className="text-xs text-danger mt-1">{file.errorMessage}</p>
+
+                {isPermanentlyFailed && (
+                    <div className="flex items-center gap-2 mt-1">
+                        <AlertCircle className="w-3 h-3 text-danger shrink-0" />
+                        <p className="text-xs text-danger">Processing failed</p>
+                        {onCancel && (
+                            <button
+                                onClick={() => onCancel(file.id)}
+                                className="flex items-center gap-1 text-xs text-danger hover:underline ml-auto"
+                            >
+                                Remove
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {!isUploadFailed && !isPermanentlyFailed && (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <p className="text-xs text-text-muted">{formatFileSize(file.fileSize)}</p>
+                            <span className="text-xs text-text-muted">•</span>
+                            {isRetrying ? (
+                                <div className="flex items-center gap-1.5">
+                                    <Loader2 className="w-3 h-3 text-warning animate-spin" />
+                                    <p className="text-xs text-warning">
+                                        Retrying ({retryCount}/3)
+                                    </p>
+                                </div>
+                            ) : isProcessing ? (
+                                <div className="flex items-center gap-1.5">
+                                    <Loader2 className="w-3 h-3 text-accent-primary animate-spin" />
+                                    <p className="text-xs text-text-secondary">
+                                        {getStatusText(file.processingStage)}
+                                        {eta && (
+                                            <span className="text-text-muted ml-1">· {eta}</span>
+                                        )}
+                                    </p>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-success">Complete</p>
+                            )}
+                            {(isProcessing || isRetrying) && progress > 0 && progress < 100 && (
+                                <span className="text-xs text-accent-primary font-medium ml-auto">
+                                    {progress}%
+                                </span>
+                            )}
+                        </div>
+                        {(isProcessing || isRetrying) && (
+                            <ProgressBar
+                                progress={progress}
+                                variant={progressVariant}
+                                size="md"
+                                className="mt-2"
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </div>

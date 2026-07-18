@@ -38,6 +38,8 @@ export interface CompletedPart {
 export class S3Service {
     private readonly logger = new Logger(S3Service.name);
     private readonly s3Client: S3Client;
+    /** Used only for getSignedUrl calls so presigned URLs contain the public hostname. */
+    private readonly presignClient: S3Client;
     private readonly bucket: string;
 
     constructor(private configService: ConfigService) {
@@ -47,23 +49,44 @@ export class S3Service {
             'aws.secretAccessKey',
         );
         const endpoint = this.configService.get<string>('aws.s3.endpoint');
+        const publicEndpoint = this.configService.get<string>('aws.s3.publicEndpoint');
 
         this.bucket =
             this.configService.get<string>('aws.s3.bucket') || 'ragspace-uploads';
 
-        this.s3Client = new S3Client({
+        const sharedClientConfig = {
             region,
             credentials:
                 accessKeyId && secretAccessKey
-                    ? {
-                        accessKeyId,
-                        secretAccessKey,
-                    }
+                    ? { accessKeyId, secretAccessKey }
                     : undefined,
+            // Only calculate checksums when strictly required.
+            // SDK v3 defaults to WHEN_SUPPORTED which injects x-amz-checksum-crc32
+            // into UploadPart presigned URLs; MinIO rejects those with 403.
+            requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+            responseChecksumValidation: 'WHEN_REQUIRED' as const,
+        };
+
+        // Internal client — used for all server-side S3 operations (create/complete/abort).
+        this.s3Client = new S3Client({
+            ...sharedClientConfig,
             ...(endpoint && {
                 endpoint,
                 forcePathStyle: true,
-                tls: true,
+                tls: endpoint.startsWith('https'),
+            }),
+        });
+
+        // Presign client — uses the public endpoint so that generated URLs are
+        // directly reachable by the browser. In production the public endpoint
+        // equals the internal one (or is unset), so we fall back to s3Client config.
+        const presignEndpoint = publicEndpoint || endpoint;
+        this.presignClient = new S3Client({
+            ...sharedClientConfig,
+            ...(presignEndpoint && {
+                endpoint: presignEndpoint,
+                forcePathStyle: true,
+                tls: presignEndpoint.startsWith('https'),
             }),
         });
 
@@ -130,7 +153,7 @@ export class S3Service {
                 Key: key,
             });
 
-            const url = await getSignedUrl(this.s3Client, command, { expiresIn });
+            const url = await getSignedUrl(this.presignClient, command, { expiresIn });
             return url;
         } catch (error) {
             this.logger.error(`Error generating signed URL for key: ${key}`, error);
@@ -237,7 +260,7 @@ export class S3Service {
                 });
 
                 const presignedUrl = await getSignedUrl(
-                    this.s3Client,
+                    this.presignClient,
                     uploadPartCommand,
                     { expiresIn: 3600 },
                 );
@@ -265,6 +288,7 @@ export class S3Service {
         key: string,
         uploadId: string,
         parts: CompletedPart[],
+        totalSize: number,
     ): Promise<UploadResult> {
         try {
             const completeCommand = new CompleteMultipartUploadCommand({
@@ -285,13 +309,11 @@ export class S3Service {
 
             this.logger.log(`Multipart upload completed: ${key}`);
 
-            const size = parts.length * 5 * 1024 * 1024;
-
             return {
                 key,
                 bucket: this.bucket,
                 url,
-                size,
+                size: totalSize,
             };
         } catch (error) {
             this.logger.error('Error completing multipart upload', error);

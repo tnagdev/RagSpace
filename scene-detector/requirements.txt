@@ -1,6 +1,7 @@
+-e ../packages/shared-py
 fastapi
 uvicorn
-pydantic
+pydantic[email]
 pydantic-settings
 python-dotenv
 
@@ -18,8 +19,10 @@ scenedetect[opencv]
 opencv-python
 
 # YouTube Download
-# [default] installs yt-dlp-ejs: required for YouTube n-challenge solving
+# yt-dlp-ejs: Python-native EJS interpreter that registers as a yt-dlp plugin
+# and solves YouTube n-challenges without requiring Node.js process discovery.
 yt-dlp[default]>=2024.11.4
+yt-dlp-ejs
 
 # Image Processing
 Pillow

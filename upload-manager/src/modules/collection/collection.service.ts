@@ -506,44 +506,30 @@ export class CollectionService {
     }
 
     private async getAllDescendantIds(collectionId: string): Promise<string[]> {
-        const descendants: string[] = [];
-        const queue = [collectionId];
-
-        while (queue.length > 0) {
-            const currentId = queue.shift();
-            const children = await this.prisma.collection.findMany({
-                where: { parentId: currentId },
-                select: { id: true },
-            });
-
-            for (const child of children) {
-                descendants.push(child.id);
-                queue.push(child.id);
-            }
-        }
-
-        return descendants;
+        const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+            WITH RECURSIVE tree AS (
+                SELECT id FROM upload."Collection" WHERE "parentId" = ${collectionId}
+                UNION ALL
+                SELECT c.id FROM upload."Collection" c JOIN tree ON c."parentId" = tree.id
+            )
+            SELECT id FROM tree
+        `;
+        return rows.map(r => r.id);
     }
 
     private async checkCircularReference(
         collectionId: string,
         newParentId: string,
     ): Promise<boolean> {
-        let currentId: string | null = newParentId;
-
-        while (currentId) {
-            if (currentId === collectionId) {
-                return true;
-            }
-
-            const parent = await this.prisma.collection.findUnique({
-                where: { id: currentId },
-                select: { parentId: true },
-            });
-
-            currentId = parent?.parentId || null;
-        }
-
-        return false;
+        const ancestors = await this.prisma.$queryRaw<{ id: string }[]>`
+            WITH RECURSIVE ancestors AS (
+                SELECT "parentId" AS id FROM upload."Collection" WHERE id = ${newParentId}
+                UNION ALL
+                SELECT c."parentId" FROM upload."Collection" c JOIN ancestors a ON c.id = a.id
+                WHERE c."parentId" IS NOT NULL
+            )
+            SELECT id FROM ancestors WHERE id IS NOT NULL
+        `;
+        return ancestors.some(a => a.id === collectionId);
     }
 }

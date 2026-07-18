@@ -171,4 +171,9 @@ export const uploadAPI = {
         const response = await privateAxios.post<FileResponseDto>(`${UPLOAD_BASE}/youtube`, { url });
         return response.data;
     },
+
+    reprocessFile: async (id: string): Promise<{ message: string; fileId: string }> => {
+        const response = await privateAxios.post(`${UPLOAD_BASE}/${id}/reprocess`);
+        return response.data;
+    },
 };

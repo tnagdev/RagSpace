@@ -105,6 +105,8 @@ RABBITMQ_EXCHANGE=file.events
 RABBITMQ_QUEUE=file.upload.queue
 MAX_FILE_SIZE=1073741824
 ALLOWED_FILE_TYPES=image/*,video/*,audio/*,application/pdf
+AUTH_SERVICE_URL=http://auth-service:8080
+AWS_S3_PUBLIC_ENDPOINT=http://localhost:9000
 EOF
 echo "  ✓ upload-manager/.env.docker"
 

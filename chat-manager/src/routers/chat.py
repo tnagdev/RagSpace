@@ -158,6 +158,19 @@ async def chat(body: ChatRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_SUMMARIZE_KEYWORDS = {'summarize', 'summary', 'describe', 'what is this', 'tell me about', 'explain this', 'overview', 'what does this'}
+_SEARCH_KEYWORDS = {'find', 'search', 'show me', 'look for', 'where is', 'which', 'locate', 'what scene'}
+
+
+def _initial_status_label(message: str) -> str:
+    msg = message.lower()
+    if any(k in msg for k in _SUMMARIZE_KEYWORDS):
+        return 'Analyzing video content...'
+    if any(k in msg for k in _SEARCH_KEYWORDS):
+        return 'Searching your library...'
+    return 'Thinking...'
+
+
 async def _handle_agentic_chat(
     conversation_id: str,
     messages: list,
@@ -189,12 +202,16 @@ async def _handle_agentic_chat(
                 "mode": "agentic"
             }
             yield f"data: {json.dumps(metadata)}\n\n"
-            
+
+            # Emit immediate contextual status before the graph initializes.
+            user_msg = next((m.content for m in reversed(messages) if m.role == 'user'), '')
+            yield f"data: {json.dumps({'type': 'step_start', 'step': 'init', 'label': _initial_status_label(user_msg)})}\n\n"
+
             full_response = ""
             all_search_results = []
             tools_used = []
             new_summary = None
-            
+
             # Run the agent with streaming
             async for event in agent.run_streaming(
                 messages=messages,
@@ -203,21 +220,31 @@ async def _handle_agentic_chat(
             ):
                 event_type = event.get("type")
                 
-                if event_type == "tool_start":
-                    # Notify client about tool execution
+                if event_type in ("tool_start", "step_start", "step_done", "step_error"):
                     yield f"data: {json.dumps(event)}\n\n"
-                    
+
                 elif event_type == "tool_result":
                     # Send search results to client
                     search_results = event.get("results", [])
                     if search_results:
                         all_search_results.extend(search_results)
-                        # Format results for client display
-                        results_event = {
-                            "type": "results",
-                            "results": [SearchResult(**r).model_dump() for r in search_results]
-                        }
-                        yield f"data: {json.dumps(results_event)}\n\n"
+                        # Validate + serialize each result; fall back to raw dict on error.
+                        serialized = []
+                        for r in search_results:
+                            try:
+                                serialized.append(SearchResult.model_validate(r).model_dump())
+                            except Exception:
+                                serialized.append({k: v for k, v in r.items() if isinstance(v, (str, int, float, bool, type(None), list, dict))})
+                        results_event = {"type": "results", "results": serialized}
+                        yield f"data: {json.dumps(results_event, default=str)}\n\n"
+
+                elif event_type == "scene_thumbnails":
+                    # Scene thumbnails emitted by video_content_node — always forward so the
+                    # frontend never silently misses this event (frontend guards on scenes?.length).
+                    scenes = event.get("scenes", [])
+                    if scenes:
+                        all_search_results.extend(scenes)
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
                     
                 elif event_type == "content":
                     # Stream response content

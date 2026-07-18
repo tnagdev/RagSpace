@@ -1,6 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import httpProxy = require('http-proxy');
+import type { IncomingMessage } from 'http';
+import type { Socket } from 'net';
 
 const logger = new Logger('API-Gateway');
 
@@ -21,7 +24,7 @@ async function bootstrap() {
     origin: allowedOrigins,
     credentials: true,
     exposedHeaders: ['Set-Cookie'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Correlation-Id'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     preflightContinue: false,
     optionsSuccessStatus: 204
@@ -38,9 +41,28 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  const server = await app.listen(port);
   logger.log(`HTTP API Gateway is running on http://localhost:${port}`);
   logger.log(`Health check: http://localhost:${port}/api/health`);
+
+  const uploadManagerUrl = process.env.UPLOAD_MANAGER_URL || 'http://localhost:8002';
+  const wsProxy = httpProxy.createProxyServer({ target: uploadManagerUrl, ws: true });
+  wsProxy.on('error', (err, _req, socket) => {
+    logger.error(`WS proxy error: ${(err as Error).message}`);
+    if (socket && typeof (socket as Socket).destroy === 'function') {
+      (socket as Socket).destroy();
+    }
+  });
+
+  server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (req.url?.startsWith('/ws/')) {
+      logger.debug(`WS upgrade → ${uploadManagerUrl}${req.url}`);
+      wsProxy.ws(req, socket, head);
+    } else {
+      socket.destroy();
+    }
+  });
+
   process.on('SIGTERM', () => {
     logger.log('SIGTERM received — starting graceful shutdown');
     setTimeout(() => {

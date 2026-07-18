@@ -2,6 +2,8 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    ForbiddenException,
+    OnApplicationBootstrap,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
@@ -13,17 +15,44 @@ import {
     ProcessingStage,
 } from '@prisma/client';
 import { GetFilesQueryDto } from './dto/get-files-query.dto';
+import { UpdateFileDto } from './dto/update-file.dto';
 import { AuthUser, AuthSession } from 'src/common/decorators/current-user.decorator';
+import { PaymentClientService, UsageMetricType } from '../../common/payment/payment-client.service';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 @Injectable()
-export class UploadService {
+export class UploadService implements OnApplicationBootstrap {
     private readonly logger = new Logger(UploadService.name);
 
     constructor(
         private prisma: PrismaService,
         private s3Service: S3Service,
         private rabbitmqService: RabbitmqService,
+        private paymentClient: PaymentClientService,
     ) { }
+
+    async onApplicationBootstrap(): Promise<void> {
+        // Any file still marked UPLOADING when the server starts was interrupted
+        // (crash, restart, browser tab closed). Mark them FAILED so the UI can
+        // show an error state instead of spinning forever.
+        const STALE_MINUTES = 5;
+        const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1_000);
+        const result = await this.prisma.file.updateMany({
+            where: {
+                uploadStatus: UploadStatus.UPLOADING,
+                createdAt: { lt: cutoff },
+            },
+            data: { uploadStatus: UploadStatus.FAILED },
+        });
+        if (result.count > 0) {
+            this.logger.warn(
+                `Marked ${result.count} stale UPLOADING file(s) as FAILED on startup`,
+            );
+        }
+    }
 
     async uploadFile(file: Express.Multer.File, user: AuthUser, session?: AuthSession) {
         try {
@@ -58,6 +87,7 @@ export class UploadService {
             });
 
             try {
+                let lastPublishedProgress = -1;
                 const uploadResult = await this.s3Service.uploadFile(
                     file,
                     user.id,
@@ -65,6 +95,22 @@ export class UploadService {
                         this.logger.debug(
                             `Upload progress for ${fileRecord.id}: ${progress}%`,
                         );
+                        // Throttle: only publish when progress increases by ≥5% from last published value
+                        if (progress - lastPublishedProgress >= 5) {
+                            lastPublishedProgress = progress;
+                            this.rabbitmqService.publishEvent({
+                                type: FileEventType.UPLOAD_PROGRESS,
+                                fileId: fileRecord.id,
+                                user,
+                                session,
+                                timestamp: new Date(),
+                                data: { stage: 'UPLOAD', progress },
+                            }).catch((err) => {
+                                this.logger.debug(
+                                    `Progress publish failed (non-fatal) for ${fileRecord.id}: ${err.message}`,
+                                );
+                            });
+                        }
                     },
                 );
 
@@ -99,7 +145,7 @@ export class UploadService {
 
                 this.logger.log(`File uploaded successfully: ${fileRecord.id}`);
                 return updatedFile;
-            } catch (error) {
+            } catch (error: any) {
                 this.logger.error(
                     `S3 upload failed for file ${fileRecord.id}, deleting record`,
                     error,
@@ -128,7 +174,7 @@ export class UploadService {
         }
     }
 
-    async updateFile(id: string, data: Partial<any>) {
+    async updateFile(id: string, data: UpdateFileDto) {
         const updateData = { ...data };
         if (data.metadata && data.metadata.thumbnailPath) {
             updateData.thumbnailPath = data.metadata.thumbnailPath;
@@ -194,7 +240,10 @@ export class UploadService {
     }
 
     async getFileByIds(ids: string[], userId: string, query?: GetFilesQueryDto) {
-        const { uploadStatus, processingStatus } = query || {};
+        const { page = 1, limit: _limit = 20, uploadStatus, processingStatus } = query || {};
+        const limit = parseInt(_limit as any, 10);
+        const skip = (page - 1) * limit;
+
         const where: any = { userId };
         if (uploadStatus) {
             where.uploadStatus = uploadStatus;
@@ -203,10 +252,16 @@ export class UploadService {
             where.processingStatus = processingStatus;
         }
         where.id = { in: ids };
-        const files = await this.prisma.file.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-        });
+
+        const [files, total] = await Promise.all([
+            this.prisma.file.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            this.prisma.file.count({ where: { id: { in: ids }, userId } }),
+        ]);
 
         const filesWithUrls = files.map(async (file) => {
             try {
@@ -233,9 +288,9 @@ export class UploadService {
 
         return {
             files: await Promise.all(filesWithUrls),
-            total: files.length,
-            page: 1,
-            limit: files.length,
+            total,
+            page,
+            limit,
         };
     }
 
@@ -300,26 +355,35 @@ export class UploadService {
     }
 
     async getStorageStats(userId: string) {
-        const result = await this.prisma.file.aggregate({
-            where: {
-                userId,
-                uploadStatus: UploadStatus.COMPLETED
-            },
-            _sum: {
-                fileSize: true,
-            },
-            _count: true,
-        });
+        const FALLBACK_TOTAL_BYTES = 100 * 1024 * 1024 * 1024; // 100GB fallback
+
+        const [result, storageCheck] = await Promise.all([
+            this.prisma.file.aggregate({
+                where: {
+                    userId,
+                    uploadStatus: UploadStatus.COMPLETED,
+                },
+                _sum: {
+                    fileSize: true,
+                },
+                _count: true,
+            }),
+            this.paymentClient.checkUsage(userId, UsageMetricType.STORAGE, 0).catch(() => null),
+        ]);
 
         const usedBytes = result._sum.fileSize || 0;
-        const totalBytes = 100 * 1024 * 1024 * 1024; // 100GB in bytes
         const fileCount = result._count;
+
+        let totalBytes = FALLBACK_TOTAL_BYTES;
+        if (storageCheck && storageCheck.limit !== undefined && storageCheck.limit !== 'unlimited') {
+            totalBytes = storageCheck.limit as number;
+        }
 
         return {
             usedBytes,
             totalBytes,
             usedGB: (usedBytes / (1024 * 1024 * 1024)).toFixed(2),
-            totalGB: 100,
+            totalGB: (totalBytes / (1024 * 1024 * 1024)).toFixed(2),
             usedPercentage: ((usedBytes / totalBytes) * 100).toFixed(1),
             fileCount,
         };
@@ -339,14 +403,14 @@ export class UploadService {
             if (file.uploadStatus === UploadStatus.COMPLETED && file.s3Key) {
                 try {
                     await this.s3Service.deleteFile(file.s3Key);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
                 }
             }
-            if ((file as any).thumbnailPath) {
+            if (file.thumbnailPath) {
                 try {
-                    await this.s3Service.deleteFile((file as any).thumbnailPath);
-                } catch (error) {
+                    await this.s3Service.deleteFile(file.thumbnailPath);
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
             }
@@ -372,7 +436,7 @@ export class UploadService {
                 },
             });
             this.logger.log(`Published file deletion event for: ${id}`);
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error(`Failed to publish file deletion event: ${error.message}`);
             // Continue with deletion even if event publishing fails
         }
@@ -381,16 +445,16 @@ export class UploadService {
             try {
                 await this.s3Service.deleteFile(file.s3Key);
                 this.logger.log(`Deleted S3 file: ${file.s3Key}`);
-            } catch (error) {
+            } catch (error: any) {
                 this.logger.error(`Failed to delete S3 file: ${error.message}`);
             }
         }
 
-        if ((file as any).thumbnailPath) {
+        if (file.thumbnailPath) {
             try {
-                await this.s3Service.deleteFile((file as any).thumbnailPath);
-                this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
-            } catch (error) {
+                await this.s3Service.deleteFile(file.thumbnailPath);
+                this.logger.log(`Deleted S3 thumbnail: ${file.thumbnailPath}`);
+            } catch (error: any) {
                 this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
             }
         }
@@ -408,6 +472,14 @@ export class UploadService {
             where: {
                 id: { in: ids },
                 userId: user.id,
+            },
+            select: {
+                id: true,
+                s3Key: true,
+                thumbnailPath: true,
+                uploadStatus: true,
+                fileType: true,
+                filename: true,
             },
         });
 
@@ -427,7 +499,7 @@ export class UploadService {
                 },
             });
             this.logger.log(`Published batch file deletion event for ${files.length} files`);
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error(`Failed to publish batch file deletion event: ${error.message}`);
         }
 
@@ -437,16 +509,16 @@ export class UploadService {
                 try {
                     await this.s3Service.deleteFile(file.s3Key);
                     this.logger.log(`Deleted S3 file: ${file.s3Key}`);
-                } catch (error) {
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 file ${file.s3Key}: ${error.message}`);
                 }
             }
 
-            if ((file as any).thumbnailPath) {
+            if (file.thumbnailPath) {
                 try {
-                    await this.s3Service.deleteFile((file as any).thumbnailPath);
-                    this.logger.log(`Deleted S3 thumbnail: ${(file as any).thumbnailPath}`);
-                } catch (error) {
+                    await this.s3Service.deleteFile(file.thumbnailPath);
+                    this.logger.log(`Deleted S3 thumbnail: ${file.thumbnailPath}`);
+                } catch (error: any) {
                     this.logger.error(`Failed to delete S3 thumbnail: ${error.message}`);
                 }
             }
@@ -522,7 +594,7 @@ export class UploadService {
                 chunkSize,
                 file: fileRecord,
             };
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error initializing multipart upload', error);
             throw error;
         }
@@ -542,6 +614,7 @@ export class UploadService {
                 key,
                 uploadId,
                 parts,
+                totalSize,
             );
             const updatedFile = await this.prisma.file.update({
                 where: { id: fileId },
@@ -571,7 +644,7 @@ export class UploadService {
 
             this.logger.log(`Multipart upload completed for file: ${fileId}`);
             return updatedFile;
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error completing multipart upload', error);
             throw error;
         }
@@ -600,10 +673,57 @@ export class UploadService {
 
             this.logger.log(`File record deleted: ${fileId}`);
             return { message: 'Upload aborted successfully' };
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('Error aborting multipart upload', error);
             throw error;
         }
+    }
+
+    /**
+     * Idempotently re-triggers processing for a file that is in FAILED or stuck state.
+     * Resets status to IN_PROGRESS/EMBEDDING and re-publishes file.upload.completed so
+     * the downstream consumers (scene-detector, file-embedder) pick it up again.
+     * Those consumers are already idempotent (they upsert/delete-then-insert).
+     */
+    async reprocessFile(fileId: string, user: AuthUser, session?: AuthSession) {
+        const fileRecord = await this.prisma.file.findFirst({
+            where: { id: fileId, userId: user.id },
+        });
+        if (!fileRecord) {
+            throw new NotFoundException(`File ${fileId} not found`);
+        }
+        if (fileRecord.uploadStatus !== UploadStatus.COMPLETED) {
+            throw new Error('Cannot reprocess a file that has not finished uploading');
+        }
+
+        await this.prisma.file.update({
+            where: { id: fileId },
+            data: {
+                processingStatus: ProcessingStatus.IN_PROGRESS,
+                processingStage: ProcessingStage.EMBEDDING,
+                errorMessage: null,
+            },
+        });
+
+        await this.rabbitmqService.publishEvent({
+            type: FileEventType.UPLOAD_COMPLETED,
+            fileId,
+            user,
+            session,
+            timestamp: new Date(),
+            data: {
+                fileName: fileRecord.originalFilename,
+                fileSize: fileRecord.fileSize,
+                mimeType: fileRecord.mimeType,
+                fileType: fileRecord.fileType,
+                s3Key: fileRecord.s3Key,
+                s3Url: fileRecord.s3Url,
+                isReprocess: true,
+            },
+        });
+
+        this.logger.log(`Reprocess triggered for file: ${fileId}`);
+        return { message: 'Reprocessing started', fileId };
     }
 
     async submitYouTubeLink(url: string, user: AuthUser, session?: AuthSession) {
@@ -623,18 +743,14 @@ export class UploadService {
             };
 
             try {
-                const { exec } = require('child_process');
-                const { promisify } = require('util');
-                const execAsync = promisify(exec);
-
-                const { stdout } = await execAsync(
-                    `yt-dlp --dump-json --no-download "${url}"`,
-                    { timeout: 15000 }
+                const { stdout } = await execFileAsync(
+                    'yt-dlp',
+                    ['--dump-json', '--no-download', url],
+                    { timeout: 15000 },
                 );
 
                 const videoInfo = JSON.parse(stdout);
                 const title = videoInfo.title || `YouTube Video ${videoId}`;
-                const filename = `${title.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}_${videoId}.mp4`;
 
                 metadata = {
                     ...metadata,
@@ -648,8 +764,28 @@ export class UploadService {
                     thumbnail: videoInfo.thumbnail,
                 };
 
+                // Enforce per-plan video duration limit (same check as regular video uploads)
+                const videoDuration: number = videoInfo.duration ?? 0;
+                if (videoDuration > 0) {
+                    const usageCheck = await this.paymentClient.checkUsage(
+                        user.id,
+                        UsageMetricType.MAX_VIDEO_LENGTH,
+                        videoDuration,
+                    );
+                    if (!usageCheck.allowed) {
+                        const limitSecs = typeof usageCheck.limit === 'number' ? usageCheck.limit : 0;
+                        const maxMins = limitSecs > 0 ? Math.floor(limitSecs / 60) : 0;
+                        throw new ForbiddenException(
+                            maxMins > 0
+                                ? `Video duration exceeds your plan limit of ${maxMins} minutes.`
+                                : `Video duration exceeds your plan limit.`,
+                        );
+                    }
+                }
+
                 this.logger.log(`Fetched YouTube metadata: ${title}`);
             } catch (metaError) {
+                if (metaError instanceof ForbiddenException) throw metaError;
                 this.logger.warn(`Failed to fetch YouTube metadata, using defaults: ${metaError.message}`);
             }
 

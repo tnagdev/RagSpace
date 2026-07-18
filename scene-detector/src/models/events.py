@@ -1,13 +1,37 @@
-from pydantic import BaseModel
-from typing import Any, Dict, Optional, List
-from datetime import datetime
-from pydantic import BaseModel
-from typing import Optional, List
-from .enums import EventType, FileType
+"""
+Re-exports shared event models from ragspace_shared, plus scene-detector-specific models.
+Single source of truth for event shapes is contracts/events/.
+"""
+from pydantic import BaseModel, ConfigDict
+from typing import Any, Dict, Optional
 
+# Shared types — imported from generated package
+from ragspace_shared.generated.auth_user import AuthUser
+from ragspace_shared.generated.events import (
+    UploadEventFileMetadata,
+    UploadCompletedEvent,
+    UploadCompletedEventModel,
+    ProcessingEventSceneItem,
+    ProcessingEventSceneMetadata,
+    ProcessingEventData,
+    ProcessingCompletedEvent,
+    ProcessingCompletedEventModel,
+    FileDeletedEventData,
+    FileDeletedEvent,
+    FileDeletedEventModel,
+    UpdateFileStatusParams,
+    EventFileMetadata,
+)
+from ragspace_shared.generated.enums import FileType, EventType
+
+# Backward-compat alias
+ProcessingEventFileMetadata = ProcessingEventSceneItem
+
+
+# ── Scene-detector-specific models (not shared) ──────────────────────────────
 
 class SceneData(BaseModel):
-    """Scene detection result"""
+    """Scene detection result — local to scene-detector."""
     scene_number: int
     start_time: float
     end_time: float
@@ -17,7 +41,7 @@ class SceneData(BaseModel):
 
 
 class FileEvent(BaseModel):
-    """File event from RabbitMQ"""
+    """Generic file event envelope — local to scene-detector."""
     type: str
     fileId: str
     userId: str
@@ -26,113 +50,45 @@ class FileEvent(BaseModel):
 
 
 class SceneResponse(BaseModel):
-    """Scene response model"""
+    """HTTP response model for a stored scene — local to scene-detector."""
     id: str
-    fileId: str
-    sceneNumber: int
-    startTime: float
-    endTime: float
-    startFrame: int
-    endFrame: int
-    duration: float
-    thumbnailS3Key: str
-    thumbnailS3Url: Optional[str] = None
-    createdAt: datetime
-    updatedAt: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class ProcessingCompleteEvent(BaseModel):
-    """Event published when processing is complete"""
-    type: str = "file.processing.completed"
     fileId: str
     userId: str
-    timestamp: str
-    data: dict
-
-class AuthUser(BaseModel):
-    id: str
-    email: str
-    username: Optional[str] = None
-    name: Optional[str] = None
-    emailVerified: Optional[bool] = None
-    image: Optional[str] = None
-    createdAt: Optional[str] = None
-    updatedAt: Optional[str] = None
-
-
-class UploadEventFileMetadata(BaseModel):
-    s3Key: str
-    s3Url: Optional[str] = None
-    fileType: FileType
-    fileName: str = None
-    fileSize: Optional[int] = None
-    mimeType: Optional[str] = None
-    youtubeUrl: Optional[str] = None
-    videoId: Optional[str] = None
-
-
-class UploadCompletedEventModel(BaseModel):
-    type: EventType = EventType.UPLOAD_COMPLETED
-    fileId: str
-    user: AuthUser
-    timestamp: str
-    data: UploadEventFileMetadata
-
-
-class ProcessingEventFileMetadata(BaseModel):
     sceneNumber: int
     startTime: float
     endTime: float
     startFrame: int
     endFrame: int
     keyframe: int
-    thumbnailUrl: str
+    duration: float
     thumbnailS3Key: str
+    thumbnailS3Url: Optional[str] = None
+    metadata: Optional[dict] = None
+    createdAt: str
+    updatedAt: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
-class ProcessingEventSceneMetadata(BaseModel):
-    scenes: List[ProcessingEventFileMetadata]
-    scenes_detected: int
-
-
-class ProcessingCompletedEventModel(BaseModel):
-    type: EventType = EventType.PROCESSING_COMPLETED
+class ProcessingCompleteEvent(BaseModel):
+    """Published by scene-detector when processing finishes — mirrors ProcessingCompletedEvent."""
+    type: str = "file.processing.completed"
     fileId: str
-    fileName: str = None
-    fileType: FileType
-    user: AuthUser
+    userId: str
     timestamp: str
-    data: ProcessingEventSceneMetadata
+    data: dict
 
 
-class FileDeletedEventData(BaseModel):
-    fileType: FileType
-    fileName: str
-
-
-class FileDeletedEventModel(BaseModel):
-    type: EventType = EventType.FILE_DELETED
-    fileId: Optional[str] = None
-    fileIds: Optional[List[str]] = None
-    user: AuthUser
-    timestamp: str
-    data: FileDeletedEventData
-
-
-
-class UpdateFileStatusParams(BaseModel):
-    filename: Optional[str] = None
-    originalFilename: Optional[str] = None
-    fileSize: Optional[int] = None
-    processingStatus: Optional[str] = None
-    processingStage: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    errorMessage: Optional[str] = None
-    processingStartedAt: Optional[datetime] = None
-    processingCompletedAt: Optional[datetime] = None
-
-# Backward compatibility alias
-EventFileMetadata = UploadEventFileMetadata
+__all__ = [
+    # shared re-exports
+    "AuthUser",
+    "UploadEventFileMetadata", "UploadCompletedEvent", "UploadCompletedEventModel",
+    "ProcessingEventSceneItem", "ProcessingEventFileMetadata",
+    "ProcessingEventSceneMetadata", "ProcessingEventData",
+    "ProcessingCompletedEvent", "ProcessingCompletedEventModel",
+    "FileDeletedEventData", "FileDeletedEvent", "FileDeletedEventModel",
+    "UpdateFileStatusParams", "EventFileMetadata",
+    "FileType", "EventType",
+    # local
+    "SceneData", "FileEvent", "SceneResponse", "ProcessingCompleteEvent",
+]

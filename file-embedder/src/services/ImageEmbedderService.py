@@ -1,5 +1,6 @@
 """Video embedding utilities using OpenAI CLIP."""
 from pydantic import validate_call, ValidationError
+from typing import Union
 import torch
 import open_clip
 import numpy as np
@@ -41,42 +42,52 @@ class ImageEmbedderService(TextEmbedderService, metaclass=SingletonMeta):
         self.model.eval().to(self.device)
         super().__init__(text_model_name=text_model_name, **kwargs)
     
-    async def generate_image_description(self, image_path: str) -> ImageDescription | None:
-        """
-        Generate a text description for an image using LLM.
-        
-        Args:
-            image_path: Path to the image file
-        Returns:
-            ImageDescription with:
-            - summary: Descriptive summary of the image content
-            - objects: ["person","neon sign","car"] - tags based on the image objects
-            - setting: "city street at night" - context of the image
-            - style: "cyberpunk lighting" - artistic style if applicable
-            - colors: ["purple","teal","black"] - dominant colors in the image
+    async def generate_image_description(
+        self,
+        image_path: str,
+        transcript: str | None = None,
+        character_registry: dict | None = None,
+        scene_index: int | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        story_context: str = "",
+    ) -> ImageDescription | None:
+        """Generate a structured text description for an image using LLM.
+
+        When character_registry is provided, descriptions use character names instead of
+        generic labels ("Marie plays guitar" rather than "a girl plays guitar").
         """
         llm_service = LLMService()
-        return await llm_service.generate_image_description(image_path)
+        return await llm_service.generate_image_description(
+            image_path,
+            transcript=transcript,
+            character_registry=character_registry,
+            scene_index=scene_index,
+            start_time=start_time,
+            end_time=end_time,
+            story_context=story_context,
+        )
     
-    def embed_image(self, image_path: str) -> np.ndarray | None:
-        """
-        Generate embedding for an image using CLIP.
-        """
+    def embed_image(self, image: Union[str, Image.Image]) -> np.ndarray | None:
+        """Generate CLIP embedding for an image file path or a PIL Image."""
         try:
-            image = Image.open(image_path).convert('RGB')
-            image_tensor = self.preprocess(image).unsqueeze(0).to(self.device) # type: ignore
+            if isinstance(image, str):
+                with Image.open(image) as raw:
+                    image = raw.convert('RGB')
+            elif not isinstance(image, Image.Image):
+                raise TypeError(f"Expected str or PIL.Image, got {type(image)}")
+            image_tensor = self.preprocess(image).unsqueeze(0).to(self.device)  # type: ignore
 
             with torch.no_grad():
-                image_features = self.model.encode_image(image_tensor) # type: ignore
+                image_features = self.model.encode_image(image_tensor)  # type: ignore
                 image_features = image_features.cpu().numpy()[0]
-                
-            image_features = image_features / np.linalg.norm(image_features)
-            return image_features
+
+            return image_features / np.linalg.norm(image_features)
         except ValidationError as e:
             logger.error(f"Validation error during image embedding: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error embedding image {image_path}: {e}")
+            logger.error(f"Error embedding image: {e}")
             return None
 
     @validate_call

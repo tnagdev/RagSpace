@@ -41,11 +41,17 @@ async def lifespan(app: FastAPI):
     prisma_service = PrismaService()
     await prisma_service.connect()
     logger.info("Connected to Prisma database")
-    
+
+    from src.graph.orchestrator import init_graph, close_graph
+    await init_graph(settings.database_url)
+    logger.info("LangGraph compiled graph initialized")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down chat-manager service...")
+    await close_graph()
+    logger.info("LangGraph compiled graph closed")
     await prisma_service.disconnect()
     logger.info("Disconnected from Prisma database")
 

@@ -30,20 +30,11 @@ class FileEmbedderService:
         use_dynamic_retrieval: bool = True,
         adaptive_scoring: bool = True,
         enable_query_expansion: bool = True,
-        use_enhanced: bool = True
+        use_enhanced: bool = True,
+        text_weight: float = 0.5,
+        image_weight: float = 0.5,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Perform semantic search via file-embedder service.
-        
-        Args:
-            query: Search query text
-            user_id: User ID for filtering results
-            file_ids: Optional list of file IDs to filter by
-            max_results: Maximum number of results
-            
-        Returns:
-            Search results from file-embedder or None on failure
-        """
+        """Perform semantic search via file-embedder service."""
         try:
             payload = {
                 "query": query,
@@ -53,8 +44,8 @@ class FileEmbedderService:
                 "adaptive_scoring": adaptive_scoring,
                 "enable_query_expansion": enable_query_expansion,
                 "use_enhanced": use_enhanced,
-                "image_weight": 0.5,
-                "text_weight": 0.5
+                "image_weight": image_weight,
+                "text_weight": text_weight,
             }
             
             # Add file_ids filter if specified (at top level, not nested in filters)

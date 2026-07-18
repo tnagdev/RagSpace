@@ -32,10 +32,20 @@ const fileTypeConfig: Record<FileType, {
     OTHER: { icon: File, color: 'text-gray-400', bgGradient: 'from-gray-500/10 to-gray-600/5' },
 };
 
+// Resolve 'video' | 'image' from the backend's real file_type (VIDEO/IMAGE/
+// YOUTUBE_VIDEO/AUDIO/DOCUMENT/OTHER) when present; falls back to the old
+// URL/filename heuristic for legacy results that predate the field.
+const resolvePreviewKind = (result: SearchResult): 'video' | 'image' => {
+    const type = result.file_type?.toUpperCase();
+    if (type === 'VIDEO' || type === 'YOUTUBE_VIDEO') return 'video';
+    if (type === 'IMAGE') return 'image';
+    return result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image';
+};
+
 // Helper function to convert SearchResult to QueryResult for preview components
 const convertToQueryResult = (result: SearchResult): QueryResult => {
-    const fileType = result.file_url?.includes('video') || result.file_name?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image';
-    
+    const fileType = resolvePreviewKind(result);
+
     return {
         file_id: result.file_id,
         file_name: result.file_name,
@@ -78,10 +88,21 @@ const FileChatPage: FC = () => {
     const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[] }>>([]);
     const [streamingMessage, setStreamingMessage] = useState<string>('');
     const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
+    const [statusLabel, setStatusLabel] = useState<string>('Thinking...');
+    const [displayedLabel, setDisplayedLabel] = useState<string>('');
+    const [streamKey, setStreamKey] = useState(0);
+    const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedResult, setSelectedResult] = useState<SearchResult | undefined>();
     const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+    const pendingScrollRef = useRef(false);
+    // True while handleSendMessage's SSE loop is active — prevents the
+    // conversation-load effect (triggered by the route's conversation_id
+    // search param changing mid-stream) from overwriting streaming state.
+    const isStreamingRef = useRef(false);
+    // Skip one post-stream refetch already covered by the done handler's setMessages.
+    const justSetFromStreamRef = useRef(false);
 
     const fileQuery = useFile(fileId);
     const conversationsQuery = useConversations();
@@ -94,14 +115,47 @@ const FileChatPage: FC = () => {
     // Filter conversations for this file
     const fileConversations = conversationsQuery.data?.filter(conv => conv.file_id === fileId) || [];
 
-    // Auto-scroll to bottom
+    // Typewriter animation: retype displayedLabel whenever statusLabel changes
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, streamingMessage]);
+        if (typewriterRef.current) clearInterval(typewriterRef.current);
+        setDisplayedLabel('');
+        if (!statusLabel) return;
+        let i = 0;
+        typewriterRef.current = setInterval(() => {
+            i++;
+            setDisplayedLabel(statusLabel.slice(0, i));
+            if (i >= statusLabel.length) {
+                clearInterval(typewriterRef.current!);
+                typewriterRef.current = null;
+            }
+        }, 25);
+        return () => {
+            if (typewriterRef.current) clearInterval(typewriterRef.current);
+        };
+    }, [statusLabel, streamKey]);
+
+    // Auto-scroll only at the two intentional points set by pendingScrollRef:
+    // when the user message is added (stream starts) and when the assistant
+    // message is committed (stream ends) — not on every token/result update.
+    useEffect(() => {
+        if (pendingScrollRef.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            pendingScrollRef.current = false;
+        }
+    }, [messages]);
 
     // Load conversation messages
     useEffect(() => {
         if (conversationQuery.data?.messages) {
+            // Never overwrite messages while the SSE loop is running — the
+            // conversation_id search param changes mid-stream (route update
+            // after the first server response), which would otherwise refetch
+            // and stomp on in-progress streaming state.
+            if (isStreamingRef.current) return;
+            if (justSetFromStreamRef.current) {
+                justSetFromStreamRef.current = false;
+                return;
+            }
             const formattedMessages = conversationQuery.data.messages.map(msg => ({
                 role: msg.role as 'user' | 'assistant',
                 content: msg.content,
@@ -110,7 +164,9 @@ const FileChatPage: FC = () => {
             }));
             setMessages(formattedMessages);
         } else if (!currentConversationId) {
-            setMessages([]);
+            if (!isStreamingRef.current) {
+                setMessages([]);
+            }
         }
     }, [conversationQuery.data, currentConversationId]);
 
@@ -119,11 +175,16 @@ const FileChatPage: FC = () => {
 
         setError(null);
         setIsStreaming(true);
+        isStreamingRef.current = true;
         setStreamingMessage('');
         setStreamingResults([]);
+        setStreamKey(k => k + 1);
+        setStatusLabel('Thinking...');
+        setDisplayedLabel('');
 
         // Add user message immediately
         const userMessage = { role: 'user' as const, content: message };
+        pendingScrollRef.current = true;
         setMessages(prev => [...prev, userMessage]);
 
         // Prepare payload
@@ -152,63 +213,106 @@ const FileChatPage: FC = () => {
             let assistantMessage = '';
             let conversationId = currentConversationId;
             let messageSearchResults: SearchResult[] = [];
+            // Scene thumbnails from video_content_node — used as searchResults fallback in summarize mode.
+            let messageSceneResults: SearchResult[] = [];
+            // SSE events can span multiple reader.read() chunks (large scene_thumbnails
+            // payloads with many signed S3 URLs). Buffer the incomplete last line so
+            // it's prepended to the next chunk instead of being parsed (and dropped).
+            let sseBuffer = '';
+
+            const processSSELine = (line: string) => {
+                if (!line.startsWith('data: ')) return;
+
+                const data = line.slice(6);
+                if (data === '[DONE]') return;
+
+                try {
+                    const event: ChatSSEEvent = JSON.parse(data);
+
+                    if (event.type === 'metadata') {
+                        conversationId = event.conversation_id;
+                        // Update the URL without going through the router so a mid-stream
+                        // route re-evaluation can't reset this component's state. The
+                        // single navigate() in the 'done' handler updates router state
+                        // once streaming is complete.
+                        if (conversationId !== currentConversationId) {
+                            window.history.replaceState(null, '', `/files/${fileId}/chat?conversation_id=${conversationId}`);
+                        }
+                        // Handle results if present (direct_search mode)
+                        if (event.results && event.results.length > 0) {
+                            messageSearchResults = event.results;
+                            setStreamingResults(event.results);
+                        }
+                    } else if (event.type === 'results' || event.type === 'tool_result') {
+                        const evResults = (event as { results?: SearchResult[] }).results;
+                        if (evResults?.length) {
+                            messageSearchResults = [...messageSearchResults, ...evResults];
+                            setStreamingResults(prev => [...prev, ...evResults]);
+                        }
+                    } else if (event.type === 'step_start') {
+                        if (event.label) setStatusLabel(event.label);
+                    } else if (event.type === 'step_error') {
+                        console.warn('step_error:', event.step, event.error);
+                    } else if (event.type === 'scene_thumbnails') {
+                        if (event.scenes?.length) {
+                            messageSceneResults = event.scenes;
+                            // Treat like search results so the done handler's primary
+                            // path picks them up for summarize intent too.
+                            messageSearchResults = [...messageSearchResults, ...event.scenes];
+                            setStreamingResults(prev => [...prev, ...event.scenes]);
+                        }
+                    } else if (event.type === 'tool_start') {
+                        const toolFriendlyLabels: Record<string, string> = {
+                            get_video_content: 'Analyzing video scenes...',
+                            search_files: 'Searching your library...',
+                            get_file_content: 'Analyzing file content...',
+                        };
+                        const toolLabel = toolFriendlyLabels[(event as any).tool];
+                        if (toolLabel) setStatusLabel(toolLabel);
+                    } else if (event.type === 'content') {
+                        assistantMessage += event.content;
+                        setStreamingMessage(assistantMessage);
+                    } else if (event.type === 'done') {
+                        conversationId = event.conversation_id || conversationId;
+                        // Only navigate if conversation_id changed
+                        if (conversationId && conversationId !== currentConversationId) {
+                            navigate({ to: `/files/${fileId}/chat`, search: { conversation_id: conversationId }, replace: true });
+                        }
+                        justSetFromStreamRef.current = true;
+                        const finalSearchResults = messageSearchResults.length
+                            ? messageSearchResults
+                            : messageSceneResults;
+                        pendingScrollRef.current = true;
+                        // Add the complete assistant message with search results
+                        setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: assistantMessage,
+                            searchResults: finalSearchResults
+                        }]);
+                        setStreamingMessage('');
+                        setStreamingResults([]);
+                    } else if (event.type === 'error') {
+                        setError(event.error);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse SSE event:', e, 'raw line:', line);
+                }
+            };
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-
+                if (done) {
+                    // Flush any remaining buffered data (incomplete last line)
+                    if (sseBuffer.trim()) processSSELine(sseBuffer);
+                    break;
+                }
+                // Accumulate decoded bytes; keep the last (possibly incomplete) line
+                // in sseBuffer so split events are reassembled across read() calls.
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split('\n');
+                sseBuffer = lines.pop() ?? '';
                 for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-
-                    try {
-                        const event: ChatSSEEvent = JSON.parse(data);
-
-                        if (event.type === 'metadata') {
-                            conversationId = event.conversation_id;
-                            // Only navigate if conversation_id changed to avoid re-rendering
-                            if (conversationId !== currentConversationId) {
-                                navigate({ to: `/files/${fileId}/chat`, search: { conversation_id: conversationId }, replace: true });
-                            }
-                            // Handle results if present (direct_search mode)
-                            if (event.results && event.results.length > 0) {
-                                messageSearchResults = event.results;
-                                setStreamingResults(event.results);
-                            }
-                        } else if (event.type === 'results' || event.type === 'tool_result') {
-                            // Handle search results from agentic mode
-                            messageSearchResults = [...messageSearchResults, ...event.results];
-                            setStreamingResults(prev => [...prev, ...event.results]);
-                        } else if (event.type === 'tool_start') {
-                            console.log('Tool started:', event.tool);
-                        } else if (event.type === 'content') {
-                            assistantMessage += event.content;
-                            setStreamingMessage(assistantMessage);
-                        } else if (event.type === 'done') {
-                            conversationId = event.conversation_id || conversationId;
-                            // Only navigate if conversation_id changed
-                            if (conversationId && conversationId !== currentConversationId) {
-                                navigate({ to: `/files/${fileId}/chat`, search: { conversation_id: conversationId }, replace: true });
-                            }
-                            // Add the complete assistant message with search results
-                            setMessages(prev => [...prev, {
-                                role: 'assistant',
-                                content: assistantMessage,
-                                searchResults: event.results || messageSearchResults
-                            }]);
-                            setStreamingMessage('');
-                            setStreamingResults([]);
-                        } else if (event.type === 'error') {
-                            setError(event.error);
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse SSE event:', e);
-                    }
+                    processSSELine(line);
                 }
             }
 
@@ -220,6 +324,7 @@ const FileChatPage: FC = () => {
             // Remove the user message on error
             setMessages(prev => prev.slice(0, -1));
         } finally {
+            isStreamingRef.current = false;
             setIsStreaming(false);
         }
     };
@@ -238,6 +343,18 @@ const FileChatPage: FC = () => {
     const handleResultClick = (result: SearchResult) => {
         setSelectedResult(result);
         setIsLeftPanelCollapsed(true);
+    };
+
+    const handleTimestampClick = (seconds: number, msgSearchResults?: SearchResult[]) => {
+        const pool = msgSearchResults?.length ? msgSearchResults : streamingResults;
+        const match =
+            pool.find((r) => r.file_url && r.start_time !== undefined && r.start_time <= seconds && (r.end_time ?? Infinity) >= seconds) ??
+            pool.find((r) => r.file_url || r.youtube_url) ??
+            pool[0];
+        if (match) {
+            setSelectedResult({ ...match, start_time: seconds });
+            setIsLeftPanelCollapsed(true);
+        }
     };
 
     if (fileQuery.isLoading) {
@@ -414,7 +531,7 @@ const FileChatPage: FC = () => {
                 <div className="flex-1 flex flex-col min-h-0 relative">
                     {/* Messages */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
-                        {messages.length === 0 && !streamingMessage ? (
+                        {messages.length === 0 && !isStreaming ? (
                             <div className="h-full flex flex-col items-center justify-center text-text-secondary">
                                 <MessageSquare size={48} className="mb-4 opacity-50" />
                                 <h3 className="text-lg font-semibold text-text-primary mb-2">
@@ -426,17 +543,27 @@ const FileChatPage: FC = () => {
                             </div>
                         ) : (
                             <>
-                                <MessageList messages={messages} onResultClick={handleResultClick} />
-                                {streamingMessage && (
+                                {messages.length > 0 && (
+                                    <MessageList messages={messages} onResultClick={handleResultClick} onTimestampClick={handleTimestampClick} />
+                                )}
+                                {isStreaming && (
                                     <div className="flex gap-3 justify-start mt-4">
                                         <div className="w-8 h-8 rounded-full bg-accent-primary/20 flex items-center justify-center shrink-0">
                                             <Bot size={18} className="text-accent-primary" />
                                         </div>
                                         <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
-                                            <div className="text-sm break-words">
-                                                <Markdown content={streamingMessage} />
-                                                <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
-                                            </div>
+                                            {streamingMessage ? (
+                                                <div className="text-sm break-words">
+                                                    <Markdown content={streamingMessage} searchResults={streamingResults} onTimestampClick={handleTimestampClick} />
+                                                    <span className="inline-block w-1 h-4 bg-accent-primary ml-1 animate-pulse" />
+                                                </div>
+                                            ) : (
+                                                <div className="text-sm text-text-secondary flex items-center gap-2">
+                                                    <span className="inline-block w-2 h-2 bg-accent-primary rounded-full animate-pulse" />
+                                                    {displayedLabel}
+                                                    <span className="inline-block w-0.5 h-3.5 bg-text-secondary/60 animate-pulse" />
+                                                </div>
+                                            )}
 
                                             {/* Show streaming results */}
                                             {streamingResults.length > 0 && (

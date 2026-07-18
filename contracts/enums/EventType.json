@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "EventType",
+  "title": "EventType",
+  "description": "RabbitMQ routing keys for file lifecycle events.",
+  "type": "string",
+  "enum": [
+    "file.upload.started",
+    "file.upload.progress",
+    "file.upload.completed",
+    "file.upload.failed",
+    "file.processing.started",
+    "file.processing.progress",
+    "file.processing.retrying",
+    "file.processing.completed",
+    "file.processing.failed",
+    "file.scene.detection.started",
+    "file.scene.detection.completed",
+    "file.scene.detection.failed",
+    "file.indexing.completed",
+    "file.deleted"
+  ]
+}

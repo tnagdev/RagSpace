@@ -2,17 +2,27 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY prisma.config.ts ./
-COPY src/prisma ./src/prisma/
+# ── shared-ts: install deps + build (with codegen) ───────────────────────────
+COPY contracts/ ./contracts/
+COPY packages/shared-ts/package*.json ./packages/shared-ts/
+RUN cd packages/shared-ts && npm ci
+COPY packages/shared-ts/ ./packages/shared-ts/
+RUN cd packages/shared-ts && npm run build
 
+# ── payment-service: install deps ────────────────────────────────────────────
+COPY payment-service/package*.json ./payment-service/
+COPY payment-service/prisma.config.ts ./payment-service/
+COPY payment-service/src/prisma ./payment-service/src/prisma/
+
+WORKDIR /app/payment-service
 RUN npm ci
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
-COPY . .
-
+# ── payment-service: build ────────────────────────────────────────────────────
+COPY payment-service/ ./
 RUN npm run build
 
+# ── Production image ─────────────────────────────────────────────────────────
 FROM node:20-alpine
 
 RUN addgroup -g 1001 -S nodejs && \
@@ -20,15 +30,20 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY --chown=nodejs:nodejs package*.json ./
-COPY --chown=nodejs:nodejs prisma.config.ts ./
-COPY --chown=nodejs:nodejs src/prisma ./src/prisma/
+COPY packages/shared-ts/package*.json ./packages/shared-ts/
+COPY --from=builder /app/packages/shared-ts/dist ./packages/shared-ts/dist
+
+WORKDIR /app/payment-service
+
+COPY --chown=nodejs:nodejs payment-service/package*.json ./
+COPY --chown=nodejs:nodejs payment-service/prisma.config.ts ./
+COPY --chown=nodejs:nodejs payment-service/src/prisma ./src/prisma/
 
 RUN npm ci --omit=dev
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate --schema ./src/prisma/schema.prisma
 
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --chown=nodejs:nodejs docker-entrypoint.sh ./
+COPY --from=builder --chown=nodejs:nodejs /app/payment-service/dist ./dist
+COPY --chown=nodejs:nodejs payment-service/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
 USER nodejs

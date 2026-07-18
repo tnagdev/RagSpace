@@ -1,4 +1,5 @@
 """ChromaDB manager for storing and querying embeddings."""
+import json
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 import numpy as np
@@ -49,9 +50,70 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
 
     def get_text_collection(self):
         return self.text_collection
-    
+
     def get_image_collection(self):
         return self.image_collection
+
+    def dump_content_summary(self, user_id: str, file_ids: Optional[List[str]] = None) -> None:
+        """Log a full raw inventory of what is stored in ChromaDB for a user/file set."""
+        try:
+            where: Dict[str, Any] = {"user_id": user_id}
+            if file_ids and len(file_ids) == 1:
+                where = {"$and": [{"user_id": user_id}, {"file_id": file_ids[0]}]}
+            elif file_ids:
+                where = {"$and": [{"user_id": user_id}, {"$or": [{"file_id": fid} for fid in file_ids]}]}
+
+            text_raw = self.text_collection.get(where=where, include=["documents", "metadatas"])
+            image_raw = self.image_collection.get(where=where, include=["documents", "metadatas"])
+
+            audio_items = [
+                (m, d) for m, d in zip(text_raw["metadatas"], text_raw["documents"])
+                if m.get("segment_index") is not None
+            ]
+            scene_text_items = [
+                (m, d) for m, d in zip(text_raw["metadatas"], text_raw["documents"])
+                if m.get("scene_index") is not None
+            ]
+            special_items = [
+                (m, d) for m, d in zip(text_raw["metadatas"], text_raw["documents"])
+                if m.get("content_type") in ("character_registry", "narrative")
+            ]
+            scene_image_items = list(zip(image_raw["metadatas"], image_raw["documents"]))
+
+            logger.info(
+                f"[CHROMA_DUMP] user={user_id} file_ids={file_ids} | "
+                f"text_collection: {len(scene_text_items)} scene-text, {len(audio_items)} audio-segments, "
+                f"{len(special_items)} special | "
+                f"image_collection: {len(scene_image_items)} scene-visual"
+            )
+
+            audio_items.sort(key=lambda x: x[0].get("start_time") or 0)
+            for meta, doc in audio_items:
+                logger.info(
+                    f"[CHROMA_DUMP][AUDIO] file={meta.get('file_id')} "
+                    f"seg_idx={meta.get('segment_index')} "
+                    f"t={meta.get('start_time', '?'):.2f}-{meta.get('end_time', '?'):.2f}s "
+                    f"text={repr((doc or '')[:120])}"
+                )
+
+            scene_text_items.sort(key=lambda x: x[0].get("scene_index") or 0)
+            for meta, doc in scene_text_items[:10]:
+                logger.info(
+                    f"[CHROMA_DUMP][SCENE_TEXT] file={meta.get('file_id')} "
+                    f"scene_idx={meta.get('scene_index')} "
+                    f"t={meta.get('start_time', '?'):.2f}-{meta.get('end_time', '?'):.2f}s "
+                    f"text={repr((doc or '')[:120])}"
+                )
+
+            scene_image_items.sort(key=lambda x: x[0].get("scene_index") or 0)
+            for meta, doc in scene_image_items[:10]:
+                logger.info(
+                    f"[CHROMA_DUMP][SCENE_VIS] file={meta.get('file_id')} "
+                    f"scene_idx={meta.get('scene_index')} "
+                    f"transcript_meta={repr((meta.get('transcript') or '')[:100])}"
+                )
+        except Exception as e:
+            logger.error(f"[CHROMA_DUMP] failed: {e}")
 
     def upsert_items(self, index_name: str, items: List[Dict[str, Any]]) -> None:
         """Upsert items into the specified collection."""
@@ -88,14 +150,16 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             metadatas.append(metadata)
             documents.append(item.get("text", ""))
         
-        collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            documents=documents
-        )
+        BATCH_SIZE = settings.chroma_upsert_batch_size
+        for i in range(0, len(ids), BATCH_SIZE):
+            collection.upsert(
+                ids=ids[i:i + BATCH_SIZE],
+                embeddings=embeddings[i:i + BATCH_SIZE],
+                metadatas=metadatas[i:i + BATCH_SIZE],
+                documents=documents[i:i + BATCH_SIZE],
+            )
         logger.info(f"Upserted {len(items)} items to {index_name}")
-    
+
     def query_index(
         self,
         text_query_vec: Optional[np.ndarray] = None,
@@ -157,6 +221,8 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
                 logger.info(f"Text query returned {len(text_results['ids'][0])} RAW results from ChromaDB")
                 
                 filtered_count = 0
+                audio_count = 0
+                scene_text_count = 0
                 for metadata, distance, doc in zip(
                     text_results["metadatas"][0],
                     text_results["distances"][0],
@@ -166,15 +232,23 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
                     if use_dynamic_retrieval and threshold > 0 and score < threshold:
                         filtered_count += 1
                         continue
-                    
+
                     elif not use_dynamic_retrieval and score < 0.0:
                         filtered_count += 1
                         continue
-                    
-                    # Create unique key based on file_id and scene/segment index
-                    scene_idx = metadata.get('scene_index', metadata.get('segment_index', 0))
-                    key = f"{metadata.get('file_id')}#{scene_idx}"
-                    
+
+                    # Use distinct key namespaces so audio segments (segment_index) and
+                    # scene text (scene_index) never collide in result_map.
+                    if metadata.get('scene_index') is not None:
+                        key = f"{metadata.get('file_id')}#scene#{metadata['scene_index']}"
+                        scene_text_count += 1
+                    elif metadata.get('segment_index') is not None:
+                        key = f"{metadata.get('file_id')}#audio#{metadata['segment_index']}"
+                        audio_count += 1
+                    else:
+                        key = f"{metadata.get('file_id')}#scene#0"
+                        scene_text_count += 1
+
                     if key not in result_map:
                         result_map[key] = {
                             **metadata,
@@ -194,8 +268,10 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
                             result_map[key]["text"] = doc
                         result_map[key]["match_count"] += 1
                 
-                if filtered_count > 0:
-                    logger.info(f"Filtered out {filtered_count} results due to threshold={threshold}")
+                logger.info(
+                    f"Text query kept: {scene_text_count} scene-text, {audio_count} audio-segment entries "
+                    f"(filtered {filtered_count} below threshold={threshold})"
+                )
             
             except Exception as e:
                 logger.error(f"Error querying text collection: {e}")
@@ -223,9 +299,10 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
                         continue
                     elif not use_dynamic_retrieval and score < 0.0:
                         continue
-                        
+
                     scene_idx = metadata.get('scene_index', 0)
-                    key = f"{metadata.get('file_id')}#{scene_idx}"
+                    # Use #scene# prefix to match the scene-text key so they merge correctly.
+                    key = f"{metadata.get('file_id')}#scene#{scene_idx}"
                     
                     if key not in result_map:
                         result_map[key] = {
@@ -250,6 +327,13 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             except Exception as e:
                 logger.error(f"Error querying image collection: {e}")
         
+        # Log the breakdown of merged result_map before ranking
+        _audio_keys = [k for k in result_map if '#audio#' in k]
+        _scene_keys = [k for k in result_map if '#scene#' in k]
+        logger.info(
+            f"result_map after merge: {len(_scene_keys)} scene entries, {len(_audio_keys)} audio entries"
+        )
+
         # Convert to list and normalize scores by modality count before sorting
         # This prevents videos with both text+image from automatically ranking higher than images
         results = list(result_map.values())
@@ -279,6 +363,30 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         logger.info(f"Returning {len(final_results)} final results after merging and ranking")
         return final_results
     
+    def get_special_docs_for_file(self, file_id: str) -> dict:
+        """Return character_registry and narrative documents stored for this file."""
+        result = {"character_registry": None, "narrative": None}
+        try:
+            raw = self.text_collection.get(
+                ids=[f"{file_id}#character_registry", f"{file_id}#narrative"],
+                include=["documents", "metadatas"],
+            )
+            for doc, meta in zip(raw.get("documents", []), raw.get("metadatas", [])):
+                ctype = (meta or {}).get("content_type")
+                if ctype == "character_registry" and doc:
+                    try:
+                        result["character_registry"] = json.loads(doc)
+                    except Exception:
+                        pass
+                elif ctype == "narrative" and meta.get("narrative_json"):
+                    try:
+                        result["narrative"] = json.loads(meta["narrative_json"])
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"get_special_docs_for_file({file_id}): {e}")
+        return result
+
     def delete_by_file_id(self, file_id: str) -> None:
         """Delete all embeddings associated with a file ID across all collections."""
         # Delete from text collection
@@ -322,11 +430,6 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         
         logger.info(f"Batch deleted {total_text_deleted + total_image_deleted} total embeddings for {len(file_ids)} files")
     
-    def delete_by_video_id(self, video_id: str) -> None:
-        """Deprecated: Use delete_by_file_id instead. Kept for backward compatibility."""
-        logger.warning("delete_by_video_id is deprecated, use delete_by_file_id instead")
-        self.delete_by_file_id(video_id)
-
     def delete_by_user_id(self, user_id: str) -> int:
         """Delete all embeddings for a user across all collections."""
         total_deleted = 0
@@ -361,17 +464,20 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
             )
             
             if text_results and text_results["ids"]:
+                _special = {"narrative", "character_registry"}
                 for idx, (metadata, doc) in enumerate(zip(
                     text_results["metadatas"],
                     text_results["documents"]
                 )):
+                    if metadata.get("content_type") in _special:
+                        continue
                     segment_data = {
                         **metadata,
                         "text": doc,
                         "type": "audio"
                     }
                     segments.append(segment_data)
-                
+
                 logger.info(f"Retrieved {len(segments)} audio segments for file {file_id}")
         except Exception as e:
             logger.error(f"Error getting text embeddings for file {file_id}: {e}")
