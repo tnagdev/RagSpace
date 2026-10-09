@@ -66,6 +66,13 @@ describe('OpenApiValidator', () => {
         expect(error.status).toBe(400);
     });
 
+    it('accepts search tuning and rejects out-of-range or unknown knobs', () => {
+        const tuning = { textWeight: 0.8, imageWeight: 0.2, threshold: 0.3, dynamicRetrieval: false, queryExpansion: false };
+        expect(validator.validate(request('POST', '/search', { body: { query: 'q', tuning } })).operationId).toBe('search');
+        const error = failure(request('POST', '/search', { body: { query: 'q', tuning: { threshold: 2, useEnhanced: true } } }));
+        expect(error.extra.errors?.map((e) => e.field)).toEqual(expect.arrayContaining(['tuning.threshold', 'tuning.useEnhanced']));
+    });
+
     it('treats a missing optional body as empty', () => {
         expect(validator.validate(request('POST', '/subscription/cancel')).operationId).toBe('cancelSubscription');
     });

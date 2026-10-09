@@ -1,5 +1,7 @@
-from unittest.mock import AsyncMock, patch
+import contextvars
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 from ragspace.common.v1 import common_pb2
 from ragspace.files.v1 import files_pb2
@@ -64,6 +66,16 @@ async def test_hits_are_enriched_and_missing_files_dropped(deps):
     assert image.thumbnail_url == "https://thumb/i1" and not image.HasField("scene_id")
 
 
+async def test_deleted_files_do_not_use_up_the_limit(deps):
+    retrieve, _ = deps
+    retrieve.return_value = [retrieve.return_value[3], *retrieve.return_value[:3]]
+
+    hits = await module.search("u1", "beach", [], [], SearchOptions(limit=2))
+
+    assert [h.file_id for h in hits] == ["v1", "v1"]
+    assert retrieve.call_args.args[2].limit == 4
+
+
 async def test_type_filter_distinguishes_youtube_from_uploads(deps):
     retrieve, _ = deps
     hits = await module.search("u1", "beach", [], [common_pb2.FILE_TYPE_VIDEO], SearchOptions())
@@ -92,3 +104,38 @@ async def test_servicer_validates_and_clamps():
         await servicer.Search(request, None)
         _, query, _, _, options = search.await_args.args
         assert query == "q" and options.limit == 50 and options.query_expansion is False
+
+        both_zero = search_pb2.SearchRequest(user_id="u1", query="q")
+        both_zero.tuning.text_weight = 0.0
+        both_zero.tuning.image_weight = 0.0
+        with pytest.raises(RpcError):
+            await servicer.Search(both_zero, None)
+
+
+def test_retrieve_embeds_queries_for_retrieval_and_passes_tuning():
+    embedder = MagicMock()
+    embedder.embed_query.return_value = np.array([1.0, 0.0])
+    embedder.embed_text_with_clip.return_value = np.array([0.0, 1.0])
+    db = MagicMock()
+    with (
+        patch.object(module, "ImageEmbedderService", return_value=embedder),
+        patch.object(module, "ChromaDatabaseManager", return_value=db),
+    ):
+        options = SearchOptions(limit=7, text_weight=0.9, image_weight=0.1, query_expansion=False)
+        module._retrieve("red car", {"user_id": "u1"}, options)
+
+    embedder.embed_query.assert_called_once_with("red car")
+    embedder.embed_text.assert_not_called()
+    kwargs = db.query_index.call_args.kwargs
+    assert kwargs["filters"] == {"user_id": "u1"}
+    assert kwargs["options"] == {
+        "top_k": 7, "text_weight": 0.9, "image_weight": 0.1, "threshold": 0.2, "use_dynamic_retrieval": True
+    }
+
+
+async def test_run_cpu_keeps_the_callers_context():
+    from src.decorators.cpu_manager import run_cpu
+
+    marker = contextvars.ContextVar("marker", default=None)
+    marker.set("cid-1")
+    assert await run_cpu(marker.get) == "cid-1"

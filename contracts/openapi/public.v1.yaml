@@ -2273,6 +2273,43 @@ components:
           minimum: 1
           maximum: 50
           default: 10
+        tuning:
+          $ref: '#/components/schemas/SearchTuning'
+
+    SearchTuning:
+      type: object
+      additionalProperties: false
+      description: |
+        Retrieval knobs; omitted fields keep the server defaults. Text and image
+        matches are fused by weighted reciprocal rank, so the weights set how much
+        each modality's ranking counts, not a scale on raw similarities.
+      properties:
+        textWeight:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+          description: Transcripts, scene descriptions and on-screen text. Not 0 together with imageWeight.
+        imageWeight:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+          description: Visual similarity of frames and images.
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.2
+          description: Minimum similarity per modality; applies only with dynamicRetrieval.
+        dynamicRetrieval:
+          type: boolean
+          default: true
+          description: Consider five times `limit` candidates per modality and drop those under `threshold`.
+        queryExpansion:
+          type: boolean
+          default: true
+          description: Blend the query with its key phrases before matching text.
 
     SearchResults:
       type: object
@@ -2338,6 +2375,7 @@ components:
           type: number
           minimum: 0
           maximum: 1
+          description: Rank-fused relevance; 1 means ranked first by every searched modality.
         startSeconds:
           type: [number, 'null']
         endSeconds:

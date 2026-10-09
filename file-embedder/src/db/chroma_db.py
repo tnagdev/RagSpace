@@ -11,6 +11,8 @@ from src.decorators.singleton import SingletonMeta
 logger = logging.getLogger(__name__)
 
 SPECIAL_CONTENT_TYPES = ("character_registry", "narrative")
+# Tuned on a real library: 60 lets mediocre two-modality matches bury exact transcript hits, 10 lets OCR noise in.
+RRF_K = 20
 
 
 def visual_metadata(description: Any) -> Dict[str, str]:
@@ -36,6 +38,13 @@ def parse_visual(metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not any((summary, objects, setting, style, colors)):
         return None
     return {"summary": summary, "objects": objects, "setting": setting, "style": style, "colors": colors}
+
+
+def _record_key(metadata: Dict[str, Any]) -> str:
+    file_id = metadata.get("file_id")
+    if metadata.get("segment_index") is not None:
+        return f"{file_id}#audio#{metadata['segment_index']}"
+    return f"{file_id}#scene#{metadata.get('scene_index', 0)}"
 
 
 def _json_list(value: Any) -> List[str]:
@@ -101,69 +110,55 @@ class ChromaDatabaseManager(metaclass=SingletonMeta):
         filters: Optional[Dict[str, Any]] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        """Fuses text and image matches by weighted reciprocal rank.
+
+        BGE text and CLIP image similarities sit on different scales, so their raw cosines cannot be
+        added. `score` is normalised so a record ranked first in every queried modality scores 1.0;
+        `text_score` and `image_score` stay raw similarities.
+        """
         options = options or {}
-        text_weight = options.get("text_weight", 0.5)
-        image_weight = options.get("image_weight", 0.5)
+        weights = {"text": options.get("text_weight", 0.5), "image": options.get("image_weight", 0.5)}
         top_k = options.get("top_k", 10)
-        threshold = options.get("threshold", 0.2)
         dynamic = options.get("use_dynamic_retrieval", True)
+        floor = options.get("threshold", 0.2) if dynamic else 0.0
         retrieval_count = top_k * 5 if dynamic else top_k
-        result_map: Dict[str, Dict[str, Any]] = {}
+        fused: Dict[str, Dict[str, Any]] = {}
 
-        def merge(key: str, metadata: Dict[str, Any], doc: str, score: float, modality: str, weight: float) -> None:
-            entry = result_map.get(key)
-            if entry is None:
-                result_map[key] = {
-                    **metadata,
-                    "text": doc,
-                    "text_score": score if modality == "text" else 0.0,
-                    "image_score": score if modality == "image" else 0.0,
-                    "combined_score": score * weight,
-                    "match_count": 1,
-                }
-                return
-            field = f"{modality}_score"
-            if score > entry[field]:
-                entry["combined_score"] += (score - entry[field]) * weight
-                entry[field] = score
-            if doc and not entry.get("text"):
-                entry["text"] = doc
-            entry["match_count"] += 1
-
-        def run(collection, vector: np.ndarray, modality: str, weight: float) -> None:
+        def run(collection, vector: np.ndarray, modality: str) -> None:
             raw = collection.query(query_embeddings=[vector.tolist()], n_results=retrieval_count, where=filters)
+            seen = set()
             for metadata, distance, doc in zip(raw["metadatas"][0], raw["distances"][0], raw["documents"][0]):
-                score = 1 - distance
-                if (dynamic and threshold > 0 and score < threshold) or score < 0.0:
+                similarity = 1 - distance
+                if similarity < floor or metadata.get("content_type") in SPECIAL_CONTENT_TYPES:
                     continue
-                if metadata.get("content_type") in SPECIAL_CONTENT_TYPES:
+                key = _record_key(metadata)
+                if key in seen:
                     continue
-                file_id = metadata.get("file_id")
-                if metadata.get("segment_index") is not None:
-                    key = f"{file_id}#audio#{metadata['segment_index']}"
-                else:
-                    key = f"{file_id}#scene#{metadata.get('scene_index', 0)}"
-                merge(key, metadata, doc or "", score, modality, weight)
+                seen.add(key)
+                entry = fused.setdefault(key, {"text": "", "text_score": 0.0, "image_score": 0.0, "score": 0.0})
+                for field, value in metadata.items():
+                    entry.setdefault(field, value)
+                entry[f"{modality}_score"] = similarity
+                entry["score"] += weights[modality] / (RRF_K + len(seen))
+                doc = doc or metadata.get("text")
+                if doc and (modality == "text" or not entry["text"]):
+                    entry["text"] = doc
 
-        if text_query_vec is not None:
-            run(self.text_collection, text_query_vec, "text", text_weight)
-        if image_query_vec is not None:
-            run(self.image_collection, image_query_vec, "image", image_weight)
+        queried = [
+            (collection, vector, modality)
+            for collection, vector, modality in (
+                (self.text_collection, text_query_vec, "text"),
+                (self.image_collection, image_query_vec, "image"),
+            )
+            if vector is not None and weights[modality] > 0
+        ]
+        for collection, vector, modality in queried:
+            run(collection, vector, modality)
 
-        results = list(result_map.values())
-        for result in results:
-            modalities = (result["text_score"] > 0) + (result["image_score"] > 0)
-            if modalities:
-                result["combined_score"] /= modalities
-        results.sort(key=lambda r: r["combined_score"], reverse=True)
-
-        ranked = []
-        for result in results[:top_k]:
-            modalities = (result["text_score"] > 0) + (result["image_score"] > 0)
-            boost = 0.2 * (modalities - 1) + 0.1 * min(result.pop("match_count") - 1, 3)
-            result["score"] = result.pop("combined_score")
-            result["confidence"] = min(1.0, result["score"] * (1 + boost))
-            ranked.append(result)
+        best = sum(weights[modality] for _, _, modality in queried) / (RRF_K + 1)
+        ranked = sorted(fused.values(), key=lambda entry: entry["score"], reverse=True)[:top_k]
+        for entry in ranked:
+            entry["score"] /= best
         return ranked
 
     def audio_segments(self, file_id: str) -> List[Dict[str, Any]]:

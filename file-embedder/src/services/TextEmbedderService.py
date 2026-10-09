@@ -7,6 +7,9 @@ from src.decorators.singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
+# BGE v1.5 matches short queries to passages best with this prefix on the query side; documents are embedded without it.
+QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
+
 
 class TextEmbedderService(metaclass=SingletonMeta):
     def __init__(self, text_model_name: str = "BAAI/bge-base-en-v1.5"):
@@ -22,3 +25,6 @@ class TextEmbedderService(metaclass=SingletonMeta):
         except Exception as error:
             logger.error("Text embedding failed: %s", error)
             return None
+
+    def embed_query(self, query: str) -> np.ndarray | None:
+        return self.embed_text(QUERY_INSTRUCTION + query)

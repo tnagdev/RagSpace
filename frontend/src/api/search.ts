@@ -9,6 +9,7 @@ export interface ScopedSearch {
     fileIds?: string[];
     collectionIds?: string[];
     limit?: number;
+    tuning?: SearchRequest['tuning'];
 }
 
 const hitKey = (hit: SearchHit) => `${hit.fileId}:${hit.sceneId ?? ''}:${hit.startSeconds ?? ''}`;
@@ -17,9 +18,9 @@ export const searchAPI = {
     search: async (body: SearchRequest) => (await unwrap(api.POST('/search', { body }))).items,
 
     // The API takes one scope per request (files or a collection); several scopes are searched separately and merged.
-    searchScoped: async ({ query, fileIds = [], collectionIds = [], limit = 20 }: ScopedSearch): Promise<SearchHit[]> => {
-        const requests: SearchRequest[] = collectionIds.map((collectionId) => ({ query, collectionId, limit }));
-        if (fileIds.length || !requests.length) requests.push({ query, limit, ...(fileIds.length ? { fileIds } : {}) });
+    searchScoped: async ({ query, fileIds = [], collectionIds = [], limit = 20, tuning }: ScopedSearch): Promise<SearchHit[]> => {
+        const requests: SearchRequest[] = collectionIds.map((collectionId) => ({ query, collectionId, limit, tuning }));
+        if (fileIds.length || !requests.length) requests.push({ query, limit, tuning, ...(fileIds.length ? { fileIds } : {}) });
         const batches = await Promise.all(requests.map(searchAPI.search));
         const unique = new Map<string, SearchHit>();
         for (const hit of batches.flat()) {

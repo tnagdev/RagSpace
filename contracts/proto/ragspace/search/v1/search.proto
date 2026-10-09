@@ -21,6 +21,8 @@ message SearchRequest {
   SearchTuning tuning = 6;
 }
 
+// Unset fields use the server defaults. Text and image matches are fused by weighted reciprocal rank;
+// threshold is a per-modality similarity floor applied only with dynamic_retrieval.
 message SearchTuning {
   reserved 5, 7;
   reserved "adaptive_scoring", "enhanced_text_model";

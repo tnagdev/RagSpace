@@ -78,7 +78,7 @@ Notable simplifications:
 - **Two-step chat.** `POST /conversations` (quota checked here), then stream with `POST /conversations/{id}/messages`. The `conversation_id`, `metadata` and `[DONE]` stream events disappear. 12 SSE event types collapse to 6: `step`, `tool`, `results`, `delta`, `done`, `error`.
 - **One plan-change endpoint.** checkout, upgrade and downgrade become `POST /subscription/change-plan`; the service decides which applies.
 - **One usage endpoint.** `/usage/stats`, `/usage/remaining`, `/usage/history`, `/subscriptions/usage`, `/upload/storage/stats` and the four `/validation/*` routes become `GET /usage` (plus `GET /subscription` for plan and features).
-- **Search knobs are internal.** `text_weight`, `threshold`, `use_enhanced` and the other tuning flags, and the client-supplied `user_id`, are removed from the public request.
+- **Search knobs are optional.** The client-supplied `user_id` is removed. Tuning moves under an optional `tuning` object (`textWeight`, `imageWeight`, `threshold`, `dynamicRetrieval`, `queryExpansion`) whose omitted fields keep the server defaults; `use_enhanced` and `adaptive_scoring` are gone (see §10.1).
 - **No storage internals.** S3 keys and buckets never appear in responses; URLs are presigned by the service that returns them.
 
 ### 4.1 Best practices applied
@@ -319,7 +319,7 @@ All phases are implemented on `refactor/api-v1-grpc` and verified end to end in 
 Where the implementation departs from the plan above:
 
 - **Strangler skipped.** Each service switched to gRPC in one step instead of serving HTTP alongside it, because no caller outside this repo used the old routes.
-- **`SearchTuning` trimmed.** `adaptive_scoring` was never read, and `enhanced_text_model` embedded queries with Contriever against a BGE-built index, so both are `reserved`. `SearchRequest.file_ids` accepts up to 1000 ids (it is a filter, not a fetch), so a collection scope can be passed whole.
+- **`SearchTuning` trimmed.** `adaptive_scoring` was never read, and `enhanced_text_model` embedded queries with Contriever against a BGE-built index, so both are `reserved`. Measured on a real library, Contriever query similarities all fell under the 0.2 threshold, so the old search ranked on CLIP alone. With matching BGE queries the text side works, but BGE and CLIP similarities sit on different scales (BGE 0.4-0.7 even for OCR noise, CLIP about 0.25), so the raw-cosine mix let noise outrank real matches. Search now embeds queries with BGE's retrieval instruction and fuses text and image rankings by weighted reciprocal rank (k=20); the spaCy model that query expansion was written for is installed in the image. `SearchRequest.file_ids` accepts up to 1000 ids (it is a filter, not a fetch), so a collection scope can be passed whole.
 - **Hit URLs come from their owners.** file-embedder and chat-manager hold no S3 credentials for signing: hits get `thumbnail_url` and `file_url` from `SceneService.BatchGetScenes` / `FileService.BatchGetFiles` with `include_urls`. Chat stores hits without URLs and re-signs them when messages are read.
 - **Greeting name.** `GetGreetingRequest` gained `display_name`, filled by the gateway from the session, so chat-manager needs no `AuthService` call.
 - **Chat history.** No LangGraph checkpointer (the old one wrote a fresh, never-read thread per message). The rolling summary advances a `summarizedUntil` cutoff, so each turn loads only unsummarized messages.

@@ -15,7 +15,8 @@ numpy
 Pillow
 boto3
 pytesseract
-spacy>=3.0.0
+spacy>=3.8,<3.9
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 yt-dlp[default]>=2024.11.4
 yt-dlp-ejs
 grpcio

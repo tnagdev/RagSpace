@@ -1022,6 +1022,39 @@ export interface components {
              * @default 10
              */
             limit: number;
+            tuning?: components["schemas"]["SearchTuning"];
+        };
+        /**
+         * @description Retrieval knobs; omitted fields keep the server defaults. Text and image
+         *     matches are fused by weighted reciprocal rank, so the weights set how much
+         *     each modality's ranking counts, not a scale on raw similarities.
+         */
+        SearchTuning: {
+            /**
+             * @description Transcripts, scene descriptions and on-screen text. Not 0 together with imageWeight.
+             * @default 0.5
+             */
+            textWeight: number;
+            /**
+             * @description Visual similarity of frames and images.
+             * @default 0.5
+             */
+            imageWeight: number;
+            /**
+             * @description Minimum similarity per modality; applies only with dynamicRetrieval.
+             * @default 0.2
+             */
+            threshold: number;
+            /**
+             * @description Consider five times `limit` candidates per modality and drop those under `threshold`.
+             * @default true
+             */
+            dynamicRetrieval: boolean;
+            /**
+             * @description Blend the query with its key phrases before matching text.
+             * @default true
+             */
+            queryExpansion: boolean;
         };
         SearchResults: {
             items: components["schemas"]["SearchHit"][];
@@ -1040,6 +1073,7 @@ export interface components {
             sceneId: components["schemas"]["Id"] | null;
             /** Format: int32 */
             sceneNumber: number | null;
+            /** @description Rank-fused relevance; 1 means ranked first by every searched modality. */
             score: number;
             startSeconds: number | null;
             endSeconds: number | null;

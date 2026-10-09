@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common';
+import type { searchV1 } from '@ragspace/shared-ts';
 import { CurrentUser } from '../auth/session.guard';
 import type { SessionUser } from '../auth/session.service';
 import * as map from '../mappers';
@@ -14,6 +15,7 @@ interface SearchBody {
     collectionId?: string;
     types?: string[];
     limit?: number;
+    tuning?: searchV1.SearchTuning;
 }
 
 @Controller('search')
@@ -42,7 +44,7 @@ export class SearchController {
             fileIds,
             fileTypes: (body.types ?? []).map(map.toFileType),
             limit: body.limit ?? 10,
-            tuning: undefined,
+            tuning: body.tuning,
         });
         return { items: response.hits.map(map.hit) };
     }

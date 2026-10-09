@@ -47,6 +47,8 @@ def _options(request: search_pb2.SearchRequest) -> SearchOptions:
             if not 0.0 <= value <= 1.0:
                 raise invalid_argument(f"tuning.{field} must be between 0 and 1")
             setattr(options, field, value)
+    if options.text_weight == 0 and options.image_weight == 0:
+        raise invalid_argument("tuning.text_weight and tuning.image_weight cannot both be 0")
     for field in ("dynamic_retrieval", "query_expansion"):
         if tuning.HasField(field):
             setattr(options, field, getattr(tuning, field))

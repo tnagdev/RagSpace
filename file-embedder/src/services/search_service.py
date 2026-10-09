@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -38,10 +38,12 @@ async def search(
     if file_types and not stored_types:
         return []
     where = _where(user_id, file_ids, stored_types)
-    results = await run_cpu(_retrieve, query, where, options)
+    # Hits of files deleted since indexing are dropped below; ranking extra candidates keeps the page full.
+    results = await run_cpu(_retrieve, query, where, replace(options, limit=options.limit * 2))
 
     files = await batch_get_files(user_id, list(dict.fromkeys(r["file_id"] for r in results)), include_urls=True)
     results = [r for r in results if r["file_id"] in files and (not file_types or files[r["file_id"]].type in file_types)]
+    results = results[: options.limit]
     scenes = await _resolve_scenes(user_id, results, files)
     return [_to_hit(result, files[result["file_id"]], scenes[index]) for index, result in enumerate(results)]
 
@@ -58,7 +60,7 @@ def _where(user_id: str, file_ids: list[str], stored_types: list[str]) -> dict[s
 def _retrieve(query: str, where: dict[str, Any], options: SearchOptions) -> list[dict[str, Any]]:
     embedder = ImageEmbedderService()
     queries = (expand_query(query, max_keywords=5) if options.query_expansion else None) or [query]
-    vectors = [v for v in (embedder.embed_text(q) for q in queries) if v is not None]
+    vectors = [v for v in (embedder.embed_query(q) for q in queries) if v is not None]
     text_vector = None
     if vectors:
         mean = np.mean(np.array(vectors), axis=0)
