@@ -7,9 +7,13 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10
+
 COPY chat-manager/requirements.txt ./requirements.txt
-RUN sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
-    pip install --no-cache-dir --user -r /tmp/reqs-filtered.txt grpcio-tools
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --user -r /tmp/reqs-filtered.txt grpcio-tools
 
 COPY contracts/ ./contracts/
 COPY packages/shared-py ./packages/shared-py
