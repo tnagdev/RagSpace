@@ -1,8 +1,0 @@
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "ProcessingStage",
-  "title": "ProcessingStage",
-  "description": "Current pipeline stage of a file. Always advances forward, never backward.",
-  "type": "string",
-  "enum": ["UPLOAD", "EMBEDDING", "SCENE_DETECTION", "INDEXING", "COMPLETED"]
-}
