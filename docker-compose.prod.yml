@@ -1,6 +1,5 @@
 name: ragspace
 
-# ─── Reusable fragments ────────────────────────────────────────────────────────
 x-logging: &default-logging
   driver: "json-file"
   options:
@@ -14,11 +13,9 @@ x-node-env: &node-env
 x-python-env: &python-env
   PYTHONUNBUFFERED: "1"
 
-# ─── Services ─────────────────────────────────────────────────────────────────
 services:
 
-  # ── Infrastructure ──────────────────────────────────────────────────────────
-  # NOTE: No local postgres — database is hosted on Supabase.
+  # No postgres or object storage here: both are hosted on Supabase.
 
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
@@ -71,7 +68,6 @@ services:
           memory: 256m
     logging: *default-logging
 
-  # ── Application services ────────────────────────────────────────────────────
 
   api-gateway:
     container_name: ragspace-api-gateway
@@ -82,6 +78,11 @@ services:
       - ./api-gateway/.env.prod
     environment:
       <<: *node-env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
     restart: on-failure
     networks:
       - ragspace-network
@@ -128,6 +129,9 @@ services:
       - ./auth-service/.env.prod
     environment:
       <<: *node-env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: on-failure
     networks:
       - ragspace-network
@@ -173,6 +177,9 @@ services:
       - ./payment-service/.env.prod
     environment:
       <<: *node-env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: on-failure
     networks:
       - ragspace-network
@@ -231,6 +238,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      scene-detector-server:
+        condition: service_started
     restart: on-failure
     networks:
       - ragspace-network
@@ -314,6 +323,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      file-embedder-server:
+        condition: service_started
     restart: on-failure
     networks:
       - ragspace-network
@@ -343,7 +354,7 @@ services:
       <<: *python-env
       PYTHONPATH: /app
     depends_on:
-      chromadb:
+      rabbitmq:
         condition: service_healthy
     restart: on-failure
     networks:
@@ -357,13 +368,11 @@ services:
           memory: 256m
     logging: *default-logging
 
-# ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
   ragspace-network:
     name: ragspace-network
     driver: bridge
 
-# ─── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
   rabbitmq-data:
   chromadb-data:

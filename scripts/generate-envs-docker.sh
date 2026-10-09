@@ -3,7 +3,6 @@
 # Secrets come from the environment, else from the file being replaced, so re-running keeps your keys:
 #   NVIDIA_API_KEY=nvapi-... GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... bash scripts/generate-envs-docker.sh
 set -euo pipefail
-ENV_NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -26,7 +25,7 @@ CHAT_GRPC="chat-manager:50051"
 BILLING_GRPC="payment-service:50051"
 
 secret() {
-  local name="$1" file="$ROOT/$2" fallback="${3:-}" value="${!1:-}"
+  local value="$1" name="$2" file="$ROOT/$3" fallback="${4:-}"
   if [[ -z "$value" && -f "$file" ]]; then
     value="$(sed -n "s/^${name}=//p" "$file" | tr -d '\r' | tail -n 1)"
   fi
@@ -38,23 +37,24 @@ write() {
   echo "  $1"
 }
 
-BETTER_AUTH_SECRET="$(secret BETTER_AUTH_SECRET auth-service/.env.docker 'local-dev-secret-32-chars-min!!')"
-GOOGLE_CLIENT_ID="$(secret GOOGLE_CLIENT_ID auth-service/.env.docker)"
-GOOGLE_CLIENT_SECRET="$(secret GOOGLE_CLIENT_SECRET auth-service/.env.docker)"
-SMTP_HOST="$(secret SMTP_HOST auth-service/.env.docker)"
-SMTP_PORT="$(secret SMTP_PORT auth-service/.env.docker 587)"
-SMTP_SECURE="$(secret SMTP_SECURE auth-service/.env.docker false)"
-SMTP_USER="$(secret SMTP_USER auth-service/.env.docker)"
-SMTP_PASS="$(secret SMTP_PASS auth-service/.env.docker)"
-SMTP_FROM="$(secret SMTP_FROM auth-service/.env.docker noreply@ragspace.local)"
-NVIDIA_API_KEY="$(secret NVIDIA_API_KEY file-embedder/.env.docker)"
-CHAT_NVIDIA_API_KEY="$(NVIDIA_API_KEY="${ENV_NVIDIA_API_KEY:-}" secret NVIDIA_API_KEY chat-manager/.env.docker "$NVIDIA_API_KEY")"
-RAZORPAY_KEY_ID="$(secret RAZORPAY_KEY_ID payment-service/.env.docker)"
-RAZORPAY_KEY_SECRET="$(secret RAZORPAY_KEY_SECRET payment-service/.env.docker)"
-RAZORPAY_WEBHOOK_SECRET="$(secret RAZORPAY_WEBHOOK_SECRET payment-service/.env.docker)"
-LEMON_SQUEEZY_API_KEY="$(secret LEMON_SQUEEZY_API_KEY payment-service/.env.docker)"
-LEMON_SQUEEZY_STORE_ID="$(secret LEMON_SQUEEZY_STORE_ID payment-service/.env.docker)"
-LEMON_SQUEEZY_WEBHOOK_SECRET="$(secret LEMON_SQUEEZY_WEBHOOK_SECRET payment-service/.env.docker)"
+BETTER_AUTH_SECRET="$(secret "${BETTER_AUTH_SECRET:-}" BETTER_AUTH_SECRET auth-service/.env.docker 'local-dev-secret-32-chars-min!!')"
+GOOGLE_CLIENT_ID="$(secret "${GOOGLE_CLIENT_ID:-}" GOOGLE_CLIENT_ID auth-service/.env.docker)"
+GOOGLE_CLIENT_SECRET="$(secret "${GOOGLE_CLIENT_SECRET:-}" GOOGLE_CLIENT_SECRET auth-service/.env.docker)"
+SMTP_HOST="$(secret "${SMTP_HOST:-}" SMTP_HOST auth-service/.env.docker)"
+SMTP_PORT="$(secret "${SMTP_PORT:-}" SMTP_PORT auth-service/.env.docker 587)"
+SMTP_SECURE="$(secret "${SMTP_SECURE:-}" SMTP_SECURE auth-service/.env.docker false)"
+SMTP_USER="$(secret "${SMTP_USER:-}" SMTP_USER auth-service/.env.docker)"
+SMTP_PASS="$(secret "${SMTP_PASS:-}" SMTP_PASS auth-service/.env.docker)"
+SMTP_FROM="$(secret "${SMTP_FROM:-}" SMTP_FROM auth-service/.env.docker noreply@ragspace.local)"
+CHAT_NVIDIA_API_KEY="$(secret "${NVIDIA_API_KEY:-}" NVIDIA_API_KEY chat-manager/.env.docker)"
+NVIDIA_API_KEY="$(secret "${NVIDIA_API_KEY:-}" NVIDIA_API_KEY file-embedder/.env.docker)"
+CHAT_NVIDIA_API_KEY="${CHAT_NVIDIA_API_KEY:-$NVIDIA_API_KEY}"
+RAZORPAY_KEY_ID="$(secret "${RAZORPAY_KEY_ID:-}" RAZORPAY_KEY_ID payment-service/.env.docker)"
+RAZORPAY_KEY_SECRET="$(secret "${RAZORPAY_KEY_SECRET:-}" RAZORPAY_KEY_SECRET payment-service/.env.docker)"
+RAZORPAY_WEBHOOK_SECRET="$(secret "${RAZORPAY_WEBHOOK_SECRET:-}" RAZORPAY_WEBHOOK_SECRET payment-service/.env.docker)"
+LEMON_SQUEEZY_API_KEY="$(secret "${LEMON_SQUEEZY_API_KEY:-}" LEMON_SQUEEZY_API_KEY payment-service/.env.docker)"
+LEMON_SQUEEZY_STORE_ID="$(secret "${LEMON_SQUEEZY_STORE_ID:-}" LEMON_SQUEEZY_STORE_ID payment-service/.env.docker)"
+LEMON_SQUEEZY_WEBHOOK_SECRET="$(secret "${LEMON_SQUEEZY_WEBHOOK_SECRET:-}" LEMON_SQUEEZY_WEBHOOK_SECRET payment-service/.env.docker)"
 
 echo "Writing .env.docker files:"
 

@@ -3,6 +3,7 @@ import logging
 import signal
 
 from ragspace_shared.context import configure_logging
+from ragspace_shared.events import heartbeat
 
 from src.events import event_bus
 from src.handlers import handle_event
@@ -20,6 +21,7 @@ async def main() -> None:
     S3Service()
     await event_bus.start()
     await event_bus.subscribe("scenes.events", ["file.uploaded", "file.deleted", "user.deleted"], handle_event, prefetch=10)
+    beat = asyncio.create_task(heartbeat(event_bus))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -28,6 +30,7 @@ async def main() -> None:
     try:
         await stop.wait()
     finally:
+        beat.cancel()
         await background_task_manager.wait_for_all(timeout=30.0)
         await event_bus.close()
         await prisma.disconnect()

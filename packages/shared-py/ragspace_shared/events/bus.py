@@ -3,6 +3,7 @@ import logging
 import random
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
@@ -18,6 +19,8 @@ DEAD_LETTER_EXCHANGE = f"{EVENTS_EXCHANGE}.dlx"
 MAX_ATTEMPTS = 5
 PUBLISH_TIMEOUT_S = 5.0
 MAX_CONNECT_BACKOFF_S = 60.0
+# docker-compose.prod.yml marks a consumer unhealthy when this file is older than 60s.
+HEARTBEAT_PATH = "/tmp/consumer-health"
 
 ROUTING_KEYS = {
     "user_created": "user.created",
@@ -46,6 +49,10 @@ class EventBus:
         self._connection: AbstractRobustConnection | None = None
         self._exchange: aio_pika.abc.AbstractExchange | None = None
         self._attempts: dict[str, int] = {}
+
+    @property
+    def connected(self) -> bool:
+        return self._connection is not None and self._connection.connected.is_set()
 
     async def start(self) -> None:
         if self._connection:
@@ -139,6 +146,15 @@ class EventBus:
             logger.warning("%s %s attempt %d failed: %s", envelope.type, envelope.id, attempt, error)
             await asyncio.sleep(_backoff_s(attempt))
             await message.nack(requeue=True)
+
+
+async def heartbeat(bus: EventBus, path: str = HEARTBEAT_PATH, interval_s: float = 15.0) -> None:
+    """Touches `path` while `bus` is connected, so a healthcheck can tell a working consumer from one cut off from the broker."""
+    target = Path(path)
+    while True:
+        if bus.connected:
+            target.touch()
+        await asyncio.sleep(interval_s)
 
 
 async def _connect_with_backoff(url: str) -> AbstractRobustConnection:

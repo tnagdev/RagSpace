@@ -1,235 +1,177 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════════
-# generate-envs.sh — Generate per-service .env.prod files from root .env.prod
-# ═══════════════════════════════════════════════════════════════════════════════
-# Usage (from repo root):
-#   bash scripts/generate-envs.sh [--env-file /path/to/.env.prod]
-#
-# Run this on your VPS before starting containers:
-#   bash scripts/generate-envs.sh
-#   docker compose -f docker-compose.prod.yml --env-file .env up -d
-# ───────────────────────────────────────────────────────────────────────────────
+# Writes every service's .env.prod for docker-compose.prod.yml from the root .env.prod.
+#   bash scripts/generate-envs.sh [--env-file PATH]
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="${1:-$REPO_ROOT/.env.prod}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/.env.prod"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env-file) ENV_FILE="$2"; shift 2 ;;
+    *) ENV_FILE="$1"; shift ;;
+  esac
+done
+[[ -f "$ENV_FILE" ]] || { echo "Root env file not found: $ENV_FILE" >&2; exit 1; }
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "ERROR: Root env file not found: $ENV_FILE" >&2
-  exit 1
-fi
-
-# Load root env — safe parser: splits on first = only, exports value as-is
-# (avoids bash misinterpreting <, >, `, $() etc. in values like SMTP_FROM)
-while IFS= read -r line; do
-  # Skip blank lines and comments
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${line//[[:space:]]/}" ]] && continue
+# Values can hold characters the shell would interpret (<, `, $), so split on the first = instead of sourcing.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%$'\r'}"
+  [[ "$line" =~ ^[[:space:]]*(#|$) || "$line" != *=* ]] && continue
   key="${line%%=*}"
   value="${line#*=}"
-  # Strip surrounding quotes if present ("value" or 'value')
-  if [[ "$value" =~ ^\"(.*)\"$ ]] || [[ "$value" =~ ^\'(.*)\'$ ]]; then
+  if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
     value="${BASH_REMATCH[1]}"
   fi
   export "$key=$value"
 done < "$ENV_FILE"
 
-# ── Derived values ─────────────────────────────────────────────────────────────
-DB_BASE_URL="postgresql://postgres.${SUPABASE_PROJECT_REF}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:5432/postgres"
+required=(PUBLIC_URL RABBITMQ_USER RABBITMQ_PASS BETTER_AUTH_SECRET AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_S3_BUCKET)
+[[ -n "${DATABASE_URL:-}" ]] || required+=(SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD SUPABASE_DB_HOST)
+[[ -n "${AWS_S3_ENDPOINT:-}" || -z "${DATABASE_URL:-}" ]] || required+=(SUPABASE_PROJECT_REF)
+missing=()
+for name in "${required[@]}"; do
+  [[ -n "${!name:-}" ]] || missing+=("$name")
+done
+if (( ${#missing[@]} )); then
+  echo "Missing in $ENV_FILE: ${missing[*]}" >&2
+  exit 1
+fi
+
+APP_URL="${PUBLIC_URL%/}"
+DB="${DATABASE_URL:-postgresql://postgres.${SUPABASE_PROJECT_REF:-}:${SUPABASE_DB_PASSWORD:-}@${SUPABASE_DB_HOST:-}:5432/postgres}"
 RABBITMQ_URL="amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672"
-S3_ENDPOINT="https://${SUPABASE_PROJECT_REF}.storage.supabase.co/storage/v1/s3"
+S3_ENDPOINT="${AWS_S3_ENDPOINT:-https://${SUPABASE_PROJECT_REF:-}.storage.supabase.co/storage/v1/s3}"
+S3_PUBLIC_ENDPOINT="${AWS_S3_PUBLIC_ENDPOINT:-$S3_ENDPOINT}"
 
-echo "Generating service .env.prod files from: $ENV_FILE"
-echo ""
+AUTH_GRPC="auth-service:50051"
+FILES_GRPC="upload-manager:50051"
+SCENES_GRPC="scene-detector-server:50051"
+SEARCH_GRPC="file-embedder-server:50051"
+CHAT_GRPC="chat-manager:50051"
+BILLING_GRPC="payment-service:50051"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. api-gateway
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/api-gateway/.env.prod" << EOF
+write() {
+  cat > "$ROOT/$1"
+  echo "  $1"
+}
+
+echo "Writing .env.prod files from $ENV_FILE:"
+
+write api-gateway/.env.prod << EOF
 PORT=8080
 NODE_ENV=production
-DATABASE_URL=${DB_BASE_URL}
-BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-CORS_ORIGIN=${PUBLIC_URL}
-AUTH_SERVICE_URL=http://auth-service:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-CHAT_MANAGER_URL=http://chat-manager:8080
-PAYMENT_SERVICE_URL=http://payment-service:8080
-EOF
-echo "  ✓ api-gateway/.env.prod"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. auth-service
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/auth-service/.env.prod" << EOF
-PORT=8080
-NODE_ENV=production
-DATABASE_URL=${DB_BASE_URL}?schema=ragauth
-BETTER_AUTH_URL=${PUBLIC_URL}
-BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-CORS_ORIGIN=${PUBLIC_URL}
-FRONTEND_URL=${PUBLIC_URL}
-GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-GOOGLE_REDIRECT_URI=${PUBLIC_URL}/api/auth/google/callback
-SMTP_HOST=${SMTP_HOST}
-SMTP_PORT=${SMTP_PORT}
-SMTP_USER=${SMTP_USER}
-SMTP_PASS=${SMTP_PASS}
-SMTP_FROM=${SMTP_FROM}
-APP_NAME=${APP_NAME}
-PAYMENT_SERVICE_URL=http://payment-service:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
+APP_ORIGINS=${APP_URL}
 RABBITMQ_URL=${RABBITMQ_URL}
-RABBITMQ_EXCHANGE=user.events
-RABBITMQ_QUEUE=user.events.queue
-RABBITMQ_ROUTING_KEY=user.events.key
+AUTH_HTTP_URL=http://auth-service:8080
+AUTH_GRPC_ADDRESS=${AUTH_GRPC}
+FILES_GRPC_ADDRESS=${FILES_GRPC}
+SEARCH_GRPC_ADDRESS=${SEARCH_GRPC}
+CHAT_GRPC_ADDRESS=${CHAT_GRPC}
+BILLING_GRPC_ADDRESS=${BILLING_GRPC}
 EOF
-echo "  ✓ auth-service/.env.prod"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. upload-manager
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/upload-manager/.env.prod" << EOF
+write auth-service/.env.prod << EOF
 PORT=8080
 NODE_ENV=production
-DATABASE_URL=${DB_BASE_URL}?schema=upload
+DATABASE_URL=${DB}?schema=ragauth
+BETTER_AUTH_URL=${APP_URL}
+BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+FRONTEND_URL=${APP_URL}
+TRUSTED_ORIGINS=${APP_URL}
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+GOOGLE_REDIRECT_URI=${APP_URL}/api/v1/auth/oauth/google/callback
+SMTP_HOST=${SMTP_HOST:-}
+SMTP_PORT=${SMTP_PORT:-587}
+SMTP_SECURE=${SMTP_SECURE:-false}
+SMTP_USER=${SMTP_USER:-}
+SMTP_PASS=${SMTP_PASS:-}
+SMTP_FROM=${SMTP_FROM:-}
+APP_NAME=${APP_NAME:-RagSpace}
+RABBITMQ_URL=${RABBITMQ_URL}
+EOF
+
+write upload-manager/.env.prod << EOF
+PORT=8080
+NODE_ENV=production
+DATABASE_URL=${DB}?schema=upload
+RABBITMQ_URL=${RABBITMQ_URL}
+BILLING_GRPC_ADDRESS=${BILLING_GRPC}
 AWS_REGION=${AWS_REGION}
 AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 AWS_S3_BUCKET=${AWS_S3_BUCKET}
 AWS_S3_ENDPOINT=${S3_ENDPOINT}
-RABBITMQ_URL=${RABBITMQ_URL}
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=file.upload.queue
-MAX_FILE_SIZE=${MAX_FILE_SIZE}
-ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES}
-AUTH_SERVICE_URL=http://auth-service:8080
+AWS_S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT}
+MAX_FILE_SIZE=${MAX_FILE_SIZE:-1073741824}
 EOF
-echo "  ✓ upload-manager/.env.prod"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. payment-service
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/payment-service/.env.prod" << EOF
+write payment-service/.env.prod << EOF
 PORT=8080
 NODE_ENV=production
-DATABASE_URL=${DB_BASE_URL}?schema=payment
-PAYMENT_PROVIDER=${PAYMENT_PROVIDER}
-RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
-LEMON_SQUEEZY_API_KEY=${LEMON_SQUEEZY_API_KEY}
-LEMON_SQUEEZY_STORE_ID=${LEMON_SQUEEZY_STORE_ID}
-LEMON_SQUEEZY_WEBHOOK_SECRET=${LEMON_SQUEEZY_WEBHOOK_SECRET}
-API_GATEWAY_URL=http://api-gateway:8080
-FRONTEND_URL=${PUBLIC_URL}
-EOF
-echo "  ✓ payment-service/.env.prod"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. scene-detector
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/scene-detector/.env.prod" << EOF
-PORT=8080
-DATABASE_URL=${DB_BASE_URL}?schema=scene_detector
+DATABASE_URL=${DB}?schema=payment
 RABBITMQ_URL=${RABBITMQ_URL}
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=scene.detector.queue
-RABBITMQ_ROUTING_KEY=file.upload.completed
+FRONTEND_URL=${APP_URL}
+PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-razorpay}
+RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
+RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
+RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
+LEMON_SQUEEZY_API_KEY=${LEMON_SQUEEZY_API_KEY:-}
+LEMON_SQUEEZY_STORE_ID=${LEMON_SQUEEZY_STORE_ID:-}
+LEMON_SQUEEZY_WEBHOOK_SECRET=${LEMON_SQUEEZY_WEBHOOK_SECRET:-}
+EOF
+
+write scene-detector/.env.prod << EOF
+PORT=8080
+DATABASE_URL=${DB}?schema=scene_detector
+RABBITMQ_URL=${RABBITMQ_URL}
+FILES_GRPC_ADDRESS=${FILES_GRPC}
 AWS_REGION=${AWS_REGION}
 AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 AWS_S3_BUCKET=${AWS_S3_BUCKET}
 AWS_S3_ENDPOINT=${S3_ENDPOINT}
-SCENE_DETECTION_THRESHOLD=${SCENE_DETECTION_THRESHOLD}
-SCENE_DETECTION_MIN_SCENE_LENGTH=${SCENE_DETECTION_MIN_SCENE_LENGTH}
-THUMBNAIL_WIDTH=${THUMBNAIL_WIDTH}
-THUMBNAIL_HEIGHT=${THUMBNAIL_HEIGHT}
-THUMBNAIL_QUALITY=${THUMBNAIL_QUALITY}
+AWS_S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT}
+SCENE_DETECTION_THRESHOLD=${SCENE_DETECTION_THRESHOLD:-27.0}
+SCENE_DETECTION_MIN_SCENE_LENGTH=${SCENE_DETECTION_MIN_SCENE_LENGTH:-15}
+THUMBNAIL_WIDTH=${THUMBNAIL_WIDTH:-256}
+THUMBNAIL_HEIGHT=${THUMBNAIL_HEIGHT:-256}
+THUMBNAIL_QUALITY=${THUMBNAIL_QUALITY:-70}
 TEMP_DIR=/tmp/scene-detector
-MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS}
-UPLOAD_MANAGER_URL=http://upload-manager:8080
+MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-2}
 EOF
-echo "  ✓ scene-detector/.env.prod"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 6. file-embedder
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/file-embedder/.env.prod" << EOF
+write file-embedder/.env.prod << EOF
 PORT=8080
 RABBITMQ_URL=${RABBITMQ_URL}
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=file.embedder.queue
-CHROMA_HOST=${CHROMA_HOST}
-CHROMA_PORT=${CHROMA_PORT}
+FILES_GRPC_ADDRESS=${FILES_GRPC}
+SCENES_GRPC_ADDRESS=${SCENES_GRPC}
+CHROMA_HOST=${CHROMA_HOST:-chromadb}
+CHROMA_PORT=${CHROMA_PORT:-8000}
 AWS_REGION=${AWS_REGION}
 AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 AWS_S3_BUCKET=${AWS_S3_BUCKET}
 AWS_S3_ENDPOINT=${S3_ENDPOINT}
-CLIP_MODEL=${CLIP_MODEL}
-TEXT_MODEL=${TEXT_MODEL}
-DEVICE=${DEVICE}
-NVIDIA_API_KEY=${NVIDIA_API_KEY}
-TESSERACT_CMD=/usr/bin/tesseract
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-CHAT_MANAGER_URL=http://chat-manager:8080
+CLIP_MODEL=${CLIP_MODEL:-ViT-B-32}
+TEXT_MODEL=${TEXT_MODEL:-BAAI/bge-base-en-v1.5}
+DEVICE=${DEVICE:-cpu}
+NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
 EOF
-echo "  ✓ file-embedder/.env.prod"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 7. chat-manager
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/chat-manager/.env.prod" << EOF
+write chat-manager/.env.prod << EOF
 PORT=8080
-DATABASE_URL=${DB_BASE_URL}?schema=chat_manager
-NVIDIA_API_KEY=${NVIDIA_API_KEY}
-CHROMA_HOST=${CHROMA_HOST}
-CHROMA_PORT=${CHROMA_PORT}
-AWS_REGION=${AWS_REGION}
-AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-AWS_S3_BUCKET=${AWS_S3_BUCKET}
-S3_ENDPOINT_URL=${S3_ENDPOINT}
-S3_URL_EXPIRATION=${S3_URL_EXPIRATION}
-MAX_CONVERSATION_HISTORY=${MAX_CONVERSATION_HISTORY}
-CONTEXT_WINDOW_SIZE=${CONTEXT_WINDOW_SIZE}
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-PAYMENT_SERVICE_URL=http://payment-service:8080
+DATABASE_URL=${DB}?schema=chat_manager
+RABBITMQ_URL=${RABBITMQ_URL}
+SEARCH_GRPC_ADDRESS=${SEARCH_GRPC}
+FILES_GRPC_ADDRESS=${FILES_GRPC}
+SCENES_GRPC_ADDRESS=${SCENES_GRPC}
+BILLING_GRPC_ADDRESS=${BILLING_GRPC}
+NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
 EOF
-echo "  ✓ chat-manager/.env.prod"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. frontend
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/frontend/.env.prod" << EOF
-VITE_API_URL=${PUBLIC_URL}
-VITE_APP_URL=${PUBLIC_URL}
-EOF
-echo "  ✓ frontend/.env.prod"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 9. Root .env for docker-compose interpolation
-# ─────────────────────────────────────────────────────────────────────────────
-cat > "$REPO_ROOT/.env" << EOF
-RABBITMQ_USER=${RABBITMQ_USER}
-RABBITMQ_PASS=${RABBITMQ_PASS}
-HTTP_PORT=${HTTP_PORT}
-PUBLIC_URL=${PUBLIC_URL}
-EOF
-echo "  ✓ .env (docker-compose vars)"
-
-echo ""
-echo "Done. All service .env.prod files have been generated."
-echo ""
-echo "Next step:"
-echo "  docker compose -f docker-compose.prod.yml --env-file .env up -d"
+echo
+echo "Next: docker compose -f docker-compose.prod.yml --env-file ${ENV_FILE#"$ROOT"/} up -d --build"
+[[ -n "${NVIDIA_API_KEY:-}" ]] || echo "NVIDIA_API_KEY is empty: visual descriptions and chat replies need it."
+[[ -n "${GOOGLE_CLIENT_ID:-}" ]] || echo "GOOGLE_CLIENT_ID is empty: Google sign-in stays disabled."

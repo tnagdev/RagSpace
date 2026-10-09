@@ -1,139 +1,140 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# generate-envs-docker.ps1 — Generate per-service .env.docker files for local
-#                            Docker Compose development (everything runs locally)
-# ═══════════════════════════════════════════════════════════════════════════════
-# Usage (from repo root):
-#   .\scripts\generate-envs-docker.ps1
-#   .\scripts\generate-envs-docker.ps1 -BetterAuthSecret "my-secret" -NvidiaApiKey "nvapi-..."
-#
-# Local services (docker-compose.dev.yml):
-#   PostgreSQL  → postgres:5432         (user: postgres / pass: postgres)
-#   RabbitMQ    → rabbitmq:5672         (user: guest    / pass: guest)
-#   ChromaDB    → chromadb:8000
-#   MinIO (S3)  → minio:9000            (user: minioadmin / pass: minioadmin)
-# ───────────────────────────────────────────────────────────────────────────────
-param(
-    [string]$BetterAuthSecret  = "local-dev-secret-32-chars-min!!",
-    [string]$NvidiaApiKey      = "",
-    [string]$GoogleClientId    = "",
-    [string]$GoogleClientSecret = "",
-    [string]$SmtpHost          = "",
-    [string]$SmtpPort          = "587",
-    [string]$SmtpUser          = "",
-    [string]$SmtpPass          = "",
-    [string]$SmtpFrom          = "noreply@ragspace.local"
-)
-
+# Writes every service's .env.docker for docker-compose.dev.yml.
+# Secrets come from the environment, else from the file being replaced, so re-running keeps your keys:
+#   $env:NVIDIA_API_KEY = "nvapi-..."; .\scripts\generate-envs-docker.ps1
 $ErrorActionPreference = "Stop"
-$RepoRoot = Split-Path $PSScriptRoot -Parent
 
-# ── Shared local values ────────────────────────────────────────────────────────
-$DB_BASE       = "postgresql://postgres:postgres@postgres:5432/postgres"
-$RABBIT_URL    = "amqp://guest:guest@rabbitmq:5672"
-$S3_ENDPOINT   = "http://minio:9000"
-$S3_KEY        = "minioadmin"
-$S3_SECRET     = "minioadmin"
-$S3_BUCKET     = "rag-user-uploads"
-$S3_REGION     = "us-east-1"
-$FRONTEND_URL  = "http://localhost:3000"
-$CHROMA_HOST   = "chromadb"
-$CHROMA_PORT   = "8000"
+$Root = Split-Path $PSScriptRoot -Parent
 
-function Write-Env([string]$Path, [string]$Content) {
-    [System.IO.File]::WriteAllText($Path, $Content)
-    $rel = $Path.Replace($RepoRoot, "").TrimStart("\")
-    Write-Host "  + $rel"
+$AppUrl = 'http://localhost:3000'
+$Db = 'postgresql://postgres:postgres@postgres:5432/postgres'
+$RabbitUrl = 'amqp://guest:guest@rabbitmq:5672'
+$S3Endpoint = 'http://minio:9000'
+# Presigned URLs are opened by the browser, which reaches MinIO on its published port.
+$S3PublicEndpoint = 'http://localhost:9000'
+$S3Region = 'us-east-1'
+$S3Bucket = 'rag-user-uploads'
+$S3Key = 'minioadmin'
+$S3Secret = 'minioadmin'
+
+$AuthGrpc = 'auth-service:50051'
+$FilesGrpc = 'upload-manager:50051'
+$ScenesGrpc = 'scene-detector-server:50051'
+$SearchGrpc = 'file-embedder-server:50051'
+$ChatGrpc = 'chat-manager:50051'
+$BillingGrpc = 'payment-service:50051'
+
+function Get-Secret([string]$Name, [string]$File, [string]$Default = "") {
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    $path = Join-Path $Root $File
+    if (-not $value -and (Test-Path $path)) {
+        $line = Get-Content $path | Where-Object { $_ -like "$Name=*" } | Select-Object -Last 1
+        if ($line) { $value = $line.Substring($Name.Length + 1).TrimEnd("`r") }
+    }
+    if ($value) { return $value }
+    return $Default
 }
 
-Write-Host "Generating service .env.docker files for local Docker Compose...`n"
+function Write-Env([string]$Path, [string]$Content) {
+    # LF without a BOM: a stray \r or BOM ends up inside the values the services parse.
+    [System.IO.File]::WriteAllText((Join-Path $Root $Path), ($Content.Replace("`r`n", "`n") + "`n"))
+    Write-Host "  $Path"
+}
 
-# ── 1. api-gateway ────────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\api-gateway\.env.docker" @"
+$BetterAuthSecret = Get-Secret 'BETTER_AUTH_SECRET' 'auth-service/.env.docker' 'local-dev-secret-32-chars-min!!'
+$GoogleClientId = Get-Secret 'GOOGLE_CLIENT_ID' 'auth-service/.env.docker'
+$GoogleClientSecret = Get-Secret 'GOOGLE_CLIENT_SECRET' 'auth-service/.env.docker'
+$SmtpHost = Get-Secret 'SMTP_HOST' 'auth-service/.env.docker'
+$SmtpPort = Get-Secret 'SMTP_PORT' 'auth-service/.env.docker' '587'
+$SmtpSecure = Get-Secret 'SMTP_SECURE' 'auth-service/.env.docker' 'false'
+$SmtpUser = Get-Secret 'SMTP_USER' 'auth-service/.env.docker'
+$SmtpPass = Get-Secret 'SMTP_PASS' 'auth-service/.env.docker'
+$SmtpFrom = Get-Secret 'SMTP_FROM' 'auth-service/.env.docker' 'noreply@ragspace.local'
+$NvidiaApiKey = Get-Secret 'NVIDIA_API_KEY' 'file-embedder/.env.docker'
+$ChatNvidiaApiKey = Get-Secret 'NVIDIA_API_KEY' 'chat-manager/.env.docker' $NvidiaApiKey
+$RazorpayKeyId = Get-Secret 'RAZORPAY_KEY_ID' 'payment-service/.env.docker'
+$RazorpayKeySecret = Get-Secret 'RAZORPAY_KEY_SECRET' 'payment-service/.env.docker'
+$RazorpayWebhookSecret = Get-Secret 'RAZORPAY_WEBHOOK_SECRET' 'payment-service/.env.docker'
+$LemonApiKey = Get-Secret 'LEMON_SQUEEZY_API_KEY' 'payment-service/.env.docker'
+$LemonStoreId = Get-Secret 'LEMON_SQUEEZY_STORE_ID' 'payment-service/.env.docker'
+$LemonWebhookSecret = Get-Secret 'LEMON_SQUEEZY_WEBHOOK_SECRET' 'payment-service/.env.docker'
+
+Write-Host "Writing .env.docker files:"
+
+Write-Env 'api-gateway/.env.docker' @"
 PORT=8080
 NODE_ENV=docker
-DATABASE_URL=$DB_BASE
-BETTER_AUTH_SECRET=$BetterAuthSecret
-CORS_ORIGIN=$FRONTEND_URL
-AUTH_SERVICE_URL=http://auth-service:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-CHAT_MANAGER_URL=http://chat-manager:8080
-PAYMENT_SERVICE_URL=http://payment-service:8080
+APP_ORIGINS=$AppUrl
+RABBITMQ_URL=$RabbitUrl
+AUTH_HTTP_URL=http://auth-service:8080
+AUTH_GRPC_ADDRESS=$AuthGrpc
+FILES_GRPC_ADDRESS=$FilesGrpc
+SEARCH_GRPC_ADDRESS=$SearchGrpc
+CHAT_GRPC_ADDRESS=$ChatGrpc
+BILLING_GRPC_ADDRESS=$BillingGrpc
 "@
 
-# ── 2. auth-service ───────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\auth-service\.env.docker" @"
+Write-Env 'auth-service/.env.docker' @"
 PORT=8080
 NODE_ENV=docker
-DATABASE_URL=${DB_BASE}?schema=ragauth
-BETTER_AUTH_URL=$FRONTEND_URL
+DATABASE_URL=$Db`?schema=ragauth
+BETTER_AUTH_URL=$AppUrl
 BETTER_AUTH_SECRET=$BetterAuthSecret
-CORS_ORIGIN=$FRONTEND_URL
-FRONTEND_URL=$FRONTEND_URL
+FRONTEND_URL=$AppUrl
+TRUSTED_ORIGINS=$AppUrl
 GOOGLE_CLIENT_ID=$GoogleClientId
 GOOGLE_CLIENT_SECRET=$GoogleClientSecret
-GOOGLE_REDIRECT_URI=${FRONTEND_URL}/api/auth/google/callback
+GOOGLE_REDIRECT_URI=$AppUrl/api/v1/auth/oauth/google/callback
 SMTP_HOST=$SmtpHost
 SMTP_PORT=$SmtpPort
+SMTP_SECURE=$SmtpSecure
 SMTP_USER=$SmtpUser
 SMTP_PASS=$SmtpPass
 SMTP_FROM=$SmtpFrom
 APP_NAME=RagSpace
-PAYMENT_SERVICE_URL=http://payment-service:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
+RABBITMQ_URL=$RabbitUrl
 "@
 
-# ── 3. upload-manager ─────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\upload-manager\.env.docker" @"
+Write-Env 'upload-manager/.env.docker' @"
 PORT=8080
 NODE_ENV=docker
-DATABASE_URL=${DB_BASE}?schema=upload
-AWS_REGION=$S3_REGION
-AWS_ACCESS_KEY_ID=$S3_KEY
-AWS_SECRET_ACCESS_KEY=$S3_SECRET
-AWS_S3_BUCKET=$S3_BUCKET
-AWS_S3_ENDPOINT=$S3_ENDPOINT
-RABBITMQ_URL=$RABBIT_URL
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=file.upload.queue
+DATABASE_URL=$Db`?schema=upload
+RABBITMQ_URL=$RabbitUrl
+BILLING_GRPC_ADDRESS=$BillingGrpc
+AWS_REGION=$S3Region
+AWS_ACCESS_KEY_ID=$S3Key
+AWS_SECRET_ACCESS_KEY=$S3Secret
+AWS_S3_BUCKET=$S3Bucket
+AWS_S3_ENDPOINT=$S3Endpoint
+AWS_S3_PUBLIC_ENDPOINT=$S3PublicEndpoint
 MAX_FILE_SIZE=1073741824
-ALLOWED_FILE_TYPES=image/*,video/*,audio/*,application/pdf
-AUTH_SERVICE_URL=http://auth-service:8080
-AWS_S3_PUBLIC_ENDPOINT=http://localhost:9000
 "@
 
-# ── 4. payment-service ────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\payment-service\.env.docker" @"
+Write-Env 'payment-service/.env.docker' @"
 PORT=8080
 NODE_ENV=docker
-DATABASE_URL=${DB_BASE}?schema=payment
+DATABASE_URL=$Db`?schema=payment
+RABBITMQ_URL=$RabbitUrl
+FRONTEND_URL=$AppUrl
 PAYMENT_PROVIDER=razorpay
-RAZORPAY_KEY_ID=
-RAZORPAY_KEY_SECRET=
-RAZORPAY_WEBHOOK_SECRET=
-LEMON_SQUEEZY_API_KEY=
-LEMON_SQUEEZY_STORE_ID=
-LEMON_SQUEEZY_WEBHOOK_SECRET=
-API_GATEWAY_URL=http://api-gateway:8080
-FRONTEND_URL=$FRONTEND_URL
+RAZORPAY_KEY_ID=$RazorpayKeyId
+RAZORPAY_KEY_SECRET=$RazorpayKeySecret
+RAZORPAY_WEBHOOK_SECRET=$RazorpayWebhookSecret
+LEMON_SQUEEZY_API_KEY=$LemonApiKey
+LEMON_SQUEEZY_STORE_ID=$LemonStoreId
+LEMON_SQUEEZY_WEBHOOK_SECRET=$LemonWebhookSecret
 "@
 
-# ── 5. scene-detector ─────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\scene-detector\.env.docker" @"
+Write-Env 'scene-detector/.env.docker' @"
 PORT=8080
-DATABASE_URL=${DB_BASE}?schema=scene_detector
-RABBITMQ_URL=$RABBIT_URL
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=scene.detector.queue
-RABBITMQ_ROUTING_KEY=file.upload.completed
-AWS_REGION=$S3_REGION
-AWS_ACCESS_KEY_ID=$S3_KEY
-AWS_SECRET_ACCESS_KEY=$S3_SECRET
-AWS_S3_BUCKET=$S3_BUCKET
-AWS_S3_ENDPOINT=$S3_ENDPOINT
+DATABASE_URL=$Db`?schema=scene_detector
+RABBITMQ_URL=$RabbitUrl
+FILES_GRPC_ADDRESS=$FilesGrpc
+AWS_REGION=$S3Region
+AWS_ACCESS_KEY_ID=$S3Key
+AWS_SECRET_ACCESS_KEY=$S3Secret
+AWS_S3_BUCKET=$S3Bucket
+AWS_S3_ENDPOINT=$S3Endpoint
+AWS_S3_PUBLIC_ENDPOINT=$S3PublicEndpoint
 SCENE_DETECTION_THRESHOLD=27.0
 SCENE_DETECTION_MIN_SCENE_LENGTH=15
 THUMBNAIL_WIDTH=256
@@ -141,64 +142,41 @@ THUMBNAIL_HEIGHT=256
 THUMBNAIL_QUALITY=70
 TEMP_DIR=/tmp/scene-detector
 MAX_CONCURRENT_JOBS=2
-UPLOAD_MANAGER_URL=http://upload-manager:8080
 "@
 
-# ── 6. file-embedder ──────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\file-embedder\.env.docker" @"
+Write-Env 'file-embedder/.env.docker' @"
 PORT=8080
-RABBITMQ_URL=$RABBIT_URL
-RABBITMQ_EXCHANGE=file.events
-RABBITMQ_QUEUE=file.embedder.queue
-CHROMA_HOST=$CHROMA_HOST
-CHROMA_PORT=$CHROMA_PORT
-AWS_REGION=$S3_REGION
-AWS_ACCESS_KEY_ID=$S3_KEY
-AWS_SECRET_ACCESS_KEY=$S3_SECRET
-AWS_S3_BUCKET=$S3_BUCKET
-AWS_S3_ENDPOINT=$S3_ENDPOINT
+RABBITMQ_URL=$RabbitUrl
+FILES_GRPC_ADDRESS=$FilesGrpc
+SCENES_GRPC_ADDRESS=$ScenesGrpc
+CHROMA_HOST=chromadb
+CHROMA_PORT=8000
+AWS_REGION=$S3Region
+AWS_ACCESS_KEY_ID=$S3Key
+AWS_SECRET_ACCESS_KEY=$S3Secret
+AWS_S3_BUCKET=$S3Bucket
+AWS_S3_ENDPOINT=$S3Endpoint
 CLIP_MODEL=ViT-B-32
 TEXT_MODEL=BAAI/bge-base-en-v1.5
 DEVICE=cpu
 NVIDIA_API_KEY=$NvidiaApiKey
-TESSERACT_CMD=/usr/bin/tesseract
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-CHAT_MANAGER_URL=http://chat-manager:8080
 "@
 
-# ── 7. chat-manager ───────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\chat-manager\.env.docker" @"
+Write-Env 'chat-manager/.env.docker' @"
 PORT=8080
-DATABASE_URL=${DB_BASE}?schema=chat_manager
-NVIDIA_API_KEY=$NvidiaApiKey
-CHROMA_HOST=$CHROMA_HOST
-CHROMA_PORT=$CHROMA_PORT
-AWS_REGION=$S3_REGION
-AWS_ACCESS_KEY_ID=$S3_KEY
-AWS_SECRET_ACCESS_KEY=$S3_SECRET
-AWS_S3_BUCKET=$S3_BUCKET
-S3_ENDPOINT_URL=$S3_ENDPOINT
-S3_URL_EXPIRATION=3600
-MAX_CONVERSATION_HISTORY=10
-CONTEXT_WINDOW_SIZE=5
-FILE_EMBEDDER_URL=http://file-embedder-server:8080
-UPLOAD_MANAGER_URL=http://upload-manager:8080
-SCENE_DETECTOR_URL=http://scene-detector-server:8080
-PAYMENT_SERVICE_URL=http://payment-service:8080
+DATABASE_URL=$Db`?schema=chat_manager
+RABBITMQ_URL=$RabbitUrl
+SEARCH_GRPC_ADDRESS=$SearchGrpc
+FILES_GRPC_ADDRESS=$FilesGrpc
+SCENES_GRPC_ADDRESS=$ScenesGrpc
+BILLING_GRPC_ADDRESS=$BillingGrpc
+NVIDIA_API_KEY=$ChatNvidiaApiKey
 "@
 
-# ── 8. frontend ───────────────────────────────────────────────────────────────
-Write-Env "$RepoRoot\frontend\.env.docker" @"
-VITE_API_URL=http://localhost:8000
+Write-Env 'frontend/.env.docker' @"
+API_GATEWAY_URL=http://api-gateway:8080
 "@
 
-Write-Host "`nDone. All service .env.docker files have been generated."
-Write-Host "`nNext steps:"
-Write-Host "  1. Start local infrastructure + all services:"
-Write-Host "       docker compose -f docker-compose.dev.yml up -d"
-Write-Host "  2. MinIO bucket is auto-created on first run (bucket: $S3_BUCKET)"
-Write-Host "  3. MinIO console: http://localhost:9001  (minioadmin / minioadmin)"
-Write-Host "  4. RabbitMQ UI:   http://localhost:15672 (guest / guest)"
-Write-Host "  5. Fill in secrets (NVIDIA_API_KEY, SMTP_*, GOOGLE_*) if needed:"
-Write-Host "       .\scripts\generate-envs-docker.ps1 -NvidiaApiKey `"nvapi-...`""
+Write-Host ""
+Write-Host "Next: docker compose -f docker-compose.dev.yml up -d"
+if (-not $NvidiaApiKey) { Write-Host "NVIDIA_API_KEY is empty: visual descriptions and chat replies need it." }

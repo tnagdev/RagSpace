@@ -4,6 +4,7 @@ import signal
 
 import pytesseract
 from ragspace_shared.context import configure_logging
+from ragspace_shared.events import heartbeat
 
 from src.config import settings
 from src.db.chroma_db import ChromaDatabaseManager
@@ -34,6 +35,7 @@ async def main() -> None:
         handle_event,
         prefetch=10,
     )
+    beat = asyncio.create_task(heartbeat(event_bus))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -42,6 +44,7 @@ async def main() -> None:
     try:
         await stop.wait()
     finally:
+        beat.cancel()
         await event_bus.close()
         await file_tasks.drain(timeout=30.0)
 
