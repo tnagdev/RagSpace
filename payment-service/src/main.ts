@@ -1,44 +1,29 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { billingV1, createGrpcServer, listenGrpc } from '@ragspace/shared-ts';
 import { AppModule } from './app.module';
-import { ConfigService } from '@nestjs/config';
+import { BillingRpcService } from './billing/billing-rpc.service';
+import { eventBus } from './events/event-bus';
+import { logger } from './logger';
 
 async function bootstrap() {
-    const logger = new Logger('PaymentService');
-    const app = await NestFactory.create(AppModule, {
-        logger: process.env.NODE_ENV === 'production'
-            ? ['error', 'warn', 'log']
-            : ['error', 'warn', 'log', 'debug', 'verbose'],
-    });
+    eventBus.start();
 
+    const app = await NestFactory.create(AppModule, { logger });
     app.enableShutdownHooks();
+    await app.init();
 
-    const configService = app.get(ConfigService);
-    const port = configService.get('PORT', 3006);
-
-    app.useGlobalPipes(
-        new ValidationPipe({
-            whitelist: true,
-            forbidNonWhitelisted: true,
-            transform: true,
-        }),
-    );
-
-    app.enableCors({
-        origin: true,
-        credentials: true,
-    });
-
-    await app.listen(port);
-    logger.log(`Payment Service is running on: http://localhost:${port}`);
+    const grpcServer = createGrpcServer(logger);
+    grpcServer.add(billingV1.BillingServiceDefinition, app.get(BillingRpcService));
+    await listenGrpc(grpcServer, logger);
 
     process.on('SIGTERM', () => {
-        logger.log('SIGTERM received — starting graceful shutdown');
-        setTimeout(() => {
-            logger.error('Graceful shutdown timed out — forcing exit');
-            process.exit(1);
-        }, 30_000).unref();
+        void grpcServer.shutdown();
+        void eventBus.close();
     });
+
+    const port = Number(process.env.PORT) || 8080;
+    await app.listen(port);
+    logger.log(`HTTP listening on :${port}`, 'Bootstrap');
 }
 
-bootstrap();
+void bootstrap();

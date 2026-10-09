@@ -1,205 +1,91 @@
 /**
- * Tests for useFileEvents hook changes:
- * - file.processing.snapshot  → calls onSnapshot
- * - file.processing.started   → calls onProgress with progress=0 and stage
- * - file.processing.progress  → calls onProgress with numeric progress
- * - messages without fileId   → ignored
- *
  * @vitest-environment jsdom
  */
-
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
+import { act, renderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ApiFile, FileState, Page } from '@/api/types';
 
-// ── Fake WebSocket ─────────────────────────────────────────────────────────────
-class FakeWebSocket {
-    static OPEN = 1;
-    static CONNECTING = 0;
-    readyState = FakeWebSocket.OPEN;
-
+class FakeEventSource {
+    static last: FakeEventSource;
     onopen: (() => void) | null = null;
-    onmessage: ((e: { data: string }) => void) | null = null;
-    onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
-
+    listeners = new Map<string, (event: MessageEvent<string>) => void>();
     close = vi.fn();
-    ping = vi.fn();
 
-    /** Helper used in tests to push a message into the hook */
-    emit(data: unknown) {
-        this.onmessage?.({ data: JSON.stringify(data) });
+    constructor(readonly url: string) {
+        FakeEventSource.last = this;
     }
 
-    /** Simulate open */
-    open() {
-        this.onopen?.();
+    addEventListener(type: string, listener: (event: MessageEvent<string>) => void) {
+        this.listeners.set(type, listener);
+    }
+
+    emit(type: string, data: unknown) {
+        this.listeners.get(type)?.({ data: JSON.stringify(data) } as MessageEvent<string>);
     }
 }
 
-let fakeWs: FakeWebSocket;
+vi.stubGlobal('EventSource', FakeEventSource);
 
-vi.stubGlobal(
-    'WebSocket',
-    vi.fn().mockImplementation(() => {
-        fakeWs = new FakeWebSocket();
-        return fakeWs;
-    }),
-);
-
-// ── Import after stubbing ──────────────────────────────────────────────────────
 import { useFileEvents } from './useFileEvents';
+import { uploadKeys } from './useUpload';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function createWrapper() {
+const state = (overrides: Partial<FileState> = {}): FileState => ({
+    id: 'f1',
+    name: 'clip.mp4',
+    uploadStatus: 'COMPLETED',
+    processingStatus: 'IN_PROGRESS',
+    processingStage: 'SCENE_DETECTION',
+    progressPercent: 40,
+    errorMessage: null,
+    updatedAt: '2026-10-09T00:00:00Z',
+    ...overrides,
+});
+
+function setup(handlers: Parameters<typeof useFileEvents>[0] = {}) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return ({ children }: { children: React.ReactNode }) =>
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
         React.createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useFileEvents(handlers), { wrapper });
+    return { queryClient, hook, source: FakeEventSource.last };
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 describe('useFileEvents', () => {
-    let onProgress: ReturnType<typeof vi.fn>;
-    let onSnapshot: ReturnType<typeof vi.fn>;
+    afterEach(() => vi.clearAllMocks());
 
-    beforeEach(() => {
-        onProgress = vi.fn();
-        onSnapshot = vi.fn();
+    it('connects to the events stream and reports connection state', () => {
+        const { hook, source } = setup();
+        expect(source.url.endsWith('/api/v1/events')).toBe(true);
+        act(() => source.onopen?.());
+        expect(hook.result.current).toEqual({ connected: true, hasConnectedOnce: true });
+        act(() => source.onerror?.());
+        expect(hook.result.current.connected).toBe(false);
     });
 
-    afterEach(() => {
-        vi.clearAllMocks();
+    it('forwards the snapshot and per-stage progress', () => {
+        const onSnapshot = vi.fn();
+        const onProgress = vi.fn();
+        const { source } = setup({ onSnapshot, onProgress });
+        act(() => source.emit('files.snapshot', { type: 'files.snapshot', files: [state()] }));
+        act(() => source.emit('file.updated', { type: 'file.updated', file: state({ progressPercent: 65 }) }));
+        expect(onSnapshot).toHaveBeenCalledWith([state()]);
+        expect(onProgress).toHaveBeenCalledWith('f1', 65, 'SCENE_DETECTION');
     });
 
-    function renderAndOpen(
-        progressCb = onProgress,
-        snapshotCb = onSnapshot,
-    ) {
-        const { result } = renderHook(
-            () => useFileEvents(progressCb, snapshotCb),
-            { wrapper: createWrapper() },
-        );
-        // Simulate WS open so the hook sets connected=true
-        fakeWs.open();
-        return result;
-    }
-
-    // ── snapshot ──────────────────────────────────────────────────────────────
-
-    it('routes file.processing.snapshot to onSnapshot with the files array', () => {
-        renderAndOpen();
-
-        const files = [
-            { id: 'f1', processingStage: 'EMBEDDING', uploadStatus: 'COMPLETED' },
-            { id: 'f2', processingStage: 'UPLOAD', uploadStatus: 'FAILED' },
-        ];
-
-        fakeWs.emit({ type: 'file.processing.snapshot', files });
-
-        expect(onSnapshot).toHaveBeenCalledTimes(1);
-        expect(onSnapshot).toHaveBeenCalledWith(files);
-        // onProgress must NOT be called for snapshot messages
-        expect(onProgress).not.toHaveBeenCalled();
+    it('patches cached files with live state', () => {
+        const { queryClient, source } = setup();
+        const cached = { id: 'f1', name: 'clip.mp4', processingStage: 'EMBEDDING' } as ApiFile;
+        queryClient.setQueryData<Page<ApiFile>>(uploadKeys.list({ limit: 100 }), { items: [cached], nextCursor: null });
+        act(() => source.emit('file.updated', { type: 'file.updated', file: state({ processingStage: 'INDEXING' }) }));
+        const page = queryClient.getQueryData<Page<ApiFile>>(uploadKeys.list({ limit: 100 }));
+        expect(page?.items[0].processingStage).toBe('INDEXING');
     });
 
-    it('passes an empty array to onSnapshot when files is absent', () => {
-        renderAndOpen();
-        fakeWs.emit({ type: 'file.processing.snapshot' });
-        expect(onSnapshot).toHaveBeenCalledWith([]);
-    });
-
-    // ── processing.started ────────────────────────────────────────────────────
-
-    it('calls onProgress with progress=0 and the correct stage for file.processing.started', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.processing.started',
-            fileId: 'file-abc',
-            stage: 'SCENE_DETECTION',
-        });
-
-        expect(onProgress).toHaveBeenCalledTimes(1);
-        expect(onProgress).toHaveBeenCalledWith('file-abc', 'file.processing.started', 0, 'SCENE_DETECTION');
-    });
-
-    it('uses file.processingStage when top-level stage is absent in file.processing.started', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.processing.started',
-            fileId: 'file-abc',
-            file: { id: 'file-abc', processingStage: 'EMBEDDING' },
-        });
-
-        expect(onProgress).toHaveBeenCalledWith('file-abc', 'file.processing.started', 0, 'EMBEDDING');
-    });
-
-    it('seeds progress=0 even when the event carries explicit progress=0', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.processing.started',
-            fileId: 'file-abc',
-            stage: 'INDEXING',
-            progress: 0,
-        });
-
-        expect(onProgress).toHaveBeenCalledWith('file-abc', 'file.processing.started', 0, 'INDEXING');
-    });
-
-    // ── progress events ───────────────────────────────────────────────────────
-
-    it('calls onProgress with the numeric progress value for file.processing.progress', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.processing.progress',
-            fileId: 'file-xyz',
-            progress: 45,
-            stage: 'SCENE_DETECTION',
-        });
-
-        expect(onProgress).toHaveBeenCalledTimes(1);
-        expect(onProgress).toHaveBeenCalledWith('file-xyz', 'file.processing.progress', 45, 'SCENE_DETECTION');
-    });
-
-    it('calls onProgress for file.upload.progress with the correct value', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.upload.progress',
-            fileId: 'file-xyz',
-            progress: 30,
-        });
-
-        expect(onProgress).toHaveBeenCalledWith('file-xyz', 'file.upload.progress', 30, undefined);
-    });
-
-    // ── messages without fileId ───────────────────────────────────────────────
-
-    it('ignores non-snapshot messages that have no fileId', () => {
-        renderAndOpen();
-
-        fakeWs.emit({
-            type: 'file.processing.progress',
-            // no fileId
-            progress: 50,
-        });
-
-        expect(onProgress).not.toHaveBeenCalled();
-        expect(onSnapshot).not.toHaveBeenCalled();
-    });
-
-    // ── malformed JSON ────────────────────────────────────────────────────────
-
-    it('silently ignores malformed JSON messages', () => {
-        renderAndOpen();
-        // Send a raw non-JSON string by directly calling onmessage
-        fakeWs.onmessage?.({ data: 'not-json' });
-
-        expect(onProgress).not.toHaveBeenCalled();
-        expect(onSnapshot).not.toHaveBeenCalled();
+    it('closes the stream on unmount', () => {
+        const { hook, source } = setup();
+        hook.unmount();
+        expect(source.close).toHaveBeenCalled();
     });
 });

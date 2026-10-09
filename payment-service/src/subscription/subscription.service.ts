@@ -1,14 +1,20 @@
-import {
-    Injectable,
-    Logger,
-    NotFoundException,
-    BadRequestException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Plan, PlanType, Prisma, SubscriptionStatus, UsageMetricType } from '@prisma/client';
+import { PlanLimits, PlanService } from '../plan/plan.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentProviderFactory } from '../providers/payment-provider.factory';
-import { PlanService } from '../plan/plan.service';
-import { SubscriptionStatus, UsageMetricType } from '@prisma/client';
+
+const CURRENT_STATUSES: SubscriptionStatus[] = [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.TRIALING,
+    SubscriptionStatus.PAUSED,
+    SubscriptionStatus.PAST_DUE,
+];
+
+const WITH_PLAN = { plan: true } as const;
+
+export type SubscriptionWithPlan = Prisma.SubscriptionGetPayload<{ include: typeof WITH_PLAN }>;
 
 @Injectable()
 export class SubscriptionService {
@@ -20,14 +26,14 @@ export class SubscriptionService {
         private planService: PlanService,
     ) { }
 
-    private getExternalSubscriptionId(subscription: any): string | null {
+    private getExternalSubscriptionId(subscription: { razorpaySubscriptionId: string | null; lemonSqueezySubscriptionId: string | null }): string | null {
         if (this.paymentFactory.getProviderName() === 'razorpay') {
             return subscription.razorpaySubscriptionId ?? null;
         }
         return subscription.lemonSqueezySubscriptionId ?? null;
     }
 
-    private getExternalPlanVariantId(plan: any): string | null {
+    private getExternalPlanVariantId(plan: Plan): string | null {
         if (this.paymentFactory.getProviderName() === 'razorpay') {
             return plan.razorpayPlanId ?? null;
         }
@@ -42,6 +48,10 @@ export class SubscriptionService {
             razorpaySubscriptionId: null,
             razorpayCustomerId: null,
         };
+    }
+
+    hasPaidProviderSubscription(subscription: SubscriptionWithPlan): boolean {
+        return subscription.plan.type !== PlanType.FREE && this.getExternalSubscriptionId(subscription) !== null;
     }
 
     async getUserSubscription(userId: string) {
@@ -66,6 +76,23 @@ export class SubscriptionService {
                 used: Number(q.used),
             })),
         };
+    }
+
+    findCurrentSubscription(userId: string): Promise<SubscriptionWithPlan | null> {
+        return this.prisma.subscription.findFirst({
+            where: { userId, status: { in: CURRENT_STATUSES } },
+            include: WITH_PLAN,
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    async ensureSubscription(userId: string): Promise<SubscriptionWithPlan> {
+        const current = await this.findCurrentSubscription(userId);
+        if (current) return current;
+        await this.createFreeSubscription(userId);
+        const created = await this.findCurrentSubscription(userId);
+        if (!created) throw new NotFoundException('Subscription not found');
+        return created;
     }
 
     async createSubscription(data: {
@@ -104,7 +131,6 @@ export class SubscriptionService {
             }
         }
 
-        // Find and deactivate any existing active subscription for this user, carry over usage
         const existingSubscription = await this.prisma.subscription.findFirst({
             where: {
                 userId: data.userId,
@@ -114,16 +140,10 @@ export class SubscriptionService {
             orderBy: { createdAt: 'desc' },
         });
 
-        // Collect existing usage to carry over
         const existingUsageMap = new Map<string, bigint>();
-        if (existingSubscription) {
-            this.logger.log(`Found existing subscription ${existingSubscription.id} for user ${data.userId}, will carry over usage and deactivate`);
-            for (const quota of existingSubscription.usageQuotas) {
-                existingUsageMap.set(quota.metricType, quota.used);
-                this.logger.log(`  Carrying over usage: ${quota.metricType} = ${quota.used}`);
-            }
+        for (const quota of existingSubscription?.usageQuotas ?? []) {
+            existingUsageMap.set(quota.metricType, quota.used);
         }
-
 
         const subscription = await this.prisma.subscription.create({
             data: {
@@ -159,47 +179,37 @@ export class SubscriptionService {
             if (externalSubId) {
                 try {
                     await this.paymentFactory.getProvider().cancelSubscriptionImmediately(externalSubId);
-                    this.logger.log(`Cancelled old provider subscription ${externalSubId}`);
                 } catch (error) {
                     this.logger.warn(`Failed to cancel old provider subscription ${externalSubId}: ${error.message}`);
                 }
             }
         }
 
-        this.logger.log(`Created subscription for user ${data.userId}, usage carried over from previous subscription`);
+        this.logger.log(`Created subscription for user ${data.userId} on plan ${plan.name}`);
         return subscription;
     }
 
     async initializeUsageQuotas(
         subscriptionId: string,
-        limits: Record<string, number>,
+        limits: PlanLimits,
         existingUsage?: Map<string, bigint>,
     ) {
-        const quotas = Object.entries(limits).map(([metric, limit]) => {
-            const previousUsed = existingUsage?.get(metric) ?? BigInt(0);
-            return {
-                subscriptionId,
-                metricType: metric as UsageMetricType,
-                limit,
-                used: Number(previousUsed),
-                resetAt: this.calculateResetDate(),
-            };
-        });
+        const quotas = Object.entries(limits).map(([metric, limit]) => ({
+            subscriptionId,
+            metricType: metric as UsageMetricType,
+            limit,
+            used: Number(existingUsage?.get(metric) ?? BigInt(0)),
+            resetAt: this.calculateResetDate(),
+        }));
 
-        await this.prisma.usageQuota.createMany({
-            data: quotas,
-            skipDuplicates: true,
-        });
+        await this.prisma.usageQuota.createMany({ data: quotas, skipDuplicates: true });
     }
 
     async createFreeSubscription(userId: string) {
-        const existingSubscription = await this.getUserSubscription(userId);
-        if (existingSubscription) {
-            this.logger.log(`User ${userId} already has an active subscription`);
-            return existingSubscription;
-        }
+        const existing = await this.findCurrentSubscription(userId);
+        if (existing) return existing;
 
-        const freePlan = await this.planService.getPlanByType('FREE' as any);
+        const freePlan = await this.planService.getPlanByType(PlanType.FREE);
         const now = new Date();
         const periodEnd = new Date(now);
         periodEnd.setDate(periodEnd.getDate() + 30);
@@ -231,7 +241,7 @@ export class SubscriptionService {
         });
 
         if (this.paymentFactory.getProviderName() === 'razorpay' && result.providerSubscriptionId) {
-            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
             await this.prisma.pendingCheckout.upsert({
                 where: { razorpaySubscriptionId: result.providerSubscriptionId },
                 create: {
@@ -242,7 +252,6 @@ export class SubscriptionService {
                 },
                 update: { expiresAt, attempts: 0 },
             });
-            this.logger.log(`Stored pending checkout for Razorpay subscription ${result.providerSubscriptionId}`);
         }
 
         return { checkoutUrl: result.checkoutUrl };
@@ -254,27 +263,19 @@ export class SubscriptionService {
             throw new NotFoundException('No active subscription found');
         }
 
-        const currentPlan = subscription.plan;
         const newPlan = await this.planService.getPlanById(newPlanId);
-
-        this.logger.log(`Upgrading subscription ${subscription.id} from ${currentPlan.name} to ${newPlan.name}`);
-        this.logger.log(`Current usage quotas: ${JSON.stringify(subscription.usageQuotas)}`);
-
-        if (!this.planService.isUpgrade(currentPlan.type, newPlan.type)) {
+        if (!this.planService.isUpgrade(subscription.plan.type, newPlan.type)) {
             throw new BadRequestException('This is not an upgrade');
         }
 
         const externalSubId = this.getExternalSubscriptionId(subscription);
         const newVariantId = this.getExternalPlanVariantId(newPlan);
         if (externalSubId && newVariantId) {
-            await this.paymentFactory.getProvider().changeSubscriptionPlan(
-                externalSubId,
-                newVariantId,
-                { invoiceImmediately: true },
-            );
+            await this.paymentFactory.getProvider().changeSubscriptionPlan(externalSubId, newVariantId, {
+                invoiceImmediately: true,
+            });
         }
 
-        // Update local subscription immediately for upgrades
         const updated = await this.prisma.subscription.update({
             where: { id: subscription.id },
             data: {
@@ -286,10 +287,8 @@ export class SubscriptionService {
             include: { plan: true },
         });
 
-        // Update usage quotas immediately - ONLY limits, usage values preserved
         await this.updateUsageQuotasForPlanChange(subscription.id, newPlan);
-
-        this.logger.log(`Upgraded subscription ${subscription.id} to plan ${newPlanId} immediately, usage preserved`);
+        this.logger.log(`Upgraded subscription ${subscription.id} to plan ${newPlanId}`);
         return updated;
     }
 
@@ -299,10 +298,8 @@ export class SubscriptionService {
             throw new NotFoundException('No active subscription found');
         }
 
-        const currentPlan = subscription.plan;
         const newPlan = await this.planService.getPlanById(newPlanId);
-
-        if (!this.planService.isDowngrade(currentPlan.type, newPlan.type)) {
+        if (!this.planService.isDowngrade(subscription.plan.type, newPlan.type)) {
             throw new BadRequestException('This is not a downgrade');
         }
 
@@ -311,38 +308,30 @@ export class SubscriptionService {
             data: {
                 scheduledPlanId: newPlanId,
                 scheduledChangeAt: subscription.currentPeriodEnd,
-                scheduledChangeType: 'downgrade'
+                scheduledChangeType: 'downgrade',
             },
             include: { plan: true },
         });
 
-        const downgradeExternalSubId = this.getExternalSubscriptionId(subscription);
-        const downgradeNewVariantId = this.getExternalPlanVariantId(newPlan);
-        if (downgradeExternalSubId && downgradeNewVariantId) {
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        const newVariantId = this.getExternalPlanVariantId(newPlan);
+        if (externalSubId && newVariantId) {
             try {
-                await this.paymentFactory.getProvider().changeSubscriptionPlan(
-                    downgradeExternalSubId,
-                    downgradeNewVariantId,
-                    { disableProrations: true },
-                );
+                await this.paymentFactory.getProvider().changeSubscriptionPlan(externalSubId, newVariantId, {
+                    disableProrations: true,
+                });
             } catch (error) {
                 await this.prisma.subscription.update({
                     where: { id: subscription.id },
-                    data: {
-                        scheduledPlanId: null,
-                        scheduledChangeAt: null,
-                        scheduledChangeType: null,
-                    },
+                    data: { scheduledPlanId: null, scheduledChangeAt: null, scheduledChangeType: null },
                 });
                 this.logger.error(`Failed to change plan via provider, reverted scheduled change: ${error.message}`);
                 throw error;
             }
         }
 
-        // Don't update quotas yet - user keeps higher tier access until period end
-        // Cron job will update planId and quotas when scheduledChangeAt is reached
-
-        this.logger.log(`Scheduled downgrade for subscription ${subscription.id} to plan ${newPlanId} at ${subscription.currentPeriodEnd} (new pricing locked in LemonSqueezy, access preserved until period end)`);
+        // Quotas keep the higher tier until period end; enforceScheduledChanges applies the new plan then.
+        this.logger.log(`Scheduled downgrade for subscription ${subscription.id} to plan ${newPlanId} at ${subscription.currentPeriodEnd}`);
         return updated;
     }
 
@@ -352,18 +341,16 @@ export class SubscriptionService {
             throw new NotFoundException('No active subscription found');
         }
 
-        this.logger.log(`Cancelling subscription ${subscription.id} (immediate: ${immediate})`);
-
-        const cancelExternalSubId = this.getExternalSubscriptionId(subscription);
-        if (cancelExternalSubId) {
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        if (externalSubId) {
             if (immediate) {
-                await this.paymentFactory.getProvider().cancelSubscriptionImmediately(cancelExternalSubId);
+                await this.paymentFactory.getProvider().cancelSubscriptionImmediately(externalSubId);
             } else {
-                await this.paymentFactory.getProvider().cancelSubscriptionAtPeriodEnd(cancelExternalSubId);
+                await this.paymentFactory.getProvider().cancelSubscriptionAtPeriodEnd(externalSubId);
             }
         }
 
-        const freePlan = await this.planService.getPlanByType('FREE' as any);
+        const freePlan = await this.planService.getPlanByType(PlanType.FREE);
         const updated = await this.prisma.subscription.update({
             where: { id: subscription.id },
             data: {
@@ -377,7 +364,7 @@ export class SubscriptionService {
             include: { plan: true },
         });
 
-        this.logger.log(`Subscription ${subscription.id} ${immediate ? 'cancelled immediately' : `scheduled for cancellation at ${subscription.currentPeriodEnd} - FREE plan transition scheduled`}`);
+        this.logger.log(`Subscription ${subscription.id} ${immediate ? 'cancelled immediately' : `scheduled to move to FREE at ${subscription.currentPeriodEnd}`}`);
         return updated;
     }
 
@@ -387,9 +374,9 @@ export class SubscriptionService {
             throw new NotFoundException('No active subscription found');
         }
 
-        const pauseExternalSubId = this.getExternalSubscriptionId(subscription);
-        if (pauseExternalSubId) {
-            await this.paymentFactory.getProvider().pauseSubscription(pauseExternalSubId);
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        if (externalSubId) {
+            await this.paymentFactory.getProvider().pauseSubscription(externalSubId);
         }
 
         return this.prisma.subscription.update({
@@ -409,9 +396,9 @@ export class SubscriptionService {
             throw new NotFoundException('No paused subscription found');
         }
 
-        const resumeExternalSubId = this.getExternalSubscriptionId(subscription);
-        if (resumeExternalSubId) {
-            await this.paymentFactory.getProvider().resumeSubscription(resumeExternalSubId);
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        if (externalSubId) {
+            await this.paymentFactory.getProvider().resumeSubscription(externalSubId);
         }
 
         return this.prisma.subscription.update({
@@ -421,58 +408,24 @@ export class SubscriptionService {
         });
     }
 
-    async updateUsageQuotasForPlanChange(subscriptionId: string, newPlan: any) {
+    async updateUsageQuotasForPlanChange(subscriptionId: string, newPlan: Plan) {
         const newLimits = this.planService.getPlanLimits(newPlan);
-
-        this.logger.log(`Updating quotas for subscription ${subscriptionId} to plan ${newPlan.name}`);
-
-        // Fetch all existing quotas with their current usage
-        const existingQuotas = await this.prisma.usageQuota.findMany({
-            where: { subscriptionId },
-        });
-
-        this.logger.log(`Found ${existingQuotas.length} existing quotas`);
-
-        // Create a map for quick lookup
-        const quotaMap = new Map(
-            existingQuotas.map((q) => [q.metricType, q])
-        );
+        const existingQuotas = await this.prisma.usageQuota.findMany({ where: { subscriptionId } });
+        const quotaMap = new Map(existingQuotas.map((q) => [q.metricType, q]));
 
         for (const [metric, limit] of Object.entries(newLimits)) {
-            const existingQuota = quotaMap.get(metric as UsageMetricType);
-
-            if (existingQuota) {
-                this.logger.log(`Metric ${metric}: Updating limit ${existingQuota.limit} -> ${limit}, preserving usage ${existingQuota.used}`);
-
-                // Quota exists - ONLY update limit, preserve usage
+            const metricType = metric as UsageMetricType;
+            if (quotaMap.has(metricType)) {
                 await this.prisma.usageQuota.update({
-                    where: {
-                        subscriptionId_metricType: {
-                            subscriptionId,
-                            metricType: metric as UsageMetricType,
-                        },
-                    },
-                    data: {
-                        limit, // Only update limit, used is automatically preserved
-                    },
+                    where: { subscriptionId_metricType: { subscriptionId, metricType } },
+                    data: { limit },
                 });
             } else {
-                this.logger.log(`Metric ${metric}: Creating new quota with limit ${limit}, usage 0`);
-
-                // New metric - create with usage 0
                 await this.prisma.usageQuota.create({
-                    data: {
-                        subscriptionId,
-                        metricType: metric as UsageMetricType,
-                        limit,
-                        used: 0,
-                        resetAt: this.calculateResetDate(),
-                    },
+                    data: { subscriptionId, metricType, limit, used: 0, resetAt: this.calculateResetDate() },
                 });
             }
         }
-
-        this.logger.log(`Successfully updated all quotas for subscription ${subscriptionId}, usage values preserved`);
     }
 
     private calculateResetDate(): Date {
@@ -490,24 +443,22 @@ export class SubscriptionService {
         }
 
         if (!subscription.scheduledPlanId) {
-            throw new BadRequestException('No scheduled changes found');
+            throw new NotFoundException('No scheduled change found');
         }
 
-        const schedExternalSubId = this.getExternalSubscriptionId(subscription);
-        if (subscription.scheduledChangeType === 'cancel_to_free' && schedExternalSubId) {
-            await this.paymentFactory.getProvider().uncancelSubscription(schedExternalSubId);
+        const externalSubId = this.getExternalSubscriptionId(subscription);
+        if (subscription.scheduledChangeType === 'cancel_to_free' && externalSubId) {
+            await this.paymentFactory.getProvider().uncancelSubscription(externalSubId);
         }
 
         const currentVariantId = this.getExternalPlanVariantId(subscription.plan);
-        if (subscription.scheduledChangeType === 'downgrade' && schedExternalSubId && currentVariantId) {
-            await this.paymentFactory.getProvider().changeSubscriptionPlan(
-                schedExternalSubId,
-                currentVariantId,
-                { invoiceImmediately: false },
-            );
+        if (subscription.scheduledChangeType === 'downgrade' && externalSubId && currentVariantId) {
+            await this.paymentFactory.getProvider().changeSubscriptionPlan(externalSubId, currentVariantId, {
+                invoiceImmediately: false,
+            });
         }
 
-        const updated = await this.prisma.subscription.update({
+        return this.prisma.subscription.update({
             where: { id: subscription.id },
             data: {
                 scheduledPlanId: null,
@@ -517,37 +468,31 @@ export class SubscriptionService {
             },
             include: { plan: true },
         });
-
-        this.logger.log(`Cancelled scheduled change for subscription ${subscription.id}`);
-        return updated;
     }
 
-    async getSubscriptionUsage(userId: string) {
-        const subscription = await this.getUserSubscription(userId);
-        if (!subscription) {
-            return null;
-        }
-
-        const quotas = await this.prisma.usageQuota.findMany({
-            where: { subscriptionId: subscription.id },
+    async purgeUser(userId: string): Promise<number> {
+        const subscriptions = await this.prisma.subscription.findMany({
+            where: { userId },
+            select: { id: true, lemonSqueezySubscriptionId: true, razorpaySubscriptionId: true },
         });
 
-        return {
-            subscription,
-            quotas: quotas.map((q) => ({
-                metric: q.metricType,
-                limit: Number(q.limit),
-                used: Number(q.used),
-                remaining: q.limit === BigInt(0) ? Infinity : Number(q.limit - q.used),
-                resetAt: q.resetAt,
-            })),
-        };
+        for (const subscription of subscriptions) {
+            const externalSubId = this.getExternalSubscriptionId(subscription);
+            if (!externalSubId) continue;
+            try {
+                await this.paymentFactory.getProvider().cancelSubscriptionImmediately(externalSubId);
+            } catch (error) {
+                this.logger.warn(`Failed to cancel provider subscription ${externalSubId} for deleted user ${userId}: ${error.message}`);
+            }
+        }
+
+        await this.prisma.pendingCheckout.deleteMany({ where: { userId } });
+        const { count } = await this.prisma.subscription.deleteMany({ where: { userId } });
+        return count;
     }
 
     @Cron(CronExpression.EVERY_6_HOURS)
     async enforceScheduledChanges() {
-        this.logger.log('Running enforceScheduledChanges cron job');
-
         const subscriptions = await this.prisma.subscription.findMany({
             where: {
                 scheduledChangeAt: { lte: new Date() },
@@ -555,14 +500,12 @@ export class SubscriptionService {
                 status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
             },
             include: { plan: true },
+            take: 100,
         });
 
         for (const sub of subscriptions) {
             try {
-                const newPlan = await this.prisma.plan.findUnique({
-                    where: { id: sub.scheduledPlanId },
-                });
-
+                const newPlan = await this.prisma.plan.findUnique({ where: { id: sub.scheduledPlanId! } });
                 if (!newPlan) {
                     this.logger.error(`Scheduled plan ${sub.scheduledPlanId} not found for subscription ${sub.id}`);
                     continue;
@@ -572,7 +515,7 @@ export class SubscriptionService {
                 await this.prisma.subscription.update({
                     where: { id: sub.id },
                     data: {
-                        planId: sub.scheduledPlanId,
+                        planId: newPlan.id,
                         scheduledPlanId: null,
                         scheduledChangeAt: null,
                         scheduledChangeType: null,
@@ -597,46 +540,32 @@ export class SubscriptionService {
 
         const pending = await this.prisma.pendingCheckout.findMany({
             where: { expiresAt: { gt: new Date() } },
+            take: 100,
         });
-
         if (pending.length === 0) return;
 
-        this.logger.log(`Polling ${pending.length} pending Razorpay checkout(s)`);
         const razorpay = this.paymentFactory.getProvider() as any;
-
         for (const checkout of pending) {
             try {
                 const rzSub = await razorpay.fetchSubscription(checkout.razorpaySubscriptionId);
-                this.logger.log(`Pending checkout ${checkout.razorpaySubscriptionId} → Razorpay status: ${rzSub.status}`);
 
-                const activatable = ['authenticated', 'active'];
-
-                if (activatable.includes(rzSub.status)) {
+                if (['authenticated', 'active'].includes(rzSub.status)) {
                     await this.createSubscription({
                         userId: checkout.userId,
                         planId: checkout.planId,
                         razorpaySubscriptionId: String(rzSub.id),
                         razorpayCustomerId: rzSub.customer_id ? String(rzSub.customer_id) : undefined,
-                        currentPeriodStart: rzSub.current_start
-                            ? new Date(rzSub.current_start * 1000)
-                            : new Date(),
+                        currentPeriodStart: rzSub.current_start ? new Date(rzSub.current_start * 1000) : new Date(),
                         currentPeriodEnd: rzSub.current_end
                             ? new Date(rzSub.current_end * 1000)
                             : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                        status: rzSub.status === 'active'
-                            ? SubscriptionStatus.ACTIVE
-                            : SubscriptionStatus.TRIALING,
+                        status: rzSub.status === 'active' ? SubscriptionStatus.ACTIVE : SubscriptionStatus.TRIALING,
                     });
                     await this.prisma.pendingCheckout.delete({ where: { id: checkout.id } });
-                    this.logger.log(
-                        `✅ Activated Razorpay subscription ${checkout.razorpaySubscriptionId} ` +
-                        `for user ${checkout.userId} via polling (status: ${rzSub.status})`,
-                    );
+                    this.logger.log(`Activated Razorpay subscription ${checkout.razorpaySubscriptionId} for user ${checkout.userId}`);
                 } else if (['cancelled', 'expired', 'completed'].includes(rzSub.status)) {
                     await this.prisma.pendingCheckout.delete({ where: { id: checkout.id } });
-                    this.logger.warn(
-                        `Removed dead pending checkout ${checkout.razorpaySubscriptionId} (status: ${rzSub.status})`,
-                    );
+                    this.logger.warn(`Removed dead pending checkout ${checkout.razorpaySubscriptionId} (status: ${rzSub.status})`);
                 } else {
                     await this.prisma.pendingCheckout.update({
                         where: { id: checkout.id },
@@ -644,10 +573,7 @@ export class SubscriptionService {
                     });
                 }
             } catch (error) {
-                this.logger.error(
-                    `Failed to poll pending checkout ${checkout.razorpaySubscriptionId}:`,
-                    error.message,
-                );
+                this.logger.error(`Failed to poll pending checkout ${checkout.razorpaySubscriptionId}:`, error.message);
             }
         }
     }

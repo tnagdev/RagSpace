@@ -1,93 +1,47 @@
-"""
-FastAPI application for chat-manager service.
-Handles conversational search over video content with context awareness.
-"""
-
-import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from src.config import settings
-from src.routers import chat, conversations, greeting
-from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
-from src.services.PrismaService import PrismaService
-from src.common.payment_client import init_payment_client
+from datetime import datetime, timezone
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+import uvicorn
+from fastapi import FastAPI
+from ragspace.chat.v1 import chat_pb2_grpc
+from ragspace_shared.context import configure_logging
+from ragspace_shared.rpc import start_grpc_server
+
+from src.config import settings
+from src.events import event_bus
+from src.handlers import handle_event
+from src.rpc.chat_servicer import SERVICE_NAME, ChatServicer
+from src.services.PrismaService import PrismaService
+
+configure_logging("chat-manager")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Lifespan context manager for FastAPI application.
-    Handles startup and shutdown events.
-    """
-    # Startup
-    logger.info("Starting chat-manager service...")
-    logger.info(f"File embedder URL: {settings.file_embedder_url}")
-    
-    # Initialize payment client
-    init_payment_client(
-        base_url=settings.payment_service_url,
-        service_name=settings.service_name,
-        timeout=5
+    prisma = PrismaService()
+    await prisma.connect()
+    await event_bus.start()
+    await event_bus.subscribe(
+        "chat.events", ["file.deleted", "collection.deleted", "user.deleted"], handle_event, prefetch=10
     )
-    logger.info(f"Payment client initialized: {settings.payment_service_url}")
-    
-    # Connect to Prisma database
-    prisma_service = PrismaService()
-    await prisma_service.connect()
-    logger.info("Connected to Prisma database")
-
-    from src.graph.orchestrator import init_graph, close_graph
-    await init_graph(settings.database_url)
-    logger.info("LangGraph compiled graph initialized")
-
+    server = await start_grpc_server(
+        lambda s: chat_pb2_grpc.add_ChatServiceServicer_to_server(ChatServicer(), s),
+        [SERVICE_NAME],
+        port=settings.grpc_port,
+    )
     yield
-
-    # Shutdown
-    logger.info("Shutting down chat-manager service...")
-    await close_graph()
-    logger.info("LangGraph compiled graph closed")
-    await prisma_service.disconnect()
-    logger.info("Disconnected from Prisma database")
+    await server.stop(grace=10)
+    await event_bus.close()
+    await prisma.disconnect()
 
 
-app = FastAPI(
-    title="Chat Manager Service",
-    description="Conversational search interface for video content",
-    version="1.0.0",
-    lifespan=lifespan,
-    redirect_slashes=False
-)
-
-app.add_middleware(InterServiceMiddleware)
-
-app.include_router(chat.router, prefix="/chat", tags=["chat"])
-app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
-app.include_router(greeting.router, prefix="/greeting", tags=["greeting"])
+app = FastAPI(title="chat-manager", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": settings.service_name,
-        "port": settings.port
-    }
+async def health():
+    return {"status": "ok", "service": "chat-manager", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.getenv("PORT", settings.port))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=settings.mode == "development"
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.port, log_config=None)

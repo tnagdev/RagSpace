@@ -1,125 +1,45 @@
-"""
-FastAPI HTTP Server for file embedding service.
-Handles search queries and health checks.
-"""
-
-import logging
-import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from src.config import settings
-from src.services.AdvancedRetrieverService import AdvancedRetrieverService
-from src.db.chroma_db import ChromaDatabaseManager
-from src.routers import Search
-from src.routers import Admin
-from src.services.LLMService import LLMService
-from src.middlewares.InterServiceMiddleware import InterServiceMiddleware
-from src.services.TextEmbedderService import TextEmbedderService
-from src.services.ImageEmbedderService import ImageEmbedderService
+from datetime import datetime, timezone
+
 import pytesseract
+import uvicorn
+from fastapi import FastAPI
+from ragspace.search.v1 import search_pb2_grpc
+from ragspace_shared.context import configure_logging
+from ragspace_shared.rpc import start_grpc_server
 
+from src.config import settings
+from src.db.chroma_db import ChromaDatabaseManager
+from src.decorators.cpu_manager import run_cpu
+from src.rpc.search_servicer import SERVICE_NAME, SearchServicer
+from src.services.ImageEmbedderService import ImageEmbedderService
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+configure_logging("file-embedder")
 
-os.makedirs(settings.temp_dir, exist_ok=True)
-
-pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+if settings.tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager - handles startup and shutdown."""
-    
-    try:
-        logger.info("=== Starting File Embedder HTTP Server ===")
-        logger.info(f"Temp directory: {settings.temp_dir}")
-        os.makedirs(settings.temp_dir, exist_ok=True)
-        
-        logger.info("Initializing services...")
-        chroma_db = ChromaDatabaseManager()
-        LLMService()
-        logger.info("✓ Core services initialized")
-
-        logger.info("Initializing embedder services...")
-        TextEmbedderService()
-        logger.info("✓ Text embedder initialized")
-        ImageEmbedderService()
-        logger.info("✓ Image embedder initialized")
-        
-        AdvancedRetrieverService()
-        logger.info("✓ Retriever service initialized")
-        
-        logger.info("Initializing ChromaDB collections...")
-        chroma_db.get_text_collection()
-        chroma_db.get_image_collection()
-        logger.info("✓ ChromaDB collections ready")
-        
-        logger.info("=== File Embedder HTTP Server READY ===")
-        
-    except Exception as e:
-        logger.error(f"FATAL: Server startup failed: {e}", exc_info=True)
-        raise
-    
+    await run_cpu(ChromaDatabaseManager)
+    await run_cpu(ImageEmbedderService)
+    server = await start_grpc_server(
+        lambda s: search_pb2_grpc.add_SearchServiceServicer_to_server(SearchServicer(), s),
+        [SERVICE_NAME],
+        port=settings.grpc_port,
+    )
     yield
-    
-    logger.info("=== Shutting down File Embedder HTTP Server ===")
-    logger.info("✓ Server shutdown complete")
+    await server.stop(grace=5)
 
 
-app = FastAPI(
-    title="File Embedder Service",
-    description="Service for semantic search of audio and video embeddings",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-app.add_middleware(InterServiceMiddleware)
-app.include_router(router=Search.router, prefix='/embed')
-app.include_router(router=Admin.router, prefix='/embed')
-
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "service": "file-embedder-server",
-        "status": "running"
-    }
+app = FastAPI(title="file-embedder", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health_check():
-    """Comprehensive health check endpoint."""
-    try:
-        chroma_db = ChromaDatabaseManager()
-        chroma_db.get_text_collection()
-        chroma_db.get_image_collection()
-        
-        return {
-            "service": "file-embedder-server",
-            "status": "healthy",
-            "chroma_db": "connected"
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail=str(e))
+async def health():
+    return {"status": "ok", "service": "file-embedder", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    port = settings.port
-    logger.info(f"Starting File Embedder HTTP Server on port {port}")
-    logger.info(f"Mode: {settings.mode}")
-    
-    uvicorn.run(
-        "main_server:app",
-        host="0.0.0.0",
-        port=port,
-        reload=settings.mode == "development",
-        log_level="info"
-    )
+    uvicorn.run("main_server:app", host="0.0.0.0", port=settings.port, log_config=None)

@@ -6,12 +6,6 @@ interface LoaderProps {
     fullScreen?: boolean;
 }
 
-const sizeClasses = {
-    sm: 'w-10 h-10',
-    md: 'w-14 h-14',
-    lg: 'w-20 h-20',
-};
-
 export const Loader: FC<LoaderProps> = ({
     size = 'md',
     message,
@@ -45,7 +39,7 @@ export const Loader: FC<LoaderProps> = ({
                 )}
             </div>
 
-            <style jsx>{`
+            <style>{`
                 @keyframes frame-scan {
                     0%, 100% {
                         opacity: 0.3;
@@ -82,7 +76,7 @@ export const Spinner: FC<{ size?: 'sm' | 'md' | 'lg'; className?: string }> = ({
                 />
             ))}
 
-            <style jsx>{`
+            <style>{`
                 @keyframes bar-bounce {
                     0%, 100% {
                         transform: scaleY(0.4);

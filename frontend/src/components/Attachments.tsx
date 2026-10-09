@@ -1,9 +1,10 @@
-import { FileResponseDto } from '@/types/upload.types';
-import { CollectionAttachment } from '@/types/collection.types';
+import type { ApiFile } from '@/api/types';
+import type { CollectionAttachment } from '@/types/attachments';
+import { collectionColor } from '@/lib/collectionColors';
 import { X, FileVideo, FileImage, File as FileIcon, Folder } from 'lucide-react';
 
 interface AttachmentsProps {
-    files: FileResponseDto[];
+    files: ApiFile[];
     collections: CollectionAttachment[];
     onRemoveFile: (fileId: string) => void;
     onRemoveCollection: (collectionId: string) => void;
@@ -33,7 +34,7 @@ const Attachments: React.FC<AttachmentsProps> = ({ files, collections, onRemoveF
                 >
                     <Folder
                         size={14}
-                        style={{ color: collection.color || 'var(--color-accent-primary)' }}
+                        style={{ color: collectionColor(collection.color) }}
                     />
                     <span className="text-white text-xs truncate max-w-37.5">{collection.name}</span>
                     <span className="text-text-muted text-xs">({collection.fileCount} files)</span>
@@ -55,7 +56,7 @@ const Attachments: React.FC<AttachmentsProps> = ({ files, collections, onRemoveF
                              rounded-lg text-sm group hover:border-accent-primary/50 transition-colors"
                 >
                     <div className="text-text-secondary">{getFileIcon(file.mimeType)}</div>
-                    <span className="text-white text-xs truncate max-w-37.5">{file.filename}</span>
+                    <span className="text-white text-xs truncate max-w-37.5">{file.name}</span>
                     <button
                         onClick={() => onRemoveFile(file.id)}
                         className="text-text-secondary hover:text-danger transition-colors"

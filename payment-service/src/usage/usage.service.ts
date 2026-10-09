@@ -1,8 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma, UsageMetricType, UsageQuota } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
-import { UsageMetricType } from '@prisma/client';
-import { Cron, CronExpression } from '@nestjs/schedule';
+
+export interface QuotaResult {
+    allowed: boolean;
+    used: number;
+    limit: number;
+}
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsageService {
@@ -13,261 +21,104 @@ export class UsageService {
         private subscriptionService: SubscriptionService,
     ) { }
 
-    async checkAndReserveUsage(
-        userId: string,
-        metric: UsageMetricType,
-        amount: number = 1,
-    ): Promise<boolean> {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
-
-        if (!subscription) {
-            this.logger.warn(`No active subscription for user ${userId}`);
-            return false;
-        }
-
-        const quota = await this.prisma.usageQuota.findUnique({
-            where: {
-                subscriptionId_metricType: {
-                    subscriptionId: subscription.id,
-                    metricType: metric,
-                },
-            },
-        });
-
-        if (!quota) {
-            this.logger.warn(`No quota found for metric ${metric}`);
-            return false;
-        }
-
-        // 0 means unlimited
-        if (quota.limit === BigInt(0)) {
-            return true;
-        }
-
-        // Check if usage would exceed limit
-        if (quota.used + BigInt(amount) > quota.limit) {
-            this.logger.warn(
-                `Usage limit exceeded for user ${userId}, metric ${metric}: ${quota.used + BigInt(amount)}/${quota.limit}`,
-            );
-            return false;
-        }
-
-        return true;
-    }
-
-    async trackUsage(
-        userId: string,
-        metric: UsageMetricType,
-        amount: number = 1,
-        metadata?: any,
-    ): Promise<void> {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
-
-        if (!subscription) {
-            this.logger.warn(`Cannot track usage: No subscription for user ${userId}`);
-            return;
-        }
-
-        // Update quota
-        await this.prisma.usageQuota.update({
-            where: {
-                subscriptionId_metricType: {
-                    subscriptionId: subscription.id,
-                    metricType: metric,
-                },
-            },
-            data: {
-                used: { increment: amount },
-            },
-        });
-
-        // Record usage
-        await this.prisma.usageRecord.create({
-            data: {
-                userId,
-                subscriptionId: subscription.id,
-                metricType: metric,
-                amount,
-                metadata: metadata || {},
-                endpoint: metadata?.endpoint,
-                ipAddress: metadata?.ipAddress,
-                userAgent: metadata?.userAgent,
-            },
-        });
-
-        this.logger.log(`Tracked ${amount} ${metric} for user ${userId}`);
-    }
-
-    async decrementUsage(
-        userId: string,
-        metric: UsageMetricType,
-        amount: number = 1,
-    ): Promise<void> {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
-
-        if (!subscription) {
-            return;
-        }
-
-        await this.prisma.usageQuota.update({
-            where: {
-                subscriptionId_metricType: {
-                    subscriptionId: subscription.id,
-                    metricType: metric,
-                },
-            },
-            data: {
-                used: { decrement: amount },
-            },
-        });
-
-        this.logger.log(`Decremented ${amount} ${metric} for user ${userId}`);
-    }
-
-    async getUserUsageStats(userId: string, metric?: UsageMetricType) {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
-
-        if (!subscription) {
-            return null;
-        }
-
-        const where: any = { subscriptionId: subscription.id };
-        if (metric) {
-            where.metricType = metric;
-        }
-
+    async getQuotas(userId: string): Promise<{ planType: string; quotas: UsageQuota[] }> {
+        const subscription = await this.subscriptionService.ensureSubscription(userId);
         const quotas = await this.prisma.usageQuota.findMany({
-            where,
+            where: { subscriptionId: subscription.id },
+            orderBy: { metricType: 'asc' },
         });
-
-        const records = await this.prisma.usageRecord.groupBy({
-            by: ['metricType'],
-            where: {
-                subscriptionId: subscription.id,
-                timestamp: {
-                    gte: subscription.currentPeriodStart,
-                    lte: subscription.currentPeriodEnd,
-                },
-            },
-            _sum: {
-                amount: true,
-            },
-        });
-
-        return {
-            period: {
-                start: subscription.currentPeriodStart,
-                end: subscription.currentPeriodEnd,
-            },
-            quotas: quotas.map((q) => ({
-                metric: q.metricType,
-                limit: Number(q.limit),
-                used: Number(q.used),
-                remaining: q.limit === BigInt(0) ? Infinity : Number(q.limit - q.used),
-                resetAt: q.resetAt,
-            })),
-            totalUsage: records.reduce(
-                (acc, r) => ({
-                    ...acc,
-                    [r.metricType]: r._sum.amount,
-                }),
-                {},
-            ),
-        };
+        return { planType: subscription.plan.type, quotas };
     }
 
-    async getUsageHistory(
-        userId: string,
-        metric?: UsageMetricType,
-        startDate?: Date,
-        endDate?: Date,
-    ) {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
+    async consume(userId: string, metric: UsageMetricType, amount: number, requestId?: string): Promise<QuotaResult> {
+        const subscription = await this.subscriptionService.ensureSubscription(userId);
+        return this.idempotent(requestId && `consume:${userId}:${requestId}`, async (tx) => {
+            const rows = await tx.$queryRaw<{ used: bigint; limit: bigint }[]>`
+                UPDATE "payment"."usage_quotas"
+                SET "used" = "used" + ${BigInt(amount)}, "updatedAt" = now()
+                WHERE "subscriptionId" = ${subscription.id}
+                  AND "metricType"::text = ${metric}
+                  AND ("limit" = 0 OR "used" + ${BigInt(amount)} <= "limit")
+                RETURNING "used", "limit"`;
 
-        if (!subscription) {
-            return [];
-        }
+            if (rows.length === 0) {
+                const quota = await tx.usageQuota.findUnique({
+                    where: { subscriptionId_metricType: { subscriptionId: subscription.id, metricType: metric } },
+                    select: { used: true, limit: true },
+                });
+                return { allowed: false, used: Number(quota?.used ?? 0), limit: Number(quota?.limit ?? 0) };
+            }
 
-        const where: any = {
-            subscriptionId: subscription.id,
-        };
-
-        if (metric) {
-            where.metricType = metric;
-        }
-
-        if (startDate || endDate) {
-            where.timestamp = {};
-            if (startDate) where.timestamp.gte = startDate;
-            if (endDate) where.timestamp.lte = endDate;
-        }
-
-        return this.prisma.usageRecord.findMany({
-            where,
-            orderBy: { timestamp: 'desc' },
-            take: 100,
+            await tx.usageRecord.create({
+                data: { userId, subscriptionId: subscription.id, metricType: metric, amount },
+            });
+            return { allowed: true, used: Number(rows[0].used), limit: Number(rows[0].limit) };
         });
+    }
+
+    async release(userId: string, metric: UsageMetricType, amount: number, requestId?: string): Promise<void> {
+        const subscription = await this.subscriptionService.findCurrentSubscription(userId);
+        if (!subscription) return;
+        await this.idempotent(requestId && `release:${userId}:${requestId}`, async (tx) => {
+            await tx.$executeRaw`
+                UPDATE "payment"."usage_quotas"
+                SET "used" = GREATEST("used" - ${BigInt(amount)}, 0), "updatedAt" = now()
+                WHERE "subscriptionId" = ${subscription.id} AND "metricType"::text = ${metric}`;
+            return { allowed: true, used: 0, limit: 0 };
+        });
+    }
+
+    private async idempotent(
+        key: string | undefined | '',
+        work: (tx: Prisma.TransactionClient) => Promise<QuotaResult>,
+    ): Promise<QuotaResult> {
+        if (!key) return this.prisma.$transaction(work);
+
+        const replay = await this.prisma.idempotencyKey.findUnique({ where: { key } });
+        if (replay) return replay.response as unknown as QuotaResult;
+
+        try {
+            return await this.prisma.$transaction(async (tx) => {
+                await tx.idempotencyKey.create({ data: { key, response: {} } });
+                const result = await work(tx);
+                await tx.idempotencyKey.update({ where: { key }, data: { response: { ...result } } });
+                return result;
+            });
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                const existing = await this.prisma.idempotencyKey.findUnique({ where: { key } });
+                if (existing) return existing.response as unknown as QuotaResult;
+            }
+            throw error;
+        }
     }
 
     @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
     async resetMonthlyQuotas() {
         const now = new Date();
-
         const quotasToReset = await this.prisma.usageQuota.findMany({
             where: {
-                resetAt: {
-                    lte: now,
-                },
+                resetAt: { lte: now },
+                metricType: { notIn: [UsageMetricType.STORAGE, UsageMetricType.MAX_VIDEO_LENGTH, UsageMetricType.MAX_AUDIO_DURATION] },
             },
+            select: { id: true, resetAt: true },
+            take: 1000,
         });
 
         for (const quota of quotasToReset) {
-            await this.prisma.usageQuota.update({
-                where: { id: quota.id },
-                data: {
-                    used: 0,
-                    resetAt: this.calculateNextResetDate(quota.resetAt),
-                },
-            });
+            const next = new Date(quota.resetAt!);
+            next.setMonth(next.getMonth() + 1);
+            await this.prisma.usageQuota.update({ where: { id: quota.id }, data: { used: 0, resetAt: next } });
         }
 
         this.logger.log(`Reset ${quotasToReset.length} quotas`);
     }
 
-    private calculateNextResetDate(currentReset: Date): Date {
-        const date = new Date(currentReset);
-        date.setMonth(date.getMonth() + 1);
-        return date;
-    }
-
-    async canUseFeature(userId: string, metric: UsageMetricType): Promise<boolean> {
-        return this.checkAndReserveUsage(userId, metric, 0);
-    }
-
-    async getRemainingQuota(userId: string, metric: UsageMetricType): Promise<number> {
-        const subscription = await this.subscriptionService.getUserSubscription(userId);
-
-        if (!subscription) {
-            return 0;
-        }
-
-        const quota = await this.prisma.usageQuota.findUnique({
-            where: {
-                subscriptionId_metricType: {
-                    subscriptionId: subscription.id,
-                    metricType: metric,
-                },
-            },
+    @Cron(CronExpression.EVERY_HOUR)
+    async expireIdempotencyKeys() {
+        const { count } = await this.prisma.idempotencyKey.deleteMany({
+            where: { createdAt: { lt: new Date(Date.now() - IDEMPOTENCY_TTL_MS) } },
         });
-
-        if (!quota) {
-            return 0;
-        }
-
-        if (quota.limit === BigInt(0)) {
-            return Infinity;
-        }
-
-        return Math.max(0, Number(quota.limit - quota.used));
+        if (count > 0) this.logger.log(`Expired ${count} idempotency keys`);
     }
 }

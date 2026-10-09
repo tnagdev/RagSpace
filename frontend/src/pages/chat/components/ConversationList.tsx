@@ -1,4 +1,4 @@
-import { ConversationSummary } from '@/types/chat.types';
+import type { Conversation } from '@/api/types';
 import Button from '@/components/Button';
 import { MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useDeleteConversation } from '@/hooks/useChat';
@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useState } from 'react';
 
 interface ConversationListProps {
-    conversations: ConversationSummary[];
+    conversations: Conversation[];
     currentConversationId?: string;
     onSelectConversation: (id: string) => void;
     onNewChat: () => void;
@@ -101,10 +101,10 @@ const ConversationList: React.FC<ConversationListProps> = ({
                                     {conv.title || 'Untitled Chat'}
                                 </div>
                                 <div className="text-xs text-text-secondary truncate line-clamp-1">
-                                    {conv.last_message}
+                                    {conv.lastMessagePreview}
                                 </div>
                                 <div className="text-xs text-text-secondary/60 mt-0.5">
-                                    {formatRelativeTime(conv.updated_at)}
+                                    {formatRelativeTime(conv.updatedAt)}
                                 </div>
                             </div>
                             <button

@@ -1,28 +1,25 @@
 -e ../packages/shared-py
 fastapi
 uvicorn[standard]
-pydantic[email]
+pydantic
 pydantic-settings
-aio-pika
 chromadb==0.6.3
 sentence-transformers
 open-clip-torch
 torch
 opencv-python
 ffmpeg-python
-scenedetect
 faster-whisper
 openai
-transformers>=4.30.0
-torchaudio
 numpy
 Pillow
-python-dotenv
-httpx
 boto3
 pytesseract
-faiss-cpu
-spacy>=3.0.0
-networkx
+spacy>=3.8,<3.9
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 yt-dlp[default]>=2024.11.4
 yt-dlp-ejs
+grpcio
+grpcio-health-checking
+grpcio-reflection
+protobuf

@@ -1,13 +1,10 @@
 import { Module } from '@nestjs/common';
-import { WebhookController } from './webhook.controller';
-import { WebhookService } from './webhook.service';
 import { SubscriptionModule } from '../subscription/subscription.module';
-import { PlanModule } from '../plan/plan.module';
-import { ProvidersModule } from '../providers/providers.module';
+import { WebhookService } from './webhook.service';
 
 @Module({
-    imports: [SubscriptionModule, PlanModule, ProvidersModule],
-    controllers: [WebhookController],
+    imports: [SubscriptionModule],
     providers: [WebhookService],
+    exports: [WebhookService],
 })
 export class WebhookModule { }

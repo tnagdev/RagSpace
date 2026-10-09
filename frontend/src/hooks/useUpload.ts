@@ -1,183 +1,124 @@
-import { useMutation, useQuery, useQueryClient, type UseMutationOptions, type UseQueryOptions } from '@tanstack/react-query';
-import { uploadAPI } from '@/api/upload';
-import type {
-    FileResponseDto,
-    FileListResponseDto,
-    GetFilesQueryDto,
-    UpdateFileDto,
-    StorageStatsDto,
-} from '@/types/upload.types';
-
+import {
+    type InfiniteData,
+    type QueryClient,
+    type UseQueryOptions,
+    useInfiniteQuery,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query';
+import { type FileListQuery, type UploadCallbacks, filesAPI } from '@/api/files';
+import type { ApiFile, FileState, Page } from '@/api/types';
+import { usageKeys } from './usePayment';
 
 export const uploadKeys = {
-    all: ['uploads'] as const,
+    all: ['files'] as const,
     lists: () => [...uploadKeys.all, 'list'] as const,
-    list: (query?: GetFilesQueryDto) => [...uploadKeys.lists(), query] as const,
+    list: (query?: FileListQuery) => [...uploadKeys.lists(), query] as const,
+    infinite: (query?: FileListQuery) => [...uploadKeys.lists(), 'infinite', query] as const,
     details: () => [...uploadKeys.all, 'detail'] as const,
     detail: (id: string) => [...uploadKeys.details(), id] as const,
-    mutations: () => [...uploadKeys.all, 'mutation'] as const,
-    mutation: (fileId: string) => [...uploadKeys.mutations(), fileId] as const,
-    storage: () => [...uploadKeys.all, 'storage'] as const,
 };
 
-interface UploadFileParams {
-    file: File;
-    onProgress?: (fileRecord: FileResponseDto, progress: number) => void;
-    onInit?: (fileRecord: FileResponseDto) => void;
-    onComplete?: (fileRecord: FileResponseDto) => void;
-    onError?: (error: Error, fileRecord?: FileResponseDto) => void;
+function invalidateLibrary(queryClient: QueryClient) {
+    queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: usageKeys.all });
 }
 
-export const useUploadFile = (
-    options?: Omit<UseMutationOptions<FileResponseDto, Error, UploadFileParams>, 'mutationFn' | 'mutationKey'>
-) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async ({ file, onProgress, onInit, onComplete, onError }: UploadFileParams) => {
-            const result = await uploadAPI.uploadFile(file, onProgress, onInit, onComplete, onError);
-            return result;
-        },
-        mutationKey: uploadKeys.mutations(),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
-        },
-        ...options,
+// Applies a live FileState update to every cached copy of that file.
+export function patchCachedFile(queryClient: QueryClient, state: FileState) {
+    const { progressPercent: _progress, ...fields } = state;
+    const patch = (file: ApiFile) => (file.id === state.id ? { ...file, ...fields } : file);
+    queryClient.setQueryData<ApiFile>(uploadKeys.detail(state.id), (old) => (old ? patch(old) : old));
+    queryClient.setQueriesData<Page<ApiFile> | InfiniteData<Page<ApiFile>>>({ queryKey: uploadKeys.lists() }, (old) => {
+        if (!old) return old;
+        if ('pages' in old) return { ...old, pages: old.pages.map((page) => ({ ...page, items: page.items.map(patch) })) };
+        return { ...old, items: old.items.map(patch) };
     });
-};
-
+}
 
 export const useFiles = (
-    query?: GetFilesQueryDto,
-    options?: Omit<UseQueryOptions<FileListResponseDto, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
+    query: FileListQuery = {},
+    options?: Omit<UseQueryOptions<Page<ApiFile>, Error>, 'queryKey' | 'queryFn'>,
+) =>
+    useQuery({
         queryKey: uploadKeys.list(query),
-        queryFn: () => uploadAPI.getFiles(query),
+        queryFn: () => filesAPI.list(query),
         ...options,
     });
-};
 
-export const useFile = (
-    id: string,
-    options?: Omit<UseQueryOptions<FileResponseDto, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
+export const useInfiniteFiles = (query: Omit<FileListQuery, 'cursor'> = {}) =>
+    useInfiniteQuery({
+        queryKey: uploadKeys.infinite(query),
+        queryFn: ({ pageParam }) => filesAPI.list({ ...query, cursor: pageParam }),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
+    });
+
+export const useFile = (id: string, options?: Omit<UseQueryOptions<ApiFile, Error>, 'queryKey' | 'queryFn'>) =>
+    useQuery({
         queryKey: uploadKeys.detail(id),
-        queryFn: () => uploadAPI.getFileById(id),
+        queryFn: () => filesAPI.get(id),
         enabled: !!id,
         ...options,
     });
+
+export const useUploadFile = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ file, ...callbacks }: { file: File } & UploadCallbacks) => filesAPI.upload(file, callbacks),
+        onSuccess: () => invalidateLibrary(queryClient),
+    });
 };
 
-
-export const useUpdateFile = (
-    options?: UseMutationOptions<FileResponseDto, Error, { id: string; data: UpdateFileDto }>
-) => {
+export const useUpdateFile = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: ({ id, data }) => uploadAPI.updateFile(id, data),
-        onSuccess: (data, variables) => {
-            queryClient.setQueryData(uploadKeys.detail(variables.id), data);
+        mutationFn: ({ id, name }: { id: string; name: string }) => filesAPI.rename(id, name),
+        onSuccess: (file) => {
+            queryClient.setQueryData(uploadKeys.detail(file.id), file);
             queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
         },
-        ...options,
     });
 };
 
-
-export const useDeleteFile = (
-    options?: UseMutationOptions<void, Error, string>
-) => {
+export const useDeleteFile = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: (id: string) => uploadAPI.deleteFile(id),
-        onSuccess: (_data, variables) => {
-            queryClient.removeQueries({ queryKey: uploadKeys.detail(variables) });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
-        },
-        ...options,
-    });
-};
-
-
-export const useAbortMultipartUpload = (
-    options?: UseMutationOptions<void, Error, string>
-) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: (fileId: string) => uploadAPI.abortMultipartUpload(fileId),
-        onSuccess: (_data, variables) => {
-            queryClient.removeQueries({ queryKey: uploadKeys.detail(variables) });
-            queryClient.removeQueries({ queryKey: uploadKeys.mutations() });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.storage() });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-        },
-        ...options,
-    });
-};
-
-
-export const useFilePolling = (
-    id: string,
-    options?: {
-        interval?: number;
-        enabled?: boolean;
-        onComplete?: (file: FileResponseDto) => void;
-    }
-) => {
-    const { interval = 2000, enabled = true, onComplete } = options || {};
-    return useQuery({
-        queryKey: uploadKeys.detail(id),
-        queryFn: () => uploadAPI.getFileById(id),
-        enabled: enabled && !!id,
-        refetchInterval: (query) => {
-            const data = query.state.data;
-            if (data?.processingStage === 'COMPLETED') {
-                onComplete?.(data);
-                return false;
-            }
-            return interval;
-        },
-        refetchIntervalInBackground: true,
-    });
-};
-export const useStorageStats = (
-    options?: Omit<UseQueryOptions<StorageStatsDto, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: uploadKeys.storage(),
-        queryFn: () => uploadAPI.getStorageStats(),
-        staleTime: 1000 * 60 * 5, // Consider data fresh for 5 minutes
-        ...options,
-    });
-};
-
-export const useSubmitYouTubeLink = (
-    options?: UseMutationOptions<FileResponseDto, Error, string>
-) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: (url: string) => uploadAPI.submitYouTubeLink(url),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-        },
-        ...options,
-    });
-};
-
-export const useReprocessFile = (
-    options?: UseMutationOptions<{ message: string; fileId: string }, Error, string>
-) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: (id: string) => uploadAPI.reprocessFile(id),
+        mutationFn: (id: string) => filesAPI.remove(id),
         onSuccess: (_data, id) => {
-            queryClient.invalidateQueries({ queryKey: uploadKeys.detail(id) });
+            queryClient.removeQueries({ queryKey: uploadKeys.detail(id) });
+            invalidateLibrary(queryClient);
+        },
+    });
+};
+
+export const useAbortUpload = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => filesAPI.abortUpload(id),
+        onSuccess: (_data, id) => {
+            queryClient.removeQueries({ queryKey: uploadKeys.detail(id) });
+            invalidateLibrary(queryClient);
+        },
+    });
+};
+
+export const useSubmitYouTubeLink = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (url: string) => filesAPI.importFromUrl(url),
+        onSuccess: () => invalidateLibrary(queryClient),
+    });
+};
+
+export const useReprocessFile = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => filesAPI.reprocess(id),
+        onSuccess: (file) => {
+            queryClient.setQueryData(uploadKeys.detail(file.id), file);
             queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
         },
-        ...options,
     });
 };

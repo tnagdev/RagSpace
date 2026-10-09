@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package ragspace.auth.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service AuthService {
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  // Publishes user.deleted.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  optional string username = 4;
+  optional string image_url = 5;
+  bool email_verified = 6;
+  google.protobuf.Timestamp create_time = 7;
+  google.protobuf.Timestamp update_time = 8;
+}
+
+message Session {
+  string id = 1;
+  string user_id = 2;
+  google.protobuf.Timestamp expire_time = 3;
+  google.protobuf.Timestamp create_time = 4;
+}
+
+message ValidateSessionRequest {
+  string cookie = 1;
+  string authorization = 2;
+}
+
+message ValidateSessionResponse {
+  User user = 1;
+  Session session = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  optional string name = 2;
+  optional string username = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+message DeleteUserResponse {}

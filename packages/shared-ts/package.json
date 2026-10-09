@@ -1,7 +1,7 @@
 {
   "name": "@ragspace/shared-ts",
-  "version": "1.0.0",
-  "description": "Shared TypeScript types, interfaces, and HTTP utilities for RagSpace services.",
+  "version": "2.0.0",
+  "description": "Generated gRPC/event contracts and shared gRPC, event bus and logging runtime for RagSpace TypeScript services.",
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,12 +13,25 @@
     }
   },
   "scripts": {
-    "generate": "node scripts/generate.mjs",
+    "generate": "buf generate ../../contracts --template buf.gen.yaml",
     "build": "npm run generate && tsc -p tsconfig.build.json",
     "build:no-gen": "tsc -p tsconfig.build.json"
   },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@grpc/grpc-js": "^1.14.5",
+    "abort-controller-x": "^0.5.0",
+    "amqp-connection-manager": "^5.0.0",
+    "amqplib": "^0.10.9",
+    "nice-grpc": "^2.1.17",
+    "nice-grpc-common": "^2.0.4",
+    "nice-grpc-server-health": "^2.0.20"
+  },
   "devDependencies": {
-    "json-schema-to-typescript": "^15.0.4",
+    "@bufbuild/buf": "^1.73.0",
+    "@types/amqplib": "^0.10.8",
+    "@types/node": "^22.10.0",
+    "ts-proto": "^2.13.0",
     "typescript": "^5.9.2"
   }
 }

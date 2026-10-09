@@ -1,13 +1,13 @@
-import { SearchResult } from '@/types/chat.types';
-import { FileResponseDto } from '@/types/upload.types';
+import type { SearchHit } from '@/api/types';
+import type { ChatTurn } from '@/types/chat';
 import { User, Bot, Image as ImageIcon, Paperclip, Film } from 'lucide-react';
 import Markdown from '@/components/Markdown';
 
 interface MessageListProps {
-    messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string; searchResults?: SearchResult[]; attachedFiles?: FileResponseDto[] }>;
-    onResultClick?: (result: SearchResult) => void;
-    onTimestampClick?: (seconds: number, searchResults?: SearchResult[]) => void;
-    onImageClick?: (fileId: string, searchResults?: SearchResult[]) => void;
+    messages: ChatTurn[];
+    onResultClick?: (result: SearchHit) => void;
+    onTimestampClick?: (seconds: number, hits?: SearchHit[]) => void;
+    onImageClick?: (fileId: string, hits?: SearchHit[]) => void;
 }
 
 const formatRelativeTime = (date: string) => {
@@ -35,7 +35,7 @@ const MessageList: React.FC<MessageListProps> = ({
         <div className="space-y-4">
             {messages.map((message, index) => (
                 <div
-                    key={index}
+                    key={message.id ?? index}
                     className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                     {message.role === 'assistant' && (
@@ -66,19 +66,19 @@ const MessageList: React.FC<MessageListProps> = ({
                                             {file.thumbnailUrl ? (
                                                 <img
                                                     src={file.thumbnailUrl}
-                                                    alt={file.originalFilename}
+                                                    alt={file.name}
                                                     className="w-8 h-8 object-cover rounded"
                                                 />
                                             ) : (
                                                 <div className="w-8 h-8 bg-white/10 rounded flex items-center justify-center">
-                                                    {file.fileType === 'VIDEO' ? (
+                                                    {file.type === 'VIDEO' ? (
                                                         <Film size={14} className="opacity-70" />
                                                     ) : (
                                                         <ImageIcon size={14} className="opacity-70" />
                                                     )}
                                                 </div>
                                             )}
-                                            <span className="text-xs truncate max-w-25">{file.originalFilename}</span>
+                                            <span className="text-xs truncate max-w-25">{file.name}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -89,12 +89,12 @@ const MessageList: React.FC<MessageListProps> = ({
                             {message.role === 'assistant' ? (
                                 <Markdown
                                     content={message.content}
-                                    searchResults={message.searchResults}
+                                    hits={message.hits}
                                     onTimestampClick={onTimestampClick
-                                        ? (s) => onTimestampClick(s, message.searchResults)
+                                        ? (s) => onTimestampClick(s, message.hits)
                                         : undefined}
                                     onImageClick={onImageClick
-                                        ? (fileId) => onImageClick(fileId, message.searchResults)
+                                        ? (fileId) => onImageClick(fileId, message.hits)
                                         : undefined}
                                 />
                             ) : (
@@ -109,14 +109,14 @@ const MessageList: React.FC<MessageListProps> = ({
                         )}
 
                         {/* Show search results for assistant messages */}
-                        {message.role === 'assistant' && message.searchResults && message.searchResults.length > 0 && (
+                        {message.role === 'assistant' && message.hits && message.hits.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-border/50">
                                 <div className="text-xs font-semibold text-text-secondary mb-3">
-                                    Related Results ({message.searchResults.length})
+                                    Related Results ({message.hits.length})
                                 </div>
                                 <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                                     <div className="grid grid-cols-4 gap-2">
-                                        {message.searchResults.map((result, idx) => (
+                                        {message.hits.map((result, idx) => (
                                             <button
                                                 key={idx}
                                                 onClick={() => onResultClick?.(result)}
@@ -125,10 +125,10 @@ const MessageList: React.FC<MessageListProps> = ({
                                                          transition-all duration-200 group max-w-full"
                                             >
                                                 <div className="flex items-start gap-2">
-                                                    {result.thumbnail_url ? (
+                                                    {result.thumbnailUrl ? (
                                                         <img
-                                                            src={result.thumbnail_url}
-                                                            alt={result.file_name}
+                                                            src={result.thumbnailUrl}
+                                                            alt={result.fileName}
                                                             className="w-12 h-12 object-cover rounded shrink-0"
                                                         />
                                                     ) : (
@@ -138,11 +138,11 @@ const MessageList: React.FC<MessageListProps> = ({
                                                     )}
                                                     <div className="flex-1 min-w-0">
                                                         <div className="text-xs font-medium text-white truncate group-hover:text-accent-primary transition-colors">
-                                                            {result.file_name}
+                                                            {result.fileName}
                                                         </div>
-                                                        {(result.start_time !== undefined || result.timestamp !== undefined) && (
+                                                        {result.startSeconds !== null && (
                                                             <div className="text-xs text-text-secondary">
-                                                                {Math.floor(result.start_time || result.timestamp || 0)}s
+                                                                {Math.floor(result.startSeconds)}s
                                                             </div>
                                                         )}
                                                         <div className="text-xs text-text-secondary/70">

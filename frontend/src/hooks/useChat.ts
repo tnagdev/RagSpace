@@ -1,53 +1,58 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { chatAPI } from '@/api/chat';
-import type { ChatRequest } from '@/types/chat.types';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type ConversationFilter, chatAPI } from '@/api/chat';
 
 export const chatKeys = {
     all: ['chats'] as const,
     conversations: () => [...chatKeys.all, 'conversations'] as const,
+    list: (filter: ConversationFilter) => [...chatKeys.conversations(), 'list', filter] as const,
     conversation: (id: string) => [...chatKeys.conversations(), id] as const,
+    messages: (id: string) => [...chatKeys.all, 'messages', id] as const,
+    greeting: () => [...chatKeys.all, 'greeting'] as const,
 };
 
-export const useConversations = (params?: { file_id?: string; collection_id?: string }) => {
-    return useQuery({
-        queryKey: [...chatKeys.conversations(), params],
-        queryFn: async () => {
-            const response = await chatAPI.getConversations(params);
-            return response.data;
-        },
+export const useConversations = (filter: ConversationFilter = {}) =>
+    useInfiniteQuery({
+        queryKey: chatKeys.list(filter),
+        queryFn: ({ pageParam }) => chatAPI.conversations(filter, pageParam),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
     });
-};
 
-export const useConversation = (conversationId: string | undefined) => {
-    return useQuery({
-        queryKey: chatKeys.conversation(conversationId || ''),
-        queryFn: async () => {
-            if (!conversationId) return null;
-            const response = await chatAPI.getConversation(conversationId);
-            return response.data;
-        },
+export const useConversation = (conversationId: string | undefined) =>
+    useQuery({
+        queryKey: chatKeys.conversation(conversationId ?? ''),
+        queryFn: () => chatAPI.conversation(conversationId!),
         enabled: !!conversationId,
+    });
+
+// Newest first from the API; pages load further back in time.
+export const useMessages = (conversationId: string | undefined) =>
+    useInfiniteQuery({
+        queryKey: chatKeys.messages(conversationId ?? ''),
+        queryFn: ({ pageParam }) => chatAPI.messages(conversationId!, pageParam),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
+        enabled: !!conversationId,
+    });
+
+export const useCreateConversation = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (scope: ConversationFilter = {}) => chatAPI.create(scope),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: chatKeys.conversations() }),
     });
 };
 
 export const useDeleteConversation = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: (conversationId: string) => chatAPI.deleteConversation(conversationId),
-        onSuccess: () => {
+        mutationFn: (conversationId: string) => chatAPI.remove(conversationId),
+        onSuccess: (_data, conversationId) => {
+            queryClient.removeQueries({ queryKey: chatKeys.messages(conversationId) });
             queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
         },
     });
 };
 
-export const useSendMessage = () => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: (payload: ChatRequest) => chatAPI.sendMessage(payload),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: chatKeys.conversations() });
-        },
-    });
-};
+export const useGreeting = () =>
+    useQuery({ queryKey: chatKeys.greeting(), queryFn: chatAPI.greeting, staleTime: 30 * 60_000, retry: false });

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useFiles } from '@/hooks/useUpload';
-import { FileType, ProcessingStage } from '@/types/upload.types';
-import type { FileResponseDto } from '@/types/upload.types';
+import type { FileType } from '@/api/types';
+import type { ApiFile } from '@/api/types';
 import {
     FileVideo, FileImage, FileAudio, FileText, Youtube, File,
     ChevronLeft, ChevronRight, MessageSquare, Clapperboard,
@@ -19,10 +19,10 @@ const TYPE_ICON: Record<FileType, typeof FileVideo> = {
 
 const AUTO_ADVANCE_MS = 6000;
 
-function FileThumb({ file }: { file: FileResponseDto }) {
-    const Icon = TYPE_ICON[file.fileType] ?? File;
+function FileThumb({ file }: { file: ApiFile }) {
+    const Icon = TYPE_ICON[file.type] ?? File;
     if (file.thumbnailUrl) {
-        return <img src={file.thumbnailUrl} alt={file.originalFilename} className="w-full h-full object-cover" />;
+        return <img src={file.thumbnailUrl} alt={file.name} className="w-full h-full object-cover" />;
     }
     return (
         <div
@@ -38,15 +38,15 @@ export function SceneSpotlight() {
     const navigate = useNavigate();
     const { data } = useFiles({ limit: 50 });
 
-    const files = (data?.files ?? []).filter(
-        (f) => f.processingStage === ProcessingStage.COMPLETED,
+    const files = (data?.items ?? []).filter(
+        (f) => f.processingStage === 'COMPLETED',
     );
 
     const [idx, setIdx] = useState(0);
     const [fading, setFading] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const shuffledRef = useRef<FileResponseDto[]>([]);
+    const shuffledRef = useRef<ApiFile[]>([]);
     useEffect(() => {
         if (files.length > 0 && shuffledRef.current.length === 0) {
             shuffledRef.current = [...files].sort(() => Math.random() - 0.5);
@@ -84,7 +84,7 @@ export function SceneSpotlight() {
         );
     }
 
-    const label = current.originalFilename.replace(/\.[^.]+$/, '');
+    const label = current.name.replace(/\.[^.]+$/, '');
     const dotCount = Math.min(pool.length, 7);
     const dotIdx = idx % dotCount;
 

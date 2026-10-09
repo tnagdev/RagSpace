@@ -24,7 +24,6 @@
     "prisma:seed": "dotenv -e .env.development -- ts-node src/prisma/seed.ts"
   },
   "dependencies": {
-    "@ragspace/shared-ts": "file:../packages/shared-ts",
     "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
     "@nestjs/common": "^11.1.13",
     "@nestjs/config": "^4.0.3",
@@ -33,9 +32,7 @@
     "@nestjs/schedule": "^6.1.1",
     "@prisma/adapter-pg": "^7.4.0",
     "@prisma/client": "^7.4.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
-    "crypto": "^1.0.1",
+    "@ragspace/shared-ts": "file:../packages/shared-ts",
     "pg": "^8.18.0",
     "razorpay": "^2.9.6",
     "reflect-metadata": "^0.2.2",

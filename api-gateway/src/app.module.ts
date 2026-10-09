@@ -1,54 +1,32 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { HttpModule } from '@nestjs/axios';
-import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { ProxyModule } from './modules/proxy/proxy.module';
-import { AuthGuard } from './guards/auth.guard';
-import { CustomThrottlerGuard } from './guards/throttler.guard';
-import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { LoggingInterceptor } from './interceptors/logging.interceptor';
-import { RATE_LIMIT_CONFIG } from './config/rate-limit.config';
+import { APP_GUARD } from '@nestjs/core';
+import { SessionGuard } from './auth/session.guard';
+import { SessionService } from './auth/session.service';
+import { AccountController } from './controllers/account.controller';
+import { BillingController } from './controllers/billing.controller';
+import { CollectionsController } from './controllers/collections.controller';
+import { ConversationsController } from './controllers/conversations.controller';
+import { EventsController } from './controllers/events.controller';
+import { FilesController } from './controllers/files.controller';
+import { HealthController } from './controllers/health.controller';
+import { SearchController } from './controllers/search.controller';
+import { WebhooksController } from './controllers/webhooks.controller';
+import { FileUpdatesService } from './events/file-updates.service';
+import { RpcModule } from './rpc/clients';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: `${process.env.NODE_ENV ? `.env.${process.env.NODE_ENV}` : '.env'}`,
-    }),
-    HttpModule.register({
-      timeout: 30_000,   // 30 s — internal service calls can be slow during processing
-      maxRedirects: 3,
-    }),
-    ThrottlerModule.forRoot([
-      {
-        ttl: RATE_LIMIT_CONFIG.ttl * 1000,
-        limit: RATE_LIMIT_CONFIG.limit,
-      },
-    ]),
-    ProxyModule,
-  ],
-  controllers: [AppController],
-  providers: [
-    AppService,
-    {
-      provide: APP_GUARD,
-      useClass: AuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: CustomThrottlerGuard,
-    },
-    {
-      provide: APP_FILTER,
-      useClass: GlobalExceptionFilter,
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: LoggingInterceptor,
-    },
-  ],
+    imports: [RpcModule],
+    controllers: [
+        HealthController,
+        AccountController,
+        FilesController,
+        EventsController,
+        CollectionsController,
+        SearchController,
+        ConversationsController,
+        BillingController,
+        WebhooksController,
+    ],
+    providers: [SessionService, FileUpdatesService, { provide: APP_GUARD, useClass: SessionGuard }],
 })
-export class AppModule { }
+export class AppModule {}

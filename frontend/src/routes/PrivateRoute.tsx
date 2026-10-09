@@ -1,7 +1,8 @@
 import { createRoute, Navigate, Outlet, redirect, useLocation } from "@tanstack/react-router";
 import { MainRoute } from ".";
 import { RootLayout } from "../layouts/RootLayout";
-import { hasAccessToken } from "@/api/auth";
+import { sessionQuery, useCurrentUser } from "@/hooks/auth";
+import { queryClient } from "@/lib/queryClient";
 import LandingPage from "@/pages/landing/LandingPage";
 import AboutPage from "@/pages/about/AboutPage";
 import { Folder, Search, MessageSquare, FolderTree, Settings as SettingsIcon } from 'lucide-react';
@@ -149,8 +150,9 @@ const _PrivateRoute = createRoute({
     getParentRoute: () => MainRoute,
     component: () => {
         const location = useLocation();
+        const { data: user } = useCurrentUser();
         if (location.pathname === '/') {
-            if (hasAccessToken()) {
+            if (user) {
                 return <Navigate to="/files" />;
             }
             return <LandingPage />;
@@ -170,8 +172,8 @@ const _PrivateRoute = createRoute({
         if (['/', '/about', '/terms', '/privacy'].includes(location.pathname)) {
             return {}; // public pages
         }
-        const isValid = hasAccessToken();
-        if (!isValid) {
+        const user = await queryClient.ensureQueryData(sessionQuery);
+        if (!user) {
             throw redirect({ to: '/auth/login' });
         }
         return {};

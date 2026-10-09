@@ -2,7 +2,7 @@ import { Modal } from '@/components/Modal';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import Button from '@/components/Button';
 import { useQueryClient } from '@tanstack/react-query';
-import { paymentKeys } from '@/hooks/usePayment';
+import { paymentKeys, usageKeys } from '@/hooks/usePayment';
 import { useSubscription } from '@/hooks/usePayment';
 import { useEffect } from 'react';
 
@@ -29,7 +29,7 @@ const PaymentResultModal: React.FC<PaymentResultModalProps> = ({
     useEffect(() => {
         if (isOpen && status === 'success') {
             queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-            queryClient.invalidateQueries({ queryKey: paymentKeys.usage() });
+            queryClient.invalidateQueries({ queryKey: usageKeys.all });
         }
     }, [isOpen, status, queryClient]);
 

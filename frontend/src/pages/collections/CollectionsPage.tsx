@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Plus, FolderPlus, RefreshCw, Pencil, Trash2, Folder, Grid3x3, List, FilePlus } from 'lucide-react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useQueryClient } from '@tanstack/react-query';
 import { TreeView, type TreeNode, type TreeAction } from '@/components/TreeView';
 import { CreateCollectionDialog } from '../files/components/CreateCollectionDialog';
 import { DeleteCollectionDialog } from '../files/components/DeleteCollectionDialog';
@@ -11,18 +10,25 @@ import { FileTableRow } from '../files/components/FileTableRow';
 import { CollectionCard } from './components/CollectionCard';
 import FilePickerModal from '../search/components/FilePickerModal';
 import Button from '@/components/Button';
-import Pagination from '@/components/Pagination';
 import Loader from '@/components/Loader';
-import { useCollections, useCollection, useRemoveFilesFromCollection, useAddFilesToCollection, collectionKeys } from '@/hooks/useCollection';
+import {
+    type CollectionNode,
+    buildTree,
+    useAddFilesToCollection,
+    useCollection,
+    useCollectionItems,
+    useCollections,
+    useRemoveFilesFromCollection,
+} from '@/hooks/useCollection';
 import { useDeleteFile } from '@/hooks/useUpload';
-import { collectionAPI } from '@/api/collection';
-import type { Collection, CollectionItemUnion } from '@/types/collection.types';
-import type { FileResponseDto } from '@/types/upload.types';
+import type { ApiFile, Collection } from '@/api/types';
+import { collectionColor } from '@/lib/collectionColors';
+
+type ViewItem = (Collection & { type: 'collection' }) | { type: 'file'; fileId: string; file: ApiFile };
 
 const CollectionsPage = () => {
     const params = useParams({ strict: false });
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
     const collectionIdFromRoute = params?.id as string | undefined;
 
     const [selectedCollectionId, setSelectedCollectionId] = useState<string | undefined>(collectionIdFromRoute);
@@ -31,25 +37,21 @@ const CollectionsPage = () => {
     const [collectionToDelete, setCollectionToDelete] = useState<Collection | null>(null);
     const [collectionToEdit, setCollectionToEdit] = useState<Collection | null>(null);
     const [parentIdForNewCollection, setParentIdForNewCollection] = useState<string | undefined>();
-    const [loadedChildren, setLoadedChildren] = useState<Map<string, Collection[]>>(new Map());
-    const [loadedNodes, setLoadedNodes] = useState<Set<string>>(new Set());
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-    const [currentPage, setCurrentPage] = useState<number>(1);
-    const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [fileToDelete, setFileToDelete] = useState<string | null>(null);
     const [fileToRemove, setFileToRemove] = useState<string | null>(null);
 
-    // Load root collections
-    const { data: rootCollections, isLoading, refetch } = useCollections(null);
+    const { data: allCollections, isLoading, refetch } = useCollections();
+    const rootCollections = useMemo(() => buildTree(allCollections ?? []), [allCollections]);
 
-    // Load selected collection details with pagination
-    const { data: selectedCollection, isLoading: isLoadingCollection, refetch: refetchSelected } = useCollection(
-        selectedCollectionId || '',
-        currentPage,
-        itemsPerPage,
-        { enabled: !!selectedCollectionId }
-    );
+    const { data: selectedCollection, isLoading: isLoadingCollection } = useCollection(selectedCollectionId ?? '');
+    const {
+        data: itemPages,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+    } = useCollectionItems(selectedCollectionId ?? '');
 
     const removeFilesFromCollection = useRemoveFilesFromCollection();
     const deleteFile = useDeleteFile();
@@ -66,20 +68,6 @@ const CollectionsPage = () => {
         setSelectedCollectionId(node.id);
         navigate({ to: `/collections/${node.id}` });
     }, [navigate]);
-
-    // Lazy load children when expanding a node
-    const handleExpand = useCallback(async (node: TreeNode) => {
-        if (loadedNodes.has(node.id)) return;
-
-        try {
-            // Fetch children for this collection
-            const children = await collectionAPI.getCollections(node.id);
-            setLoadedChildren(prev => new Map(prev).set(node.id, children));
-            setLoadedNodes(prev => new Set(prev).add(node.id));
-        } catch (error) {
-            console.error('Failed to load children:', error);
-        }
-    }, [loadedNodes]);
 
     const handleCreateCollection = useCallback(() => {
         setParentIdForNewCollection(undefined);
@@ -99,43 +87,18 @@ const CollectionsPage = () => {
     }, []);
 
     const handleDeleteSuccess = useCallback(() => {
-        refetch(); // Update left side tree
-        // Clear loaded children cache to force refresh when expanding
-        setLoadedChildren(new Map());
-        setLoadedNodes(new Set());
-        // If the deleted collection was selected, clear selection
         if (collectionToDelete?.id === selectedCollectionId) {
             setSelectedCollectionId(undefined);
             navigate({ to: '/collections' });
-        } else if (selectedCollectionId) {
-            // If we deleted a subcollection while viewing parent, refresh the parent view
-            refetchSelected();
         }
-    }, [refetch, refetchSelected, collectionToDelete, selectedCollectionId, navigate]);
+    }, [collectionToDelete, selectedCollectionId, navigate]);
 
     const handleAddFilesToCollection = useCallback(
-        (files: FileResponseDto[]) => {
+        (files: ApiFile[]) => {
             if (!selectedCollectionId) return;
-
-            const fileIds = files.map(f => f.id);
-            addFilesToCollection.mutate(
-                {
-                    collectionId: selectedCollectionId,
-                    data: { fileIds },
-                },
-                {
-                    onSuccess: async () => {
-                        await refetchSelected();
-                        await refetch();
-                        if (selectedCollection?.parentId && loadedChildren.has(selectedCollection.parentId)) {
-                            const parentChildren = await collectionAPI.getCollections(selectedCollection.parentId);
-                            setLoadedChildren(prev => new Map(prev).set(selectedCollection.parentId!, parentChildren));
-                        }
-                    },
-                }
-            );
+            addFilesToCollection.mutate({ collectionId: selectedCollectionId, fileIds: files.map((f) => f.id) });
         },
-        [selectedCollectionId, selectedCollection, addFilesToCollection, refetchSelected, refetch, loadedChildren]
+        [selectedCollectionId, addFilesToCollection]
     );
 
     const handleRemoveFromCollection = useCallback(
@@ -146,28 +109,14 @@ const CollectionsPage = () => {
     );
 
     const confirmRemoveFromCollection = useCallback(
-        async () => {
+        () => {
             if (!fileToRemove || !selectedCollectionId) return;
-
             removeFilesFromCollection.mutate(
-                {
-                    collectionId: selectedCollectionId,
-                    data: { fileIds: [fileToRemove] },
-                },
-                {
-                    onSuccess: async () => {
-                        await refetchSelected();
-                        await refetch();
-                        if (selectedCollection?.parentId && loadedChildren.has(selectedCollection.parentId)) {
-                            const parentChildren = await collectionAPI.getCollections(selectedCollection.parentId);
-                            setLoadedChildren(prev => new Map(prev).set(selectedCollection.parentId!, parentChildren));
-                        }
-                        setFileToRemove(null);
-                    },
-                }
+                { collectionId: selectedCollectionId, fileIds: [fileToRemove] },
+                { onSuccess: () => setFileToRemove(null) }
             );
         },
-        [fileToRemove, selectedCollectionId, selectedCollection, removeFilesFromCollection, refetchSelected, refetch, loadedChildren]
+        [fileToRemove, selectedCollectionId, removeFilesFromCollection]
     );
 
     const handleDeleteFile = useCallback(
@@ -178,65 +127,44 @@ const CollectionsPage = () => {
     );
 
     const confirmDeleteFile = useCallback(
-        async () => {
+        () => {
             if (!fileToDelete) return;
-            deleteFile.mutate(fileToDelete, {
-                onSuccess: async () => {
-                    await refetchSelected();
-                    await refetch();
-                    if (selectedCollection?.parentId && loadedChildren.has(selectedCollection.parentId)) {
-                        const parentChildren = await collectionAPI.getCollections(selectedCollection.parentId);
-                        setLoadedChildren(prev => new Map(prev).set(selectedCollection.parentId!, parentChildren));
-                    }
-                    setFileToDelete(null);
-                },
-            });
+            deleteFile.mutate(fileToDelete, { onSuccess: () => setFileToDelete(null) });
         },
-        [fileToDelete, deleteFile, selectedCollection, refetchSelected, refetch, loadedChildren]
+        [fileToDelete, deleteFile]
     );
 
-    const allItems: CollectionItemUnion[] = selectedCollection?.items || [];
-    const pagination = selectedCollection?.pagination;
-    const totalItems = pagination?.total || 0;
-    const totalPages = pagination?.totalPages || 1;
-
-    const handlePageChange = useCallback((page: number) => {
-        setCurrentPage(page);
-    }, []);
-
-    const handlePageSizeChange = useCallback((size: number) => {
-        setItemsPerPage(size);
-        setCurrentPage(1);
-    }, []);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [selectedCollectionId]);
+    const allItems: ViewItem[] = useMemo(
+        () =>
+            (itemPages?.pages ?? [])
+                .flatMap((page) => page.items)
+                .map((item) =>
+                    item.kind === 'collection'
+                        ? { ...item.collection, type: 'collection' as const }
+                        : { type: 'file' as const, fileId: item.file.id, file: item.file }
+                ),
+        [itemPages]
+    );
+    const totalItems = allItems.length;
 
     const treeNodes: TreeNode[] = useMemo(() => {
-        const convertToNode = (collection: Collection): TreeNode => {
-            const loadedChildrenForNode = loadedChildren.get(collection.id);
-            const hasChildren = (collection._count?.children ?? 0) > 0;
+        const convertToNode = (collection: CollectionNode): TreeNode => ({
+            id: collection.id,
+            label: collection.name,
+            color: collectionColor(collection.color),
+            badge: collection.fileCount,
+            children: collection.children.map(convertToNode),
+            data: collection,
+        });
 
-            return {
-                id: collection.id,
-                label: collection.name,
-                color: collection.color,
-                badge: collection._count?.fileCollections,
-                children: loadedChildrenForNode?.map(child => convertToNode(child)),
-                hasChildren: hasChildren && !loadedChildrenForNode,
-                data: collection,
-            };
-        };
-
-        return (rootCollections || []).map(c => convertToNode(c));
-    }, [rootCollections, loadedChildren]);
+        return rootCollections.map(convertToNode);
+    }, [rootCollections]);
 
     // Find path to selected node for auto-expansion
     const expandedNodeIds = useMemo(() => {
-        if (!selectedCollectionId || !rootCollections) return new Set<string>();
+        if (!selectedCollectionId) return new Set<string>();
 
-        const findPathToNode = (collections: Collection[], targetId: string, path: string[] = []): string[] | null => {
+        const findPathToNode = (collections: CollectionNode[], targetId: string, path: string[] = []): string[] | null => {
             for (const collection of collections) {
                 const currentPath = [...path, collection.id];
 
@@ -244,7 +172,7 @@ const CollectionsPage = () => {
                     return currentPath.slice(0, -1);
                 }
 
-                if (collection.children && collection.children.length > 0) {
+                if (collection.children.length > 0) {
                     const result = findPathToNode(collection.children, targetId, currentPath);
                     if (result) return result;
                 }
@@ -316,7 +244,6 @@ const CollectionsPage = () => {
                                 nodes={treeNodes}
                                 selectedId={selectedCollectionId}
                                 onSelect={handleCollectionSelect}
-                                onExpand={handleExpand}
                                 actions={treeActions}
                                 emptyMessage="No collections yet. Create one to get started!"
                                 expandedNodeIds={expandedNodeIds}
@@ -447,7 +374,7 @@ const CollectionsPage = () => {
                                                             <Folder
                                                                 size={22}
                                                                 strokeWidth={2}
-                                                                style={{ color: item.color || 'var(--color-accent-primary)' }}
+                                                                style={{ color: collectionColor(item.color) }}
                                                             />
                                                         </div>
                                                         <div className="min-w-0 flex-1">
@@ -455,8 +382,8 @@ const CollectionsPage = () => {
                                                                 {item.name}
                                                             </p>
                                                             <p className="text-xs text-text-muted">
-                                                                {item._count?.fileCollections || 0} files
-                                                                {(item._count?.children ?? 0) > 0 && ` • ${item._count?.children} folders`}
+                                                                {item.fileCount} files
+                                                                {item.childCount > 0 && ` • ${item.childCount} folders`}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -530,18 +457,12 @@ const CollectionsPage = () => {
                             )}
                         </div>
 
-                        {/* Pagination */}
-                        {pagination && totalPages > 0 && (
-                            <Pagination
-                                currentPage={currentPage}
-                                totalPages={totalPages}
-                                totalItems={totalItems}
-                                itemsPerPage={itemsPerPage}
-                                onPageChange={handlePageChange}
-                                onPageSizeChange={handlePageSizeChange}
-                                pageSizeOptions={[12, 24, 48, 96]}
-                                className="pt-3"
-                            />
+                        {hasNextPage && (
+                            <div className="flex justify-center pt-3">
+                                <Button variant="secondary" size="md" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                                    {isFetchingNextPage ? 'Loading...' : 'Load more'}
+                                </Button>
+                            </div>
                         )}
                     </>
                 ) : selectedCollectionId && isLoadingCollection ? (
@@ -605,24 +526,6 @@ const CollectionsPage = () => {
                     setIsCreateCollectionOpen(false);
                     setParentIdForNewCollection(undefined);
                     setCollectionToEdit(null);
-                    // Refresh data after creating collection
-                    refetch();
-                    if (selectedCollectionId) {
-                        refetchSelected();
-                    }
-                    // Clear loaded children cache to force refresh
-                    if (parentIdForNewCollection) {
-                        setLoadedChildren(prev => {
-                            const newMap = new Map(prev);
-                            newMap.delete(parentIdForNewCollection);
-                            return newMap;
-                        });
-                        setLoadedNodes(prev => {
-                            const newSet = new Set(prev);
-                            newSet.delete(parentIdForNewCollection);
-                            return newSet;
-                        });
-                    }
                 }}
                 parentId={parentIdForNewCollection}
                 collection={collectionToEdit || undefined}
@@ -640,7 +543,7 @@ const CollectionsPage = () => {
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
                 onSelectFiles={handleAddFilesToCollection}
-                selectedFileIds={selectedCollection?.items?.filter(item => item.type === 'file').map(item => item.fileId) || []}
+                selectedFileIds={allItems.flatMap((item) => (item.type === 'file' ? [item.fileId] : []))}
                 title="Add Files to Collection"
                 description="Select files to add to this collection"
                 confirmButtonText="Add"

@@ -1,5 +1,7 @@
+import { timingSafeEqual } from 'crypto';
+
 export interface CheckoutParams {
-    variantId: string; // Provider-specific plan/variant ID
+    variantId: string;
     userId: string;
     userEmail: string;
     customData?: Record<string, any>;
@@ -7,7 +9,7 @@ export interface CheckoutParams {
 
 export interface CheckoutResult {
     checkoutUrl: string;
-    providerSubscriptionId?: string; // Razorpay subscription ID returned at checkout time
+    providerSubscriptionId?: string;
 }
 
 export interface PlanChangeOptions {
@@ -36,7 +38,14 @@ export interface IPaymentProvider {
         options?: PlanChangeOptions,
     ): Promise<any>;
 
-    verifyWebhookSignature(signature: string, payload: string): boolean;
+    verifyWebhookSignature(signature: string, payload: Buffer): boolean;
 
     createRefund(transactionId: string, amount?: number, reason?: string): Promise<any>;
+}
+
+export function signaturesMatch(expectedHex: string, received: string | undefined): boolean {
+    if (!received) return false;
+    const expected = Buffer.from(expectedHex, 'utf8');
+    const actual = Buffer.from(received, 'utf8');
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
 }

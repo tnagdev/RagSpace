@@ -1,9 +1,9 @@
 import { type FC, useState } from 'react';
-import { Folder, MoreVertical, Pencil, Trash2, FolderPlus, Clock, File, MessageSquare } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
+import { Folder, MoreVertical, Pencil, Trash2, FolderPlus, Clock, File } from 'lucide-react';
 import moment from 'moment';
-import type { Collection } from '@/types/collection.types';
+import type { Collection } from '@/api/types';
 import Popover from '@/components/Popover';
+import { collectionColor } from '@/lib/collectionColors';
 
 interface CollectionCardProps {
     collection: Collection;
@@ -22,10 +22,9 @@ export const CollectionCard: FC<CollectionCardProps> = ({
 }) => {
     const [showMenu, setShowMenu] = useState(false);
     const [menuButtonRef, setMenuButtonRef] = useState<HTMLElement | null>(null);
-    const navigate = useNavigate();
 
-    const fileCount = collection._count?.fileCollections || 0;
-    const folderCount = collection._count?.children || 0;
+    const fileCount = collection.fileCount;
+    const folderCount = collection.childCount;
 
     return (
         <div
@@ -43,7 +42,7 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                     <div
                         className="w-14 h-14 rounded-xl border border-sidebar-border/50 flex items-center justify-center group-hover:scale-105 transition-transform duration-300"
                         style={{
-                            backgroundColor: collection.color || 'var(--color-accent-primary)',
+                            backgroundColor: collectionColor(collection.color),
                             opacity: 0.9
                         }}
                     >
@@ -68,17 +67,6 @@ export const CollectionCard: FC<CollectionCardProps> = ({
                         trigger={menuButtonRef}
                         className="w-48 py-1"
                     >
-                        {/* <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                navigate({ to: `/collections/${collection.id}/chat` });
-                                setShowMenu(false);
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
-                        >
-                            <MessageSquare className="w-4 h-4" />
-                            Chat
-                        </button> */}
                         {onAddSubcollection && (
                             <button
                                 onClick={(e) => {

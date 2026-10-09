@@ -4,22 +4,9 @@ import Button from '@/components/Button';
 import { Loader } from '@/components/Loader';
 import { UsageWidget } from '@/components/UsageWidget';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { AlertCircle, Check, CreditCard, Calendar, X } from 'lucide-react';
-import { PlanType, SubscriptionStatus } from '@/types/payment.types';
+import { AlertCircle, CreditCard, Calendar, X } from 'lucide-react';
+import { formatPrice } from '@/lib/billing';
 import { useState } from 'react';
-
-const getCurrencySymbol = (priceUnit: string): string => {
-    const currencyMap: Record<string, string> = {
-        'USD': '$',
-        'EUR': '€',
-        'GBP': '£',
-        'INR': '₹',
-        'JPY': '¥',
-        'AUD': 'A$',
-        'CAD': 'C$',
-    };
-    return currencyMap[priceUnit.toUpperCase()] || priceUnit;
-};
 
 export const BillingSettings = () => {
     const { data: subscription, isLoading: subLoading } = useSubscription();
@@ -48,15 +35,12 @@ export const BillingSettings = () => {
     }
 
     const currentPlan = subscription?.plan;
-    const isFreePlan = currentPlan?.type === PlanType.FREE;
-    const isCancelled = subscription?.status === SubscriptionStatus.CANCELLED;
-    const hasScheduledChange = subscription?.scheduledPlanId && subscription?.scheduledChangeAt;
-    const scheduledPlan = hasScheduledChange
-        ? plans?.find(p => p.id === subscription.scheduledPlanId)
-        : null;
-    const scheduledDate = hasScheduledChange
-        ? new Date(subscription.scheduledChangeAt).toLocaleDateString()
-        : null;
+    const isFreePlan = currentPlan?.type === 'FREE';
+    const isCancelled = subscription?.status === 'CANCELLED';
+    const scheduledChange = subscription?.scheduledChange ?? null;
+    const hasScheduledChange = scheduledChange !== null;
+    const scheduledPlan = scheduledChange ? plans?.find((p) => p.id === scheduledChange.planId) : null;
+    const scheduledDate = scheduledChange ? new Date(scheduledChange.effectiveAt).toLocaleDateString() : null;
 
     const handleCancelScheduledChange = async () => {
         try {
@@ -80,11 +64,11 @@ export const BillingSettings = () => {
                             </div>
                             <div>
                                 <h3 className="text-xl font-bold mb-1">{currentPlan?.name} Plan</h3>
-                                {currentPlan?.price === 0 ? (
+                                {!currentPlan || currentPlan.price.amountMinor === 0 ? (
                                     <p className="text-gray-400">Free forever</p>
                                 ) : (
                                     <p className="text-2xl font-bold text-purple-400">
-                                        {getCurrencySymbol(currentPlan?.priceUnit || 'USD')}{currentPlan?.price}
+                                        {formatPrice(currentPlan.price)}
                                         <span className="text-sm text-gray-400 font-normal">/month</span>
                                     </p>
                                 )}
@@ -127,7 +111,7 @@ export const BillingSettings = () => {
                                 Scheduled Plan Change
                             </h4>
                             <p className="text-sm text-gray-300 mb-3">
-                                {subscription.scheduledChangeType === 'cancel_to_free'
+                                {scheduledChange?.kind === 'CANCEL_TO_FREE'
                                     ? `Your subscription will be cancelled and you'll move to the Free plan on ${scheduledDate}. You'll keep access to your current plan until then.`
                                     : `Your plan will change to ${scheduledPlan.name} on ${scheduledDate}. You'll keep access to your current plan until then.`
                                 }
@@ -140,7 +124,7 @@ export const BillingSettings = () => {
                             >
                                 {cancelScheduledChange.isPending ? (
                                     <>
-                                        <Loader className="w-3 h-3 mr-2" />
+                                        <Loader size="sm" />
                                         Cancelling...
                                     </>
                                 ) : (

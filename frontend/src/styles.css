@@ -205,6 +205,18 @@ input:-webkit-autofill::first-line {
   color: #f8fafc !important;
 }
 
+/* Collection palette; the API stores the token name (e.g. "purple"). */
+:root {
+  --color-collection-red: #ef4444;
+  --color-collection-orange: #f97316;
+  --color-collection-yellow: #eab308;
+  --color-collection-green: #22c55e;
+  --color-collection-teal: #14b8a6;
+  --color-collection-blue: #3b82f6;
+  --color-collection-purple: #a855f7;
+  --color-collection-pink: #ec4899;
+}
+
 @theme light {
   /* Light Theme - Warm Orange Colors */
   --color-bg-primary: #ffffff;

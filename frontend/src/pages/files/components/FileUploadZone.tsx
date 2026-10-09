@@ -1,6 +1,5 @@
 import { useCallback, useRef, type FC } from 'react';
 import { Upload } from 'lucide-react';
-import Button from '../../../components/Button';
 
 interface FileUploadZoneProps {
     onFilesSelected: (files: File[]) => void;

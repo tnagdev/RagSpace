@@ -48,38 +48,6 @@ enum ProcessingStage {
     @@schema("upload")
 }
 
-enum MetadataSourceType {
-    IMAGE
-    VIDEO
-    SCENE
-
-    @@schema("upload")
-}
-
-model FileMetadata {
-    id          String             @id @default(uuid())
-    fileId      String
-    sceneId     String?
-    sourceType  MetadataSourceType
-    summary     String?
-    objects     String[]
-    setting     String?
-    style       String?
-    colors      String[]
-    rawResponse Json?
-    createdAt   DateTime           @default(now())
-    updatedAt   DateTime           @updatedAt
-
-    file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
-
-    @@unique([fileId, sceneId])
-    @@index([fileId])
-    @@index([sceneId])
-    @@index([sourceType])
-    @@map("file_metadata")
-    @@schema("upload")
-}
-
 model Collection {
     id          String   @id @default(uuid())
     userId      String
@@ -95,6 +63,7 @@ model Collection {
     fileCollections FileCollection[]
 
     @@index([userId])
+    @@index([userId, name])
     @@index([parentId])
     @@index([createdAt])
     @@map("collections")
@@ -122,12 +91,14 @@ model File {
     userId                String
     filename              String
     originalFilename      String
-    fileSize              Int
+    fileSize              BigInt
     mimeType              String
     fileType              FileType
     s3Key                 String           @unique
     s3Bucket              String
     s3Url                 String?
+    multipartUploadId     String?
+    clientRequestId       String?
     thumbnailPath         String?
     youtubeUrl            String?
     uploadStatus          UploadStatus     @default(PENDING)
@@ -141,13 +112,15 @@ model File {
     processingCompletedAt DateTime?
     createdAt             DateTime         @default(now())
     updatedAt             DateTime         @updatedAt
-
-    fileMetadata    FileMetadata[]
     fileCollections FileCollection[]
 
+    @@unique([userId, clientRequestId])
     @@index([userId])
+    @@index([userId, createdAt])
     @@index([uploadStatus])
     @@index([processingStatus])
+    @@index([processingStage])
+    @@index([fileType])
     @@index([createdAt])
     @@map("files")
     @@schema("upload")

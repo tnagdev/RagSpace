@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ragspace
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
@@ -22,8 +22,8 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: unless-stopped
@@ -37,7 +37,7 @@ services:
       IS_PERSISTENT: true
       ANONYMIZED_TELEMETRY: false
     ports:
-      - "8007:8000"
+      - "127.0.0.1:8007:8000"
     volumes:
       - chromadb-data:/chroma/chroma
     restart: unless-stopped
@@ -45,7 +45,8 @@ services:
       - ragspace-network
 
   minio:
-    image: minio/minio:latest
+    # minio/minio was pulled from Docker Hub/quay.io; pgsty/minio is a maintained drop-in community build
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     container_name: ragspace-minio
     command: server /data --console-address ":9001"
     environment:
@@ -53,7 +54,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
       - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
     restart: unless-stopped
@@ -97,9 +98,10 @@ services:
     env_file:
       - ./api-gateway/.env.docker
     ports:
-      - "8000:8080"
+      - "127.0.0.1:8000:8080"
     depends_on:
-      - postgres
+      - rabbitmq
+      - auth-service
     restart: unless-stopped
     networks:
       - ragspace-network
@@ -111,8 +113,6 @@ services:
       dockerfile: auth-service/Dockerfile
     env_file:
       - ./auth-service/.env.docker
-    ports:
-      - "8001:8080"
     depends_on:
       - postgres
     restart: unless-stopped
@@ -126,8 +126,6 @@ services:
       dockerfile: upload-manager/Dockerfile
     env_file:
       - ./upload-manager/.env.docker
-    ports:
-      - "8002:8080"
     depends_on:
       - postgres
       - rabbitmq
@@ -142,8 +140,6 @@ services:
       dockerfile: payment-service/Dockerfile
     env_file:
       - ./payment-service/.env.docker
-    ports:
-      - "8006:8080"
     depends_on:
       - postgres
     restart: unless-stopped
@@ -161,8 +157,6 @@ services:
     environment:
       PYTHONPATH: /app
       YOUTUBE_COOKIES_FILE: /app/cookies/youtube-cookies.txt
-    ports:
-      - "8003:8080"
     volumes:
       - scene-detector-temp:/tmp/scene-detector
       - ./scene-detector/cookies:/app/cookies:ro
@@ -211,8 +205,6 @@ services:
       HF_HOME: /home/appuser/.cache/huggingface
       TORCH_HOME: /home/appuser/.cache/torch
       TESSERACT_CMD: /usr/bin/tesseract
-    ports:
-      - "8004:8080"
     volumes:
       - file-embedder-models:/home/appuser/.cache
       - file-embedder-chroma:/app/chroma_data
@@ -259,11 +251,9 @@ services:
       - ./chat-manager/.env.docker
     environment:
       PYTHONPATH: /app
-    ports:
-      - "8005:8080"
     depends_on:
       - postgres
-      - chromadb
+      - rabbitmq
     restart: unless-stopped
     networks:
       - ragspace-network

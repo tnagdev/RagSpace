@@ -21,8 +21,11 @@ import {
   ChevronLeft,
   Pause,
 } from 'lucide-react';
-import { paymentAPI } from '@/api/payment';
-import { type Plan, PlanType, PlanInterval } from '@/types/payment.types';
+import { billingAPI } from '@/api/billing';
+import type { Plan } from '@/api/types';
+import { formatPrice } from '@/lib/billing';
+
+type PlanInterval = Plan['interval'];
 
 import ss1 from '@/assets/images/Screenshot 2026-02-12 145521.png';
 import ss2 from '@/assets/images/Screenshot 2026-02-12 150007.png';
@@ -986,27 +989,13 @@ const UseCases = () => (
 // ─── Pricing ────────────────────────────────────────────────────────────────────
 
 const planMeta: Record<string, { highlight: boolean; badge?: string; ctaLabel: string; checkColor: string }> = {
-  [PlanType.FREE]: { highlight: false, ctaLabel: 'Get Started Free', checkColor: '#34d399' },
-  [PlanType.BASIC]: { highlight: false, ctaLabel: 'Start Basic Plan', checkColor: '#60a5fa' },
-  [PlanType.PRO]: { highlight: true, badge: 'Most Popular', ctaLabel: 'Start Pro Trial', checkColor: '#a855f7' },
-};
-
-const formatPrice = (price: number, priceUnit: string): string => {
-  if (price === 0) return 'INR 0';
-  // LemonSqueezy stores prices in cents
-  const amount = price;
-  const symbol = priceUnit.length === 3
-    ? (priceUnit.toUpperCase() === 'USD' ? '$'
-      : priceUnit.toUpperCase() === 'EUR' ? '€'
-        : priceUnit.toUpperCase() === 'GBP' ? '£'
-          : priceUnit.toUpperCase() === 'INR' ? '₹'
-            : priceUnit)
-    : priceUnit;
-  return `${symbol}${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
+  ['FREE']: { highlight: false, ctaLabel: 'Get Started Free', checkColor: '#34d399' },
+  ['BASIC']: { highlight: false, ctaLabel: 'Start Basic Plan', checkColor: '#60a5fa' },
+  ['PRO']: { highlight: true, badge: 'Most Popular', ctaLabel: 'Start Pro Trial', checkColor: '#a855f7' },
 };
 
 const formatInterval = (interval: PlanInterval): string =>
-  interval === PlanInterval.YEARLY ? '/year' : '/month';
+  interval === 'YEARLY' ? '/year' : '/month';
 
 const PricingSkeleton = () => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1030,7 +1019,7 @@ const PricingSkeleton = () => (
 
 const PlanCard = ({ plan, interval }: { plan: Plan; interval: PlanInterval }) => {
   const meta = planMeta[plan.type] ?? { highlight: false, ctaLabel: `Get ${plan.name}`, checkColor: '#34d399' };
-  const priceStr = formatPrice(plan.price, plan.priceUnit);
+  const priceStr = formatPrice(plan.price);
   const periodStr = formatInterval(interval);
 
   return (
@@ -1099,18 +1088,18 @@ const PlanCard = ({ plan, interval }: { plan: Plan; interval: PlanInterval }) =>
 };
 
 const Pricing = () => {
-  const [billingInterval, setBillingInterval] = useState<PlanInterval>(PlanInterval.MONTHLY);
+  const [billingInterval, setBillingInterval] = useState<PlanInterval>('MONTHLY');
 
   const { data: allPlans, isLoading, isError } = useQuery({
     queryKey: ['landing-plans'],
-    queryFn: () => paymentAPI.getPlansWithComparison(),
+    queryFn: () => billingAPI.plans(),
     staleTime: 1000 * 60 * 10,
     retry: 2,
   });
 
-  const hasYearly = (allPlans ?? []).some(p => p.interval === PlanInterval.YEARLY);
+  const hasYearly = (allPlans ?? []).some(p => p.interval === 'YEARLY');
   const plans = (allPlans ?? []).filter(p => p.interval === billingInterval);
-  const fallbackPlans = (allPlans ?? []).filter(p => p.interval === PlanInterval.MONTHLY);
+  const fallbackPlans = (allPlans ?? []).filter(p => p.interval === 'MONTHLY');
   const displayPlans = plans.length > 0 ? plans : fallbackPlans;
 
   return (
@@ -1135,7 +1124,7 @@ const Pricing = () => {
           {!isLoading && hasYearly && (
             <div className="inline-flex items-center gap-1 p-1 rounded-xl"
               style={{ background: 'rgba(19,19,46,0.9)', border: '1px solid rgba(168,85,247,0.15)' }}>
-              {([PlanInterval.MONTHLY, PlanInterval.YEARLY] as PlanInterval[]).map(iv => (
+              {(['MONTHLY', 'YEARLY'] as PlanInterval[]).map(iv => (
                 <button
                   key={iv}
                   onClick={() => setBillingInterval(iv)}
@@ -1148,8 +1137,8 @@ const Pricing = () => {
                     boxShadow: billingInterval === iv ? '0 0 16px rgba(168,85,247,0.25)' : 'none',
                   }}
                 >
-                  {iv === PlanInterval.MONTHLY ? 'Monthly' : 'Yearly'}
-                  {iv === PlanInterval.YEARLY && (
+                  {iv === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+                  {iv === 'YEARLY' && (
                     <span className="text-xs px-1.5 py-0.5 rounded-full"
                       style={{ background: 'rgba(52,211,153,0.2)', color: '#34d399' }}>
                       Save 20%
@@ -1178,7 +1167,7 @@ const Pricing = () => {
         {!isLoading && !isError && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {displayPlans.map(plan => (
-              <PlanCard key={plan.id} plan={plan} interval={plans.length > 0 ? billingInterval : PlanInterval.MONTHLY} />
+              <PlanCard key={plan.id} plan={plan} interval={plans.length > 0 ? billingInterval : 'MONTHLY'} />
             ))}
           </div>
         )}

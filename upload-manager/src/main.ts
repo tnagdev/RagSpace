@@ -1,42 +1,34 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { WsAdapter } from '@nestjs/platform-ws';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { collectionsV1, createGrpcServer, filesV1, listenGrpc, runWithCorrelationId } from '@ragspace/shared-ts';
 import { AppModule } from './app.module';
+import { CollectionsRpcService } from './collections/collections-rpc.service';
+import { eventBus } from './events/event-bus';
+import { FilesRpcService } from './files/files-rpc.service';
+import { logger } from './logger';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, {
-    logger: process.env.NODE_ENV === 'production'
-      ? ['error', 'warn', 'log']
-      : ['error', 'warn', 'log', 'debug', 'verbose'],
-  });
+    eventBus.start();
 
-  app.enableShutdownHooks();
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger });
+    app.enableShutdownHooks();
+    app.useBodyParser('json', { limit: '10mb' });
+    app.use((req, _res, next) => runWithCorrelationId(req.header('x-correlation-id'), next));
+    await app.init();
 
-  app.useWebSocketAdapter(new WsAdapter(app));
+    const grpcServer = createGrpcServer(logger);
+    grpcServer.add(filesV1.FileServiceDefinition, app.get(FilesRpcService));
+    grpcServer.add(collectionsV1.CollectionServiceDefinition, app.get(CollectionsRpcService));
+    await listenGrpc(grpcServer, logger);
 
-  app.use(require('express').json({ limit: '10mb' }));
-  app.use(require('express').urlencoded({ limit: '10mb', extended: true }));
+    process.on('SIGTERM', () => {
+        void grpcServer.shutdown();
+        void eventBus.close();
+    });
 
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('port') as number;
-
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
-
-  await app.listen(port);
-  logger.log(`Upload Manager service is running on port ${port}`);
-
-  process.on('SIGTERM', () => {
-    logger.log('SIGTERM received — starting graceful shutdown');
-    setTimeout(() => {
-      logger.error('Graceful shutdown timed out — forcing exit');
-      process.exit(1);
-    }, 30_000).unref();
-  });
+    const port = Number(process.env.PORT) || 8080;
+    await app.listen(port);
+    logger.log(`HTTP listening on :${port}`, 'Bootstrap');
 }
 
-bootstrap();
+void bootstrap();

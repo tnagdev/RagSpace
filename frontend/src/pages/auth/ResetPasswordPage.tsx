@@ -127,7 +127,7 @@ const ResetPasswordPage = () => {
                     return errors;
                 }}
             >
-                {({ isSubmitting }) => (
+                {() => (
                     <Form className="space-y-5">
                         <FormInput
                             name="password"

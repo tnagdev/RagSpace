@@ -1,72 +1,74 @@
-import { getCurrentUser, loginUser, logoutUser, signUpUser, updateProfile, changePassword, deleteAccount, forgotPassword, resetPassword } from "@/api/auth";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { authAPI, type SignInPayload, type SignUpPayload } from '@/api/auth';
 
+export const authKeys = {
+    all: ['auth'] as const,
+    me: () => [...authKeys.all, 'me'] as const,
+};
+
+export const sessionQuery = {
+    queryKey: authKeys.me(),
+    queryFn: authAPI.me,
+    staleTime: 60_000,
+};
+
+export const useCurrentUser = () => useQuery(sessionQuery);
 
 export const useSignUp = () => {
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationKey: ['signUpUser'],
-        mutationFn: (data: SignUpPayload) => signUpUser(data),
+        mutationFn: (data: SignUpPayload) => authAPI.signUp(data),
+        onSuccess: (user) => queryClient.setQueryData(authKeys.me(), user),
     });
-}
-
+};
 
 export const useLogin = () => {
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationKey: ['loginUser'],
-        mutationFn: (data: LoginPayload) => loginUser(data),
+        mutationFn: (data: SignInPayload) => authAPI.signIn(data),
+        onSuccess: (user) => queryClient.setQueryData(authKeys.me(), user),
     });
-}
+};
 
 export const useLogout = () => {
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationKey: ['logoutUser'],
-        mutationFn: () => logoutUser(),
+        mutationFn: () => authAPI.signOut(),
+        onSettled: () => {
+            queryClient.clear();
+            queryClient.setQueryData(authKeys.me(), null);
+        },
     });
-}
-
-export const useCurrentUser = () => {
-    return useQuery({
-        queryKey: ['getCurrentUser'],
-        queryFn: () => getCurrentUser()
-    });
-}
+};
 
 export const useUpdateProfile = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationKey: ['updateProfile'],
-        mutationFn: (data: { name?: string; username?: string }) => updateProfile(data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['getCurrentUser'] });
-        },
+        mutationFn: (data: { name?: string; username?: string | null }) => authAPI.updateMe(data),
+        onSuccess: (user) => queryClient.setQueryData(authKeys.me(), user),
     });
-}
+};
 
-export const useChangePassword = () => {
-    return useMutation({
-        mutationKey: ['changePassword'],
-        mutationFn: (data: { currentPassword: string; newPassword: string }) => changePassword(data),
+export const useChangePassword = () =>
+    useMutation({
+        mutationFn: (data: { currentPassword: string; newPassword: string }) => authAPI.changePassword(data),
     });
-}
 
 export const useDeleteAccount = () => {
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationKey: ['deleteAccount'],
-        mutationFn: () => deleteAccount(),
+        mutationFn: () => authAPI.deleteMe(),
+        onSuccess: () => {
+            queryClient.clear();
+            queryClient.setQueryData(authKeys.me(), null);
+        },
     });
-}
+};
 
-export const useForgotPassword = () => {
-    return useMutation({
-        mutationKey: ['forgotPassword'],
-        mutationFn: (email: string) => forgotPassword(email),
-    });
-}
+export const useForgotPassword = () => useMutation({ mutationFn: (email: string) => authAPI.forgotPassword(email) });
 
-export const useResetPassword = () => {
-    return useMutation({
-        mutationKey: ['resetPassword'],
+export const useResetPassword = () =>
+    useMutation({
         mutationFn: ({ token, newPassword }: { token: string; newPassword: string }) =>
-            resetPassword(token, newPassword),
+            authAPI.resetPassword(token, newPassword),
     });
-}

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IPaymentProvider, CheckoutParams, PlanChangeOptions } from '../payment-provider.interface';
+import { createHmac } from 'crypto';
+import { IPaymentProvider, CheckoutParams, PlanChangeOptions, signaturesMatch } from '../payment-provider.interface';
 import {
     lemonSqueezySetup,
     createCheckout,
@@ -39,7 +40,6 @@ export class LemonSqueezyService implements IPaymentProvider {
 
     async createCheckoutSession(params: CheckoutParams): Promise<import('../payment-provider.interface').CheckoutResult> {
         try {
-            // Redirect to files page with payment status query params
             const successUrl = `${this.frontendUrl}/files?payment=success`;
 
             const checkout = await createCheckout(this.storeId, params.variantId, {
@@ -199,8 +199,7 @@ export class LemonSqueezyService implements IPaymentProvider {
         }
     }
 
-    verifyWebhookSignature(signature: string, payload: string): boolean {
-        const crypto = require('crypto');
+    verifyWebhookSignature(signature: string, payload: Buffer): boolean {
         const secret = this.configService.get<string>('LEMON_SQUEEZY_WEBHOOK_SECRET');
 
         if (!secret) {
@@ -208,12 +207,7 @@ export class LemonSqueezyService implements IPaymentProvider {
             return false;
         }
 
-        const hash = crypto
-            .createHmac('sha256', secret)
-            .update(payload)
-            .digest('hex');
-
-        return hash === signature;
+        return signaturesMatch(createHmac('sha256', secret).update(payload).digest('hex'), signature);
     }
 
     async createRefund(orderId: string, amount?: number, reason?: string) {

@@ -4,29 +4,19 @@ uvicorn
 pydantic[email]
 pydantic-settings
 python-dotenv
-
-# RabbitMQ
 aio-pika
-
-# Prisma ORM
 prisma
-
-# AWS S3
 aioboto3
-
-# Scene Detection
 scenedetect[opencv]
 opencv-python
-
-# YouTube Download
 # yt-dlp-ejs: Python-native EJS interpreter that registers as a yt-dlp plugin
 # and solves YouTube n-challenges without requiring Node.js process discovery.
 yt-dlp[default]>=2024.11.4
 yt-dlp-ejs
-
-# Image Processing
 Pillow
-
-# Utilities
 python-multipart
 httpx
+grpcio
+grpcio-health-checking
+grpcio-reflection
+protobuf

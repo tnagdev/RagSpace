@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { FolderPlus, Folder } from 'lucide-react';
 import Button from '@/components/Button';
 import { Drawer } from '@/components/Drawer';
-import { useCollectionsFlat, useAddFilesToCollection } from '@/hooks/useCollection';
+import { useCollections, useAddFilesToCollection } from '@/hooks/useCollection';
 import { cn } from '@/lib/utils';
+import { collectionColor } from '@/lib/collectionColors';
 
 interface CollectionSidePanelProps {
     isOpen: boolean;
@@ -17,8 +18,7 @@ export const CollectionSidePanel: React.FC<CollectionSidePanelProps> = ({
     fileIds,
 }) => {
     const [selectedCollectionId, setSelectedCollectionId] = useState<string>('');
-    const { data } = useCollectionsFlat({ enabled: isOpen });
-    const collections = data?.collections || [];
+    const { data: collections = [] } = useCollections();
     const addFilesToCollection = useAddFilesToCollection();
 
     // Reset state when drawer closes
@@ -33,7 +33,7 @@ export const CollectionSidePanel: React.FC<CollectionSidePanelProps> = ({
         addFilesToCollection.mutate(
             {
                 collectionId: selectedCollectionId,
-                data: { fileIds },
+                fileIds,
             },
             {
                 onSuccess: () => {
@@ -112,11 +112,11 @@ export const CollectionSidePanel: React.FC<CollectionSidePanelProps> = ({
                                 <div className="shrink-0">
                                     <Folder
                                         className="w-4 h-4"
-                                        style={{ color: collection.color || 'var(--color-accent-primary)' }}
+                                        style={{ color: collectionColor(collection.color) }}
                                     />
                                 </div>
                                 <span className="flex-1 truncate font-normal text-left">{collection.name}</span>
-                                {collection._count?.fileCollections !== undefined && (
+                                {collection.fileCount > 0 && (
                                     <span
                                         className={cn(
                                             'text-xs px-1.5 py-0.5 rounded-md shrink-0',
@@ -125,7 +125,7 @@ export const CollectionSidePanel: React.FC<CollectionSidePanelProps> = ({
                                                 : 'bg-bg-secondary text-text-muted'
                                         )}
                                     >
-                                        {collection._count.fileCollections} files
+                                        {collection.fileCount} files
                                     </span>
                                 )}
                             </button>

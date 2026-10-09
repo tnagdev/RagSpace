@@ -1,479 +1,201 @@
+import asyncio
 import logging
 import os
-import tempfile
 import shutil
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
+
+from ragspace.common.v1 import common_pb2
+from ragspace.events.v1 import events_pb2
+from ragspace_shared.protos import enum_name
+
 from src.config.settings import settings
-from src.rabbitmq.rabbitmq_producer import RabbitMQProducer
-from src.services.upload_manager_client import UploadManagerClient
-from src.models.enums import EventType, ProcessingStage, ProcessingStatus
-from src.models.events import UploadCompletedEventModel, UpdateFileStatusParams
-from src.services.s3_service import S3Service
+from src.decorators.cpu_manager import cpu_executor
+from src.events import event_bus, report_stage
 from src.services.prisma_service import PrismaService
+from src.services.s3_service import S3Service
 from src.services.scene_detection_service import SceneDetectionService
 from src.services.youtube_downloader_service import YouTubeDownloaderService
-from src.decorators.cpu_manager import cpu_executor
-from src.utils.correlation import correlation_id_var
-import asyncio
 
 logger = logging.getLogger(__name__)
 
+VIDEO_TYPES = {"VIDEO", "YOUTUBE_VIDEO"}
+PROGRESS_STEP = 5
+SCENE_DETECTION = common_pb2.PROCESSING_STAGE_SCENE_DETECTION
+INDEXING = common_pb2.PROCESSING_STAGE_INDEXING
+COMPLETED_STAGE = common_pb2.PROCESSING_STAGE_COMPLETED
+IN_PROGRESS = common_pb2.PROCESSING_STATUS_IN_PROGRESS
+COMPLETED = common_pb2.PROCESSING_STATUS_COMPLETED
+FAILED = common_pb2.PROCESSING_STATUS_FAILED
+
 
 class SceneProcessor:
-    """Service for processing video files and detecting scenes"""
+    def __init__(self) -> None:
+        self.s3 = S3Service()
+        self.detector = SceneDetectionService()
+        self.youtube = YouTubeDownloaderService()
+        self.db = PrismaService()
+        os.makedirs(settings.temp_dir, exist_ok=True)
 
-    def __init__(self, user, session):
-        self.temp_dir = settings.temp_dir
-        self.rabbitmq_service = RabbitMQProducer()
-        self.upload_manager_client = UploadManagerClient(user, session)
-        self.s3_service = S3Service()
-        self.scene_detection_service = SceneDetectionService()
-        self.youtube_downloader = YouTubeDownloaderService()
-        self.prisma_service = PrismaService()
-        os.makedirs(self.temp_dir, exist_ok=True)
-
-    async def _publish_progress_pct(
-        self, file_id: str, user_id: str, pct: int
-    ) -> None:
-        """Publish a raw progress percentage for the SCENE_DETECTION stage."""
+    async def process(self, upload: events_pb2.FileUploaded, is_final_attempt: bool = True) -> None:
+        file_id, user_id = upload.file_id, upload.user_id
+        file_type = enum_name(common_pb2.FileType, "FILE_TYPE", upload.type) or ""
+        is_video = file_type in VIDEO_TYPES
+        work_dir: str | None = None
         try:
-            await self.rabbitmq_service.publish_event(
-                EventType.PROCESSING_PROGRESS.value,
-                {
-                    'type': EventType.PROCESSING_PROGRESS.value,
-                    'fileId': file_id,
-                    'userId': user_id,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'data': {
-                        'stage': ProcessingStage.SCENE_DETECTION.value,
-                        'progress': pct,
-                    }
-                }
+            await self.db.ensure_connected()
+            if is_video:
+                await self._clear_scenes(file_id)
+                await report_stage(file_id, user_id, stage=SCENE_DETECTION, status=IN_PROGRESS, progress=0)
+
+            work_dir = tempfile.mkdtemp(dir=settings.temp_dir)
+            file_path = os.path.join(work_dir, os.path.basename(upload.key) or f"{file_id}.bin")
+            await self._fetch_source(upload, file_path)
+
+            thumbnail_key = await self._upload_file_thumbnail(upload, file_type, file_path, work_dir)
+            if thumbnail_key:
+                await report_stage(file_id, user_id, thumbnail_key=thumbnail_key)
+            if not is_video:
+                return
+
+            scenes = await self._detect_scenes(upload, file_path)
+            if not scenes:
+                await report_stage(
+                    file_id, user_id, stage=COMPLETED_STAGE, status=COMPLETED, attributes={"scenesDetected": 0}
+                )
+                return
+
+            stored, failed = await self._store_scenes(upload, scenes, file_path, work_dir)
+            attributes: dict = {"scenesDetected": stored, "scenesTotal": len(scenes)}
+            if failed:
+                attributes["scenesFailed"] = failed
+            await report_stage(file_id, user_id, stage=INDEXING, status=IN_PROGRESS, attributes=attributes)
+            await event_bus.publish(
+                "file_scenes_detected",
+                events_pb2.FileScenesDetected(file_id=file_id, user_id=user_id, type=upload.type, scene_count=stored),
             )
-        except Exception as pub_err:
-            logger.warning(f"Failed to publish progress event: {pub_err}")
-
-    async def _publish_scene_progress(
-        self, file_id: str, user_id: str, completed: int, total: int
-    ) -> None:
-        pct = round((completed / total) * 100) if total else 100
-        await self._publish_progress_pct(file_id, user_id, pct)
-
-    async def _process_single_scene(
-        self,
-        scene_data: dict,
-        file_id: str,
-        user_id: str,
-        year: int,
-        month: int,
-        work_dir: str,
-        scene_bucket: str,
-        file_path: str,
-    ) -> dict:
-        """Process a single scene asynchronously — extract thumbnail and upload to S3."""
-        scene_number = scene_data['scene_number']
-        try:
-            thumbnail_filename = f"scene_{scene_number:04d}.jpg"
-            thumbnail_path = os.path.join(work_dir, thumbnail_filename)
-
-            await self.scene_detection_service.extract_thumbnail(
-                file_path,
-                scene_data['keyframe'],
-                thumbnail_path
-            )
-
-            thumbnail_s3_key = (
-                f"thumbnails/{user_id}/{year}/{month}/scenes/"
-                f"{file_id}/scene_{scene_number:04d}.jpg"
-            )
-
-            await self.s3_service.upload_file(
-                thumbnail_path,
-                thumbnail_s3_key,
-                content_type='image/jpeg',
-                bucket=scene_bucket
-            )
-
-            thumbnail_url = await self.s3_service.get_signed_url(
-                thumbnail_s3_key,
-                expiration=3600,  # 1 hour
-                bucket=scene_bucket
-            )
-
-            return {
-                'fileId': file_id,
-                'userId': user_id,
-                'sceneNumber': scene_number,
-                'startTime': scene_data['start_time'],
-                'endTime': scene_data['end_time'],
-                'startFrame': scene_data['start_frame'],
-                'endFrame': scene_data['end_frame'],
-                'keyframe': scene_data['keyframe'],
-                'duration': scene_data['duration'],
-                'thumbnailS3Key': thumbnail_s3_key,
-                'thumbnailS3Url': thumbnail_url
-            }
-        except Exception as e:
-            logger.error(
-                f"Error processing scene {scene_number}: {e}",
-                exc_info=True
-            )
-            return {"_failed": True, "scene_number": scene_number, "error": str(e)}
-
-    async def process_file(
-        self,
-        file_id: str,
-        event_data: UploadCompletedEventModel,
-        is_final_attempt: bool = True,
-    ):
-        work_dir = None
-        correlation_id = correlation_id_var.get()
-        try:
-            user = event_data.user
-            user_id = user.id if user else None
-
-            logger.info(f"[{correlation_id}] Starting processing for file: {file_id} (user: {user_id})")
-
-            file_record = await self.upload_manager_client.get_file(file_id)
-            if not file_record:
-                raise Exception(f"File not found: {file_id}")
-
-            # ── Idempotency: delete any previously created scenes so a reprocess
-            # never leaves duplicate rows (create_many would duplicate on retry).
-            existing_count = await self.prisma_service.prisma.scene.count(
-                where={'fileId': file_id}
-            )
-            if existing_count > 0:
-                await self.prisma_service.prisma.scene.delete_many(
-                    where={'fileId': file_id}
-                )
-                logger.info(f"[{correlation_id}] Deleted {existing_count} existing scenes for reprocess of {file_id}")
-
-            file_type = file_record.get('fileType', '').upper()
-
-            await self.upload_manager_client.update_file_status(
-                file_id,
-                UpdateFileStatusParams(
-                    processingStatus=ProcessingStatus.IN_PROGRESS.value,
-                    processingStage=ProcessingStage.SCENE_DETECTION.value,
-                    processingStartedAt=datetime.utcnow()
-                )
-            )
-
-            await self.rabbitmq_service.publish_event(
-                EventType.PROCESSING_STARTED.value,
-                {
-                    'type': EventType.PROCESSING_STARTED.value,
-                    'fileId': file_id,
-                    'userId': user_id,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'data': {
-                        'stage': ProcessingStage.SCENE_DETECTION.value
-                    }
-                }
-            )
-
-            work_dir = tempfile.mkdtemp(dir=self.temp_dir)
-            logger.info(f"Created work directory: {work_dir}")
-
-            year = datetime.utcnow().year
-            month = datetime.utcnow().month
-
-            filename = os.path.basename(file_record['s3Key'])
-            file_path = os.path.join(work_dir, filename)
-
-            loop = asyncio.get_event_loop()
-
-            # Check if this is a YouTube video
-            youtube_url = file_record.get('youtubeUrl')
-            if youtube_url:
-                logger.info(f"Downloading YouTube video: {youtube_url}")
-                download_result = await self.youtube_downloader.download_video(
-                    youtube_url,
-                    file_path,
-                )
-
-                youtube_metadata = dict(file_record.get('metadata') or {})
-                # Only set keys that aren't already present (preserve submission-time metadata)
-                for key, value in {
-                    'actualFileSize': download_result['file_size'],
-                    'downloadedAt': datetime.utcnow().isoformat(),
-                    'downloadedTitle': download_result.get('title'),
-                    'downloadedDuration': download_result.get('duration'),
-                    'description': download_result.get('description', ''),
-                }.items():
-                    youtube_metadata.setdefault(key, value)
-                if download_result.get('duration'):
-                    youtube_metadata['duration'] = int(download_result['duration'])
-
-                video_title = download_result.get('title', file_record.get('filename', 'video'))
-                safe_filename = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in video_title)
-                safe_filename = safe_filename[:100]
-
-                await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        filename=f"{safe_filename}.mp4",
-                        originalFilename=video_title,
-                        fileSize=download_result['file_size'],
-                        metadata=youtube_metadata
-                    )
-                )
-
-                logger.info(f"✓ YouTube video downloaded: {download_result['title']}")
-            else:
-                await self.s3_service.download_file(
-                    file_record['s3Key'],
-                    file_path,
-                    bucket=file_record.get('s3Bucket', 'user-uploads')
-                )
-
-            # Generate and upload file thumbnail
-            thumbnail_path = None
-            try:
-                thumbnail_filename = f"thumbnail_{file_id}.jpg"
-                thumbnail_local_path = os.path.join(work_dir, thumbnail_filename)
-
-                await self.scene_detection_service.generate_file_thumbnail(
-                    file_path,
-                    file_type,
-                    thumbnail_local_path
-                )
-
-                thumbnail_s3_key = f"thumbnails/{user_id}/{year}/{month}/files/{file_id}.jpg"
-
-                bucket = file_record.get('s3Bucket') or settings.aws_s3_bucket
-                await self.s3_service.upload_file(
-                    thumbnail_local_path,
-                    thumbnail_s3_key,
-                    content_type='image/jpeg',
-                    bucket=bucket
-                )
-
-                # Generate presigned URL for private bucket access
-                thumbnail_url = await self.s3_service.get_signed_url(
-                    thumbnail_s3_key,
-                    expiration=3600,  # 1 hour
-                    bucket=bucket
-                )
-
-                logger.info(f"Generated and uploaded file thumbnail to bucket '{bucket}': {thumbnail_s3_key}")
-
-                # Update file record with thumbnail path (S3 key)
-                await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        metadata={
-                            'thumbnailPath': thumbnail_s3_key
-                        }
-                    )
-                )
-
-            except Exception as thumb_error:
-                logger.error(f"Failed to generate file thumbnail: {thumb_error}", exc_info=True)
-
-            if file_type not in ['VIDEO', 'YOUTUBE_VIDEO']:
-                logger.info(f"Skipping scene detection for non-video file type: {file_type}")
-                result = await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        processingStatus=ProcessingStatus.COMPLETED.value,
-                        processingStage=ProcessingStage.COMPLETED.value,
-                        processingCompletedAt=datetime.utcnow()
-                    )
-                )
-                # Images finish here (no scene-detection/indexing phase follows).
-                # Publish so upload-manager's WS broadcaster (bound to routing key
-                # `file.#`) pushes the COMPLETED state to the frontend immediately —
-                # without this, the UI only updates on manual refresh. Uses
-                # INDEXING_COMPLETED, not PROCESSING_COMPLETED: the latter is
-                # strictly schema-validated by file-embedder's video-scene consumer
-                # (requires a scenes[] array) and would risk purging this image's
-                # already-correct embeddings. INDEXING_COMPLETED has no registered
-                # consumers, so it's a safe "pipeline reached COMPLETED" signal for
-                # upload-manager's WS broadcaster only.
-                try:
-                    await self.rabbitmq_service.publish_event(
-                        EventType.INDEXING_COMPLETED.value,
-                        {
-                            'type': EventType.INDEXING_COMPLETED.value,
-                            'fileId': file_id,
-                            'userId': user_id,
-                            'timestamp': datetime.utcnow().isoformat(),
-                            'data': {'stage': ProcessingStage.COMPLETED.value},
-                        }
-                    )
-                except Exception as pub_err:
-                    logger.warning(f"Failed to publish indexing-completed event for image {file_id}: {pub_err}")
-                return result
-
-            # Build a sync callback that schedules async progress publishes from the
-            # executor thread (0-49% range = frame analysis phase).
-            def _on_detect_progress(pct: int) -> None:
-                asyncio.run_coroutine_threadsafe(
-                    self._publish_progress_pct(file_id, user_id, pct),
-                    loop,
-                )
-
-            scenes_data = await loop.run_in_executor(
-                cpu_executor,
-                lambda: self.scene_detection_service.detect_scenes(
-                    file_path, progress_callback=_on_detect_progress
-                ),
-            )
-
-            if not scenes_data:
-                logger.warning(f"No scenes detected in file: {file_id}")
-                return await self.upload_manager_client.update_file_status(
-                    file_id,
-                    UpdateFileStatusParams(
-                        processingStatus=ProcessingStatus.COMPLETED.value,
-                        processingStage=ProcessingStage.COMPLETED.value,
-                        processingCompletedAt=datetime.utcnow(),
-                        metadata={'scenes_detected': 0}
-                    )
-                )
-
-            logger.info(f"[{correlation_id}] Detected {len(scenes_data)} scenes, processing thumbnails...")
-
-            scene_bucket = file_record.get('s3Bucket') or settings.aws_s3_bucket
-            total_scenes = len(scenes_data)
-            completed_scenes = 0
-            progress_lock = asyncio.Lock()
-
-            async def _run_with_progress(scene_data):
-                nonlocal completed_scenes
-                result = await self._process_single_scene(
-                    scene_data, file_id, user_id, year, month, work_dir, scene_bucket, file_path
-                )
-                async with progress_lock:
-                    completed_scenes += 1
-                    done = completed_scenes
-                # Thumbnail phase maps to 50-100% so the full bar goes 0→50 (detection)
-                # then 50→100 (thumbnail extraction + S3 upload).
-                pct = 50 + round(done / total_scenes * 50)
-                await self._publish_progress_pct(file_id, user_id, pct)
-                logger.info(f"Processed scene {scene_data['scene_number']}/{total_scenes}")
-                return result
-
-            results = await asyncio.gather(*[_run_with_progress(sd) for sd in scenes_data])
-
-            scenes_to_create = [s for s in results if s is not None and not s.get("_failed")]
-            failed_scenes = [s for s in results if s is not None and s.get("_failed")]
-            if failed_scenes:
-                logger.warning(
-                    f"Failed to process {len(failed_scenes)} scenes: "
-                    f"{[s['scene_number'] for s in failed_scenes]}"
-                )
-
-            if not scenes_to_create and scenes_data:
-                raise RuntimeError(
-                    f"All {len(failed_scenes)}/{len(scenes_data)} scene thumbnail uploads failed "
-                    f"for {file_id}. Check S3 connectivity."
-                )
-
-            if scenes_to_create:
-                logger.info(f"Batch inserting {len(scenes_to_create)} scenes into database...")
-                await self.prisma_service.prisma.scene.create_many(
-                    data=scenes_to_create
-                )
-                logger.info(f"Successfully inserted {len(scenes_to_create)} scenes")
-
-                # Fetch created scenes to get their IDs
-                created_scenes = await self.prisma_service.prisma.scene.find_many(
-                    where={'fileId': file_id},
-                    order={'sceneNumber': 'asc'}
-                )
-                # Create a lookup by sceneNumber for easy ID mapping
-                scene_id_map = {scene.sceneNumber: scene.id for scene in created_scenes}
-
-            indexing_metadata: dict = {
-                'scenes_detected': len(scenes_to_create),
-                'scenes_total': len(scenes_data)
-            }
-            if failed_scenes:
-                indexing_metadata['scenes_failed'] = len(failed_scenes)
-                indexing_metadata['failed_scene_numbers'] = [s['scene_number'] for s in failed_scenes]
-
-            await self.upload_manager_client.update_file_status(
-                file_id,
-                UpdateFileStatusParams(
-                    processingStatus=ProcessingStatus.IN_PROGRESS.value,
-                    processingStage=ProcessingStage.INDEXING.value,
-                    metadata=indexing_metadata,
-                )
-            )
-
-            await self.rabbitmq_service.publish_event(
-                EventType.PROCESSING_COMPLETED.value,
-                {
-                    'type': EventType.PROCESSING_COMPLETED.value,
-                    'fileId': file_id,
-                    'fileName': file_record.get('originalFilename') or file_record.get('filename'),
-                    'fileType': file_record.get('fileType'),
-                    'user': user.model_dump(by_alias=True) if hasattr(user, 'model_dump') else user,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'data': {
-                        'stage': ProcessingStage.SCENE_DETECTION.value,
-                        'scenes_detected': len(scenes_to_create),
-                        'scenes': [
-                            {
-                                'id': scene_id_map.get(scene['sceneNumber']),
-                                'sceneNumber': scene['sceneNumber'],
-                                'keyframe': scene['keyframe'],
-                                'startFrame': scene['startFrame'],
-                                'endFrame': scene['endFrame'],
-                                'startTime': scene['startTime'],
-                                'endTime': scene['endTime'],
-                                'thumbnailUrl': scene['thumbnailS3Url'],
-                                'thumbnailS3Key': scene['thumbnailS3Key']
-                            }
-                            for scene in scenes_to_create
-                        ]
-                    }
-                }
-            )
-
-            logger.info(
-                f"[{correlation_id}] Scene processing completed for file: {file_id}, "
-                f"created {len(scenes_to_create)} scenes"
-            )
-
-        except Exception as e:
-            logger.error(f"[{correlation_id}] Error processing file {file_id}: {e}", exc_info=True)
-            if is_final_attempt:
-                try:
-                    await self.upload_manager_client.update_file_status(
-                        file_id,
-                        UpdateFileStatusParams(
-                            processingStatus=ProcessingStatus.FAILED.value,
-                            processingCompletedAt=datetime.utcnow(),
-                            errorMessage=str(e)
-                        )
-                    )
-
-                    await self.rabbitmq_service.publish_event(
-                        EventType.PROCESSING_FAILED.value,
-                        {
-                            'type': EventType.PROCESSING_FAILED.value,
-                            'fileId': file_id,
-                            'userId': user_id,
-                            'timestamp': datetime.utcnow().isoformat(),
-                            'data': {
-                                'stage': ProcessingStage.SCENE_DETECTION.value,
-                                'error': str(e)
-                            }
-                        }
-                    )
-                except Exception as update_error:
-                    logger.error(f"Failed to update error status: {update_error}")
-
+            logger.info("Scene detection finished for %s: %d scenes", file_id, stored)
+        except asyncio.CancelledError:
             raise
-
+        except Exception as error:
+            logger.error("Scene processing failed for %s: %s", file_id, error, exc_info=True)
+            if is_final_attempt:
+                await report_stage(file_id, user_id, stage=SCENE_DETECTION, status=FAILED, error=str(error))
+            raise
         finally:
-            if work_dir and os.path.exists(work_dir):
-                try:
-                    shutil.rmtree(work_dir)
-                    logger.info(f"Cleaned up work directory: {work_dir}")
-                except Exception as e:
-                    logger.error(f"Failed to clean up work directory: {e}")
+            if work_dir:
+                shutil.rmtree(work_dir, ignore_errors=True)
+
+    async def _clear_scenes(self, file_id: str) -> None:
+        deleted = await self.db.prisma.scene.delete_many(where={"fileId": file_id})
+        if deleted:
+            logger.info("Removed %d previous scenes for %s", deleted, file_id)
+
+    async def _fetch_source(self, upload: events_pb2.FileUploaded, file_path: str) -> None:
+        if not upload.youtube_url:
+            await self.s3.download_file(upload.key, file_path, bucket=upload.bucket or None)
+            return
+        result = await self.youtube.download_video(upload.youtube_url, file_path)
+        attributes = {
+            "durationSeconds": int(result["duration"]) if result.get("duration") else None,
+            "uploader": result.get("uploader"),
+            "description": (result.get("description") or "")[:2000] or None,
+            "downloadedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        await report_stage(
+            upload.file_id,
+            upload.user_id,
+            name=result.get("title"),
+            size_bytes=result.get("file_size"),
+            attributes={key: value for key, value in attributes.items() if value is not None},
+        )
+
+    async def _upload_file_thumbnail(
+        self, upload: events_pb2.FileUploaded, file_type: str, file_path: str, work_dir: str
+    ) -> str | None:
+        try:
+            local_path = os.path.join(work_dir, f"thumbnail_{upload.file_id}.jpg")
+            await self.detector.generate_file_thumbnail(file_path, file_type, local_path)
+            now = datetime.now(timezone.utc)
+            key = f"thumbnails/{upload.user_id}/{now.year}/{now.month}/files/{upload.file_id}.jpg"
+            await self.s3.upload_file(local_path, key, content_type="image/jpeg", bucket=upload.bucket or None)
+            return key
+        except Exception as error:
+            logger.warning("File thumbnail failed for %s: %s", upload.file_id, error)
+            return None
+
+    async def _detect_scenes(self, upload: events_pb2.FileUploaded, file_path: str) -> list[dict]:
+        loop = asyncio.get_running_loop()
+        reporter = _ProgressReporter(upload.file_id, upload.user_id)
+
+        def on_progress(pct: int) -> None:
+            asyncio.run_coroutine_threadsafe(reporter.report(pct // 2), loop)
+
+        return await loop.run_in_executor(
+            cpu_executor, lambda: self.detector.detect_scenes(file_path, progress_callback=on_progress)
+        )
+
+    async def _store_scenes(
+        self, upload: events_pb2.FileUploaded, scenes: list[dict], file_path: str, work_dir: str
+    ) -> tuple[int, int]:
+        reporter = _ProgressReporter(upload.file_id, upload.user_id, floor=50)
+        now = datetime.now(timezone.utc)
+        done = 0
+        lock = asyncio.Lock()
+
+        async def one(scene: dict) -> dict | None:
+            nonlocal done
+            row = await self._thumbnail_scene(upload, scene, file_path, work_dir, now)
+            async with lock:
+                done += 1
+                progress = 50 + round(done / len(scenes) * 50)
+            await reporter.report(progress)
+            return row
+
+        rows = await asyncio.gather(*(one(scene) for scene in scenes))
+        created = [row for row in rows if row]
+        if not created:
+            raise RuntimeError(f"All {len(scenes)} scene thumbnails failed for {upload.file_id}")
+        await self.db.prisma.scene.create_many(data=created)
+        return len(created), len(scenes) - len(created)
+
+    async def _thumbnail_scene(
+        self, upload: events_pb2.FileUploaded, scene: dict, file_path: str, work_dir: str, now: datetime
+    ) -> dict | None:
+        number = scene["scene_number"]
+        try:
+            local_path = os.path.join(work_dir, f"scene_{number:04d}.jpg")
+            await self.detector.extract_thumbnail(file_path, scene["keyframe"], local_path)
+            key = f"thumbnails/{upload.user_id}/{now.year}/{now.month}/scenes/{upload.file_id}/scene_{number:04d}.jpg"
+            await self.s3.upload_file(local_path, key, content_type="image/jpeg", bucket=upload.bucket or None)
+            return {
+                "fileId": upload.file_id,
+                "userId": upload.user_id,
+                "sceneNumber": number,
+                "startTime": scene["start_time"],
+                "endTime": scene["end_time"],
+                "startFrame": scene["start_frame"],
+                "endFrame": scene["end_frame"],
+                "keyframe": scene["keyframe"],
+                "duration": scene["duration"],
+                "thumbnailS3Key": key,
+            }
+        except Exception as error:
+            logger.warning("Scene %d thumbnail failed for %s: %s", number, upload.file_id, error)
+            return None
+
+
+class _ProgressReporter:
+    def __init__(self, file_id: str, user_id: str, floor: int = 0) -> None:
+        self.file_id = file_id
+        self.user_id = user_id
+        self.last = floor - PROGRESS_STEP
+
+    async def report(self, pct: int) -> None:
+        if pct < 100 and pct - self.last < PROGRESS_STEP:
+            return
+        self.last = pct
+        try:
+            await report_stage(self.file_id, self.user_id, stage=SCENE_DETECTION, status=IN_PROGRESS, progress=pct)
+        except Exception as error:
+            logger.debug("Progress report dropped for %s: %s", self.file_id, error)

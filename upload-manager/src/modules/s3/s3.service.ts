@@ -1,33 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-    S3Client,
-    GetObjectCommand,
-    DeleteObjectCommand,
-    HeadObjectCommand,
-    CreateMultipartUploadCommand,
-    UploadPartCommand,
-    CompleteMultipartUploadCommand,
     AbortMultipartUploadCommand,
+    CompleteMultipartUploadCommand,
+    CreateMultipartUploadCommand,
+    DeleteObjectCommand,
+    GetObjectCommand,
+    S3Client,
+    UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 
-export interface UploadResult {
-    key: string;
-    bucket: string;
-    url: string;
-    size: number;
-}
-
-export interface MultipartUploadInitResult {
-    uploadId: string;
-    key: string;
-    bucket: string;
-    presignedUrls: string[];
-}
+export const PRESIGN_EXPIRES_SECONDS = 3600;
+const S3_TIMEOUT_MS = 30_000;
 
 export interface CompletedPart {
     ETag: string;
@@ -38,306 +25,89 @@ export interface CompletedPart {
 export class S3Service {
     private readonly logger = new Logger(S3Service.name);
     private readonly s3Client: S3Client;
-    /** Used only for getSignedUrl calls so presigned URLs contain the public hostname. */
+    // Signs browser-facing URLs with the public hostname; s3Client uses the in-network one.
     private readonly presignClient: S3Client;
-    private readonly bucket: string;
+    readonly bucket: string;
 
-    constructor(private configService: ConfigService) {
-        const region = this.configService.get<string>('aws.region');
-        const accessKeyId = this.configService.get<string>('aws.accessKeyId');
-        const secretAccessKey = this.configService.get<string>(
-            'aws.secretAccessKey',
-        );
-        const endpoint = this.configService.get<string>('aws.s3.endpoint');
-        const publicEndpoint = this.configService.get<string>('aws.s3.publicEndpoint');
+    constructor(configService: ConfigService) {
+        const accessKeyId = configService.get<string>('aws.accessKeyId');
+        const secretAccessKey = configService.get<string>('aws.secretAccessKey');
+        const endpoint = configService.get<string>('aws.s3.endpoint');
+        const publicEndpoint = configService.get<string>('aws.s3.publicEndpoint') || endpoint;
+        this.bucket = configService.get<string>('aws.s3.bucket') || 'ragspace-uploads';
 
-        this.bucket =
-            this.configService.get<string>('aws.s3.bucket') || 'ragspace-uploads';
-
-        const sharedClientConfig = {
-            region,
-            credentials:
-                accessKeyId && secretAccessKey
-                    ? { accessKeyId, secretAccessKey }
-                    : undefined,
-            // Only calculate checksums when strictly required.
-            // SDK v3 defaults to WHEN_SUPPORTED which injects x-amz-checksum-crc32
-            // into UploadPart presigned URLs; MinIO rejects those with 403.
+        const shared = {
+            region: configService.get<string>('aws.region'),
+            credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined,
+            // The SDK's default checksum headers on presigned UploadPart URLs are rejected by MinIO.
             requestChecksumCalculation: 'WHEN_REQUIRED' as const,
             responseChecksumValidation: 'WHEN_REQUIRED' as const,
+            requestHandler: { requestTimeout: S3_TIMEOUT_MS, connectionTimeout: 5_000 },
         };
+        const endpointConfig = (url?: string) =>
+            url ? { endpoint: url, forcePathStyle: true, tls: url.startsWith('https') } : {};
 
-        // Internal client — used for all server-side S3 operations (create/complete/abort).
-        this.s3Client = new S3Client({
-            ...sharedClientConfig,
-            ...(endpoint && {
-                endpoint,
-                forcePathStyle: true,
-                tls: endpoint.startsWith('https'),
-            }),
-        });
-
-        // Presign client — uses the public endpoint so that generated URLs are
-        // directly reachable by the browser. In production the public endpoint
-        // equals the internal one (or is unset), so we fall back to s3Client config.
-        const presignEndpoint = publicEndpoint || endpoint;
-        this.presignClient = new S3Client({
-            ...sharedClientConfig,
-            ...(presignEndpoint && {
-                endpoint: presignEndpoint,
-                forcePathStyle: true,
-                tls: presignEndpoint.startsWith('https'),
-            }),
-        });
-
-        this.logger.log(`S3 Service initialized for bucket: ${this.bucket}`);
+        this.s3Client = new S3Client({ ...shared, ...endpointConfig(endpoint) });
+        this.presignClient = new S3Client({ ...shared, ...endpointConfig(publicEndpoint) });
     }
 
-    async uploadFile(
-        file: Express.Multer.File,
-        userId: string,
-        onProgress?: (progress: number) => void,
-    ): Promise<UploadResult> {
+    objectKey(userId: string, fileName: string): string {
+        const now = new Date();
+        return `uploads/${userId}/${now.getFullYear()}/${now.getMonth() + 1}/${randomUUID()}${path.extname(fileName)}`;
+    }
+
+    getSignedUrl(key: string, expiresIn = PRESIGN_EXPIRES_SECONDS): Promise<string> {
+        return getSignedUrl(this.presignClient, new GetObjectCommand({ Bucket: this.bucket, Key: key }), { expiresIn });
+    }
+
+    getInternalSignedUrl(key: string, expiresIn = 300): Promise<string> {
+        return getSignedUrl(this.s3Client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), { expiresIn });
+    }
+
+    async deleteObject(key: string): Promise<void> {
         try {
-            const fileExtension = path.extname(file.originalname);
-            const fileName = `${uuidv4()}${fileExtension}`;
-            const key = `uploads/${userId}/${new Date().getFullYear()}/${new Date().getMonth() + 1}/${fileName}`;
-
-            const upload = new Upload({
-                client: this.s3Client,
-                params: {
-                    Bucket: this.bucket,
-                    Key: key,
-                    Body: file.buffer,
-                    ContentType: file.mimetype,
-                    Metadata: {
-                        originalName: file.originalname,
-                        userId,
-                        uploadDate: new Date().toISOString(),
-                    },
-                },
-            });
-
-            if (onProgress) {
-                upload.on('httpUploadProgress', (progress) => {
-                    if (progress.loaded && progress.total) {
-                        const percentage = Math.round(
-                            (progress.loaded / progress.total) * 100,
-                        );
-                        onProgress(percentage);
-                    }
-                });
-            }
-
-            await upload.done();
-
-            const url = await this.getSignedUrl(key);
-            this.logger.log(`File uploaded successfully: ${key}`);
-
-            return {
-                key,
-                bucket: this.bucket,
-                url,
-                size: file.size,
-            };
+            await this.s3Client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
         } catch (error) {
-            this.logger.error('Error uploading file to S3', error);
-            throw error;
+            this.logger.warn(`Failed to delete s3://${this.bucket}/${key}: ${(error as Error).message}`);
         }
     }
 
-    async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
-        try {
-            const command = new GetObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-            });
-
-            const url = await getSignedUrl(this.presignClient, command, { expiresIn });
-            return url;
-        } catch (error) {
-            this.logger.error(`Error generating signed URL for key: ${key}`, error);
-            throw error;
-        }
+    async createMultipartUpload(key: string, mimeType: string, metadata: Record<string, string>): Promise<string> {
+        const { UploadId } = await this.s3Client.send(
+            new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ContentType: mimeType, Metadata: metadata }),
+        );
+        if (!UploadId) throw new Error('S3 did not return an UploadId');
+        return UploadId;
     }
 
-    async deleteFile(key: string): Promise<void> {
-        try {
-            const command = new DeleteObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-            });
-
-            await this.s3Client.send(command);
-            this.logger.log(`File deleted successfully: ${key}`);
-        } catch (error) {
-            this.logger.error(`Error deleting file: ${key}`, error);
-            throw error;
-        }
-    }
-
-    async fileExists(key: string): Promise<boolean> {
-        try {
-            const command = new HeadObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-            });
-
-            await this.s3Client.send(command);
-            return true;
-        } catch (error) {
-            if (
-                error &&
-                typeof error === 'object' &&
-                'name' in error &&
-                (error as { name: string }).name === 'NotFound'
-            ) {
-                return false;
-            }
-            throw error;
-        }
-    }
-
-    async getFileMetadata(key: string) {
-        try {
-            const command = new HeadObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-            });
-
-            const response = await this.s3Client.send(command);
-            return {
-                contentType: response.ContentType,
-                contentLength: response.ContentLength,
-                lastModified: response.LastModified,
-                metadata: response.Metadata,
-            };
-        } catch (error) {
-            this.logger.error(`Error getting file metadata: ${key}`, error);
-            throw error;
-        }
-    }
-
-
-    async initMultipartUpload(
-        fileName: string,
-        fileSize: number,
-        mimeType: string,
-        userId: string,
-        chunkSize: number = 5 * 1024 * 1024,
-    ): Promise<MultipartUploadInitResult> {
-        try {
-            const fileExtension = path.extname(fileName);
-            const generatedFileName = `${uuidv4()}${fileExtension}`;
-            const key = `uploads/${userId}/${new Date().getFullYear()}/${new Date().getMonth() + 1}/${generatedFileName}`;
-
-            const createCommand = new CreateMultipartUploadCommand({
-                Bucket: this.bucket,
-                Key: key,
-                ContentType: mimeType,
-                Metadata: {
-                    originalName: fileName,
-                    userId,
-                    uploadDate: new Date().toISOString(),
-                },
-            });
-
-            const { UploadId } = await this.s3Client.send(createCommand);
-
-            if (!UploadId) {
-                throw new Error('Failed to initialize multipart upload');
-            }
-
-            const numParts = Math.ceil(fileSize / chunkSize);
-
-            const presignedUrls: string[] = [];
-            for (let partNumber = 1; partNumber <= numParts; partNumber++) {
-                const uploadPartCommand = new UploadPartCommand({
-                    Bucket: this.bucket,
-                    Key: key,
-                    UploadId,
-                    PartNumber: partNumber,
-                });
-
-                const presignedUrl = await getSignedUrl(
+    presignParts(key: string, uploadId: string, partCount: number): Promise<string[]> {
+        return Promise.all(
+            Array.from({ length: partCount }, (_, index) =>
+                getSignedUrl(
                     this.presignClient,
-                    uploadPartCommand,
-                    { expiresIn: 3600 },
-                );
-                presignedUrls.push(presignedUrl);
-            }
-
-            this.logger.log(
-                `Multipart upload initialized: ${UploadId}, ${numParts} parts`,
-            );
-
-            return {
-                uploadId: UploadId,
-                key,
-                bucket: this.bucket,
-                presignedUrls,
-            };
-        } catch (error) {
-            this.logger.error('Error initializing multipart upload', error);
-            throw error;
-        }
+                    new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber: index + 1 }),
+                    { expiresIn: PRESIGN_EXPIRES_SECONDS },
+                ),
+            ),
+        );
     }
 
-
-    async completeMultipartUpload(
-        key: string,
-        uploadId: string,
-        parts: CompletedPart[],
-        totalSize: number,
-    ): Promise<UploadResult> {
-        try {
-            const completeCommand = new CompleteMultipartUploadCommand({
+    async completeMultipartUpload(key: string, uploadId: string, parts: CompletedPart[]): Promise<void> {
+        await this.s3Client.send(
+            new CompleteMultipartUploadCommand({
                 Bucket: this.bucket,
                 Key: key,
                 UploadId: uploadId,
-                MultipartUpload: {
-                    Parts: parts.map((part) => ({
-                        ETag: part.ETag,
-                        PartNumber: part.PartNumber,
-                    })),
-                },
-            });
-
-            await this.s3Client.send(completeCommand);
-
-            const url = await this.getSignedUrl(key);
-
-            this.logger.log(`Multipart upload completed: ${key}`);
-
-            return {
-                key,
-                bucket: this.bucket,
-                url,
-                size: totalSize,
-            };
-        } catch (error) {
-            this.logger.error('Error completing multipart upload', error);
-            throw error;
-        }
+                MultipartUpload: { Parts: [...parts].sort((a, b) => a.PartNumber - b.PartNumber) },
+            }),
+        );
     }
 
     async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
         try {
-            const abortCommand = new AbortMultipartUploadCommand({
-                Bucket: this.bucket,
-                Key: key,
-                UploadId: uploadId,
-            });
-
-            await this.s3Client.send(abortCommand);
-            this.logger.log(`Multipart upload aborted: ${uploadId}`);
+            await this.s3Client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
         } catch (error) {
-            if (error.name === 'NoSuchUpload' || error.Code === 'S3Error') {
-                this.logger.warn(`Multipart upload ${uploadId} does not exist (may have been completed or aborted already)`);
-                return;
-            }
-            this.logger.error('Error aborting multipart upload', error);
-            throw error;
+            this.logger.warn(`Abort of multipart upload ${uploadId} failed: ${(error as Error).message}`);
         }
     }
 }

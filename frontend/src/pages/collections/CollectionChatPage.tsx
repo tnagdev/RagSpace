@@ -1,135 +1,46 @@
-import { type FC, useState, useEffect, useRef } from 'react';
+import { type FC, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { Folder, ArrowLeft, Calendar, File as FileIcon, FolderTree, AlertCircle, MessageSquare, Plus, Bot } from 'lucide-react';
+import { Folder, ArrowLeft, Calendar, File as FileIcon, FolderTree, AlertCircle, MessageSquare, Plus } from 'lucide-react';
 import moment from 'moment';
 import { useCollection } from '@/hooks/useCollection';
-import { useConversations, useConversation } from '@/hooks/useChat';
-import { chatAPI } from '@/api/chat';
-import { collectionAPI } from '@/api/collection';
-import { ChatSSEEvent, SearchResult } from '@/types/chat.types';
+import { useConversations } from '@/hooks/useChat';
+import { useChatSession } from '@/hooks/useChatSession';
+import { collectionColor } from '@/lib/collectionColors';
 import Button from '@/components/Button';
-import { IconButton } from '@/components/IconButton';
 import ConversationList from '@/pages/chat/components/ConversationList';
 import MessageList from '@/pages/chat/components/MessageList';
 import ChatInput from '@/pages/chat/components/ChatInput';
 import Loader from '@/components/Loader';
-import Markdown from '@/components/Markdown';
+import StreamingReply from '@/pages/chat/components/StreamingReply';
 
 const CollectionChatPage: FC = () => {
     const { id: collectionId } = useParams({ strict: false }) as { id: string };
     const navigate = useNavigate();
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const streamingMessageRef = useRef<string>('');
 
     const [selectedConversationId, setSelectedConversationId] = useState<string | undefined>();
-    const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; searchResults?: SearchResult[] }>>([]);
-    const [streamingMessage, setStreamingMessage] = useState<string>('');
-    const [streamingResults, setStreamingResults] = useState<SearchResult[]>([]);
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [collectionFileIds, setCollectionFileIds] = useState<string[]>([]);
 
     const collectionQuery = useCollection(collectionId);
-    const conversationsQuery = useConversations();
-    const conversationQuery = useConversation(selectedConversationId);
+    const conversationsQuery = useConversations({ collectionId });
+    const session = useChatSession({
+        conversationId: selectedConversationId,
+        scope: { collectionId },
+        onConversationCreated: setSelectedConversationId,
+    });
+    const { turns, stream, error } = session;
 
-    const collection = collectionQuery.data?.collection;
+    const collection = collectionQuery.data;
+    const collectionConversations = (conversationsQuery.data?.pages ?? []).flatMap((page) => page.items);
 
-    // Filter conversations for this collection
-    const collectionConversations = conversationsQuery.data?.filter(conv => conv.collection_id === collectionId) || [];
-
-    // Load collection file IDs
-    useEffect(() => {
-        const loadCollectionFiles = async () => {
-            try {
-                const fileIds = await collectionAPI.getCollectionFiles(collectionId);
-                setCollectionFileIds(fileIds);
-            } catch (err) {
-                console.error('Failed to load collection files:', err);
-            }
-        };
-        loadCollectionFiles();
-    }, [collectionId]);
-
-    // Auto-scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, streamingMessage]);
+    }, [turns.length, stream.text]);
 
-    // Load conversation messages
-    useEffect(() => {
-        if (conversationQuery.data?.messages) {
-            const formattedMessages = conversationQuery.data.messages.map(msg => ({
-                role: msg.role as 'user' | 'assistant',
-                content: msg.content,
-                searchResults: msg.results,
-                timestamp: msg.timestamp,
-            }));
-            setMessages(formattedMessages);
-        } else if (!selectedConversationId) {
-            setMessages([]);
-        }
-    }, [conversationQuery.data, selectedConversationId]);
-
-    const handleSendMessage = async (message: string) => {
-        if (!message.trim() || isStreaming) return;
-
-        const userMessage = { role: 'user' as const, content: message };
-        setMessages(prev => [...prev, userMessage]);
-        setIsStreaming(true);
-        setError(null);
-        setStreamingMessage('');
-        setStreamingResults([]);
-        streamingMessageRef.current = '';
-
-        try {
-            let newConversationId = selectedConversationId;
-            await chatAPI.streamChat(
-                {
-                    message,
-                    conversation_id: selectedConversationId,
-                    file_ids: collectionFileIds,
-                    collection_id: collectionId,
-                    max_results: 5,
-                },
-                (event: ChatSSEEvent) => {
-                    if (event.type === 'conversation_id' && event.conversation_id) {
-                        newConversationId = event.conversation_id;
-                        setSelectedConversationId(event.conversation_id);
-                    } else if (event.type === 'content' && event.content) {
-                        streamingMessageRef.current += event.content;
-                        setStreamingMessage(prev => prev + event.content);
-                    } else if (event.type === 'results' && event.results) {
-                        setStreamingResults(event.results);
-                    } else if (event.type === 'done') {
-                        const finalContent = streamingMessageRef.current + (event.content || '');
-                        const assistantMessage = {
-                            role: 'assistant' as const,
-                            content: finalContent,
-                            searchResults: event.results || streamingResults,
-                        };
-                        setMessages(prev => [...prev, assistantMessage]);
-                        setStreamingMessage('');
-                        setStreamingResults([]);
-                        streamingMessageRef.current = '';
-                        setIsStreaming(false);
-                        conversationsQuery.refetch();
-                    } else if (event.type === 'error') {
-                        setError(event.error || 'An error occurred');
-                        setIsStreaming(false);
-                    }
-                }
-            );
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to send message');
-            setIsStreaming(false);
-        }
-    };
+    const handleSendMessage = (message: string) => session.send(message);
 
     const handleNewChat = () => {
         setSelectedConversationId(undefined);
-        setMessages([]);
-        setError(null);
+        session.setError(null);
     };
 
     if (collectionQuery.isLoading) {
@@ -154,8 +65,8 @@ const CollectionChatPage: FC = () => {
         );
     }
 
-    const fileCount = collection._count?.fileCollections || 0;
-    const folderCount = collection._count?.children || 0;
+    const fileCount = collection.fileCount;
+    const folderCount = collection.childCount;
 
     return (
         <div className="flex gap-6 h-full">
@@ -179,7 +90,7 @@ const CollectionChatPage: FC = () => {
                         <div
                             className="w-16 h-16 rounded-xl flex items-center justify-center mx-auto"
                             style={{
-                                backgroundColor: collection.color || 'var(--color-accent-primary)',
+                                backgroundColor: collectionColor(collection.color),
                                 opacity: 0.9
                             }}
                         >
@@ -215,10 +126,10 @@ const CollectionChatPage: FC = () => {
                             </div>
                         </div>
 
-                        {collectionFileIds.length > 0 && (
+                        {fileCount > 0 && (
                             <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs">
                                 <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                                {collectionFileIds.length} files ready
+                                {fileCount} files ready
                             </div>
                         )}
                     </div>
@@ -245,7 +156,7 @@ const CollectionChatPage: FC = () => {
                             <div
                                 className="w-10 h-10 rounded-lg flex items-center justify-center"
                                 style={{
-                                    backgroundColor: collection.color || 'var(--color-accent-primary)',
+                                    backgroundColor: collectionColor(collection.color),
                                     opacity: 0.9
                                 }}
                             >
@@ -280,12 +191,12 @@ const CollectionChatPage: FC = () => {
                 <div className="flex-1 flex flex-col min-h-0 relative">
                     {/* Messages */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
-                        {messages.length === 0 && !streamingMessage ? (
+                        {turns.length === 0 && !stream.active ? (
                             <div className="h-full flex flex-col items-center justify-center">
                                 <div
                                     className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
                                     style={{
-                                        backgroundColor: collection.color || 'var(--color-accent-primary)',
+                                        backgroundColor: collectionColor(collection.color),
                                         opacity: 0.9
                                     }}
                                 >
@@ -300,19 +211,8 @@ const CollectionChatPage: FC = () => {
                             </div>
                         ) : (
                             <>
-                                <MessageList messages={messages} />
-                                {streamingMessage && (
-                                    <div className="flex gap-3 justify-start mt-4">
-                                        <div className="w-8 h-8 rounded-full bg-accent-primary/20 flex items-center justify-center shrink-0">
-                                            <Bot size={18} className="text-accent-primary" />
-                                        </div>
-                                        <div className="max-w-[80%] rounded-lg px-4 py-2.5 bg-bg-tertiary text-white border border-border">
-                                            <div className="text-sm break-words">
-                                                <Markdown content={streamingMessage} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                <MessageList messages={turns} />
+                                {stream.active && <StreamingReply stream={stream} />}
                             </>
                         )}
                         <div ref={messagesEndRef} />
@@ -337,11 +237,11 @@ const CollectionChatPage: FC = () => {
                                 <ChatInput
                                     onSendMessage={handleSendMessage}
                                     onAttachFiles={() => { }}
-                                    isLoading={isStreaming}
-                                    disabled={isStreaming || collectionFileIds.length === 0}
+                                    isLoading={stream.active}
+                                    disabled={stream.active || fileCount + folderCount === 0}
                                     hideAttachment
                                 />
-                                {collectionFileIds.length === 0 && (
+                                {fileCount + folderCount === 0 && (
                                     <p className="text-xs text-text-secondary mt-2">
                                         This collection has no files. Add files to start chatting.
                                     </p>

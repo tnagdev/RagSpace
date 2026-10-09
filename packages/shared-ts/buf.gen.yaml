@@ -1,0 +1,15 @@
+version: v2
+clean: true
+plugins:
+  - local: [node, node_modules/ts-proto/protoc-gen-ts_proto]
+    out: src/gen
+    opt:
+      - outputServices=nice-grpc
+      - outputServices=generic-definitions
+      - useExactTypes=false
+      - esModuleInterop=true
+      - env=node
+      - oneof=unions
+      - stringEnums=true
+      - forceLong=number
+      - useDate=true

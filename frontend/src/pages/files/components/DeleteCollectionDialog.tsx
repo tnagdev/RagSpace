@@ -3,7 +3,7 @@ import { Modal } from '@/components/Modal';
 import Button from '@/components/Button';
 import Checkbox from '@/components/Checkbox';
 import { useDeleteCollection } from '@/hooks/useCollection';
-import type { Collection } from '@/types/collection.types';
+import type { Collection } from '@/api/types';
 import { AlertTriangle } from 'lucide-react';
 
 interface DeleteCollectionDialogProps {
@@ -37,8 +37,8 @@ export const DeleteCollectionDialog: React.FC<
         );
     };
 
-    const fileCount = collection?._count?.fileCollections || 0;
-    const childCount = collection?._count?.children || 0;
+    const fileCount = collection?.fileCount ?? 0;
+    const childCount = collection?.childCount ?? 0;
 
     return (
         <Modal

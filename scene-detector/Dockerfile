@@ -9,20 +9,17 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY scene-detector/requirements.txt ./requirements.txt
+RUN sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-filtered.txt grpcio-tools
+
 COPY contracts/ ./contracts/
 COPY packages/shared-py ./packages/shared-py
-RUN pip install --no-cache-dir datamodel-code-generator && \
-    python packages/shared-py/scripts/generate.py
-COPY scene-detector/requirements.txt ./requirements.txt
-
-RUN pip install --no-cache-dir ./packages/shared-py && \
-    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
-    pip install --no-cache-dir -r /tmp/reqs-filtered.txt
+RUN python packages/shared-py/scripts/generate_proto.py && \
+    pip install --no-cache-dir ./packages/shared-py
 
 FROM python:3.11-slim
 
-# Install runtime dependencies including Node.js for Prisma
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
@@ -41,7 +38,6 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Prisma generates client files in site-packages at runtime
 RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
 
 RUN mkdir -p /tmp/scene-detector /home/appuser/.cache /home/appuser/.config/yt-dlp && \
@@ -60,7 +56,7 @@ ENV PYTHONPATH=/app
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8080
+EXPOSE 8080 50051
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://127.0.0.1:8080/health').read()" || exit 1

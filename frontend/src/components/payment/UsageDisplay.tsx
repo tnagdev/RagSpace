@@ -1,21 +1,21 @@
-import { useUsageStats } from '@/hooks/usePayment';
+import { useUsage } from '@/hooks/usePayment';
 import { usePlansModal } from '@/contexts/PlansModalContext';
-import { UsageMetricType, PlanType } from '@/types/payment.types';
+import type { UsageMetric } from '@/api/types';
 import { TrendingUp, AlertCircle } from 'lucide-react';
 import { Tooltip } from '../Tooltip';
 
 interface UsageBadgeProps {
-    metricType: UsageMetricType;
+    metricType: UsageMetric;
     className?: string;
 }
 
-const formatUsageValue = (metricType: UsageMetricType, value: number): string => {
+const formatUsageValue = (metricType: UsageMetric, value: number): string => {
     switch (metricType) {
-        case UsageMetricType.STORAGE:
+        case 'STORAGE':
             const gb = value / (1024 * 1024 * 1024);
             return gb < 1 ? `${Math.round(value / (1024 * 1024))}MB` : `${gb.toFixed(1)}GB`;
-        case UsageMetricType.MAX_VIDEO_LENGTH:
-        case UsageMetricType.MAX_AUDIO_DURATION:
+        case 'MAX_VIDEO_LENGTH':
+        case 'MAX_AUDIO_DURATION':
             const hours = Math.floor(value / 3600);
             const minutes = Math.floor((value % 3600) / 60);
             return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
@@ -25,10 +25,10 @@ const formatUsageValue = (metricType: UsageMetricType, value: number): string =>
 };
 
 export const UsageBadge = ({ metricType, className = '' }: UsageBadgeProps) => {
-    const { data: usage } = useUsageStats();
+    const { data: usage } = useUsage();
     const { openPlansModal } = usePlansModal();
 
-    const quota = usage?.quotas?.find(q => q.metricType === metricType);
+    const quota = usage?.quotas?.find(q => q.metric === metricType);
 
     if (!quota) return null;
 
@@ -82,12 +82,12 @@ interface UsageBarProps {
 }
 
 export const UsageBar = ({ className = '' }: UsageBarProps) => {
-    const { data: usage, isLoading } = useUsageStats();
+    const { data: usage, isLoading } = useUsage();
     const { openPlansModal } = usePlansModal();
 
     if (isLoading || !usage) return null;
 
-    const currentPlanType = usage?.subscription?.plan?.type || PlanType.FREE;
+    const currentPlanType = usage.planType;
 
     // Find the most critical quota (highest percentage)
     const criticalQuota = usage.quotas
@@ -135,7 +135,7 @@ export const UsageBar = ({ className = '' }: UsageBarProps) => {
                 <div className="flex items-center justify-between text-xs text-gray-400">
                     <span>Most Used Resource</span>
                     <span>
-                        {percentage.toFixed(0)}% ({formatUsageValue(criticalQuota.metricType, criticalQuota.used)} / {formatUsageValue(criticalQuota.metricType, criticalQuota.limit)})
+                        {percentage.toFixed(0)}% ({formatUsageValue(criticalQuota.metric, criticalQuota.used)} / {formatUsageValue(criticalQuota.metric, criticalQuota.limit)})
                     </span>
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">

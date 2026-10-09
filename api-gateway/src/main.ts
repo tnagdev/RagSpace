@@ -1,75 +1,46 @@
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import express, { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
-import httpProxy = require('http-proxy');
-import type { IncomingMessage } from 'http';
-import type { Socket } from 'net';
+import { SessionService } from './auth/session.service';
+import { config } from './config';
+import { authProxy } from './http/auth-proxy';
+import { correlation } from './http/correlation';
+import { OpenApiValidator } from './http/openapi-validator';
+import { originCheck } from './http/origin';
+import { ProblemFilter } from './http/problem.filter';
+import { RateLimiter } from './http/rate-limit';
+import { logger } from './logger';
 
-const logger = new Logger('API-Gateway');
+const BODY_LIMIT = '1mb';
+const SWEEP_MS = 60_000;
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    logger: process.env.NODE_ENV === 'production'
-      ? ['error', 'warn', 'log']
-      : ['error', 'warn', 'log', 'debug', 'verbose'],
-  });
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false, logger });
+    app.set('trust proxy', config.trustProxy);
+    app.disable('x-powered-by');
+    app.enableShutdownHooks();
 
-  app.enableShutdownHooks();
+    const limiter = new RateLimiter();
+    setInterval(() => limiter.sweep(), SWEEP_MS).unref();
+    const validator = OpenApiValidator.fromFile(config.openApiPath);
 
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000', 'http://localhost:8080'];
+    app.use(correlation);
+    app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
+        res.setHeader('Cache-Control', 'no-store');
+        next();
+    });
+    app.use('/api/v1', limiter.middleware);
+    app.use('/api/v1', originCheck);
+    app.use('/api/v1/auth', authProxy(app.get(SessionService)));
+    app.use('/api/v1/webhooks', express.raw({ type: () => true, limit: BODY_LIMIT }));
+    app.use('/api/v1', express.json({ limit: BODY_LIMIT }));
+    app.use('/api/v1', validator.middleware);
 
-  app.enableCors({
-    origin: allowedOrigins,
-    credentials: true,
-    exposedHeaders: ['Set-Cookie'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Correlation-Id'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204
-  });
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
-  app.setGlobalPrefix('api');
-
-  const port = process.env.PORT || 3000;
-  const server = await app.listen(port);
-  logger.log(`HTTP API Gateway is running on http://localhost:${port}`);
-  logger.log(`Health check: http://localhost:${port}/api/health`);
-
-  const uploadManagerUrl = process.env.UPLOAD_MANAGER_URL || 'http://localhost:8002';
-  const wsProxy = httpProxy.createProxyServer({ target: uploadManagerUrl, ws: true });
-  wsProxy.on('error', (err, _req, socket) => {
-    logger.error(`WS proxy error: ${(err as Error).message}`);
-    if (socket && typeof (socket as Socket).destroy === 'function') {
-      (socket as Socket).destroy();
-    }
-  });
-
-  server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
-    if (req.url?.startsWith('/ws/')) {
-      logger.debug(`WS upgrade → ${uploadManagerUrl}${req.url}`);
-      wsProxy.ws(req, socket, head);
-    } else {
-      socket.destroy();
-    }
-  });
-
-  process.on('SIGTERM', () => {
-    logger.log('SIGTERM received — starting graceful shutdown');
-    setTimeout(() => {
-      logger.error('Graceful shutdown timed out — forcing exit');
-      process.exit(1);
-    }, 30_000).unref();
-  });
+    app.setGlobalPrefix('api/v1');
+    app.useGlobalFilters(new ProblemFilter());
+    await app.listen(config.port);
+    logger.log(`API gateway listening on :${config.port}`, 'Bootstrap');
 }
 
-bootstrap();
+void bootstrap();

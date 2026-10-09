@@ -1,45 +1,33 @@
-"""Configuration management for the file-embedder service."""
 import os
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _CPU_COUNT = os.cpu_count() or 4
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
-    
-    # RabbitMQ Configuration
+    port: int = 8080
+    grpc_port: int = 50051
+
     rabbitmq_url: str
-    rabbitmq_exchange: str = "file.events"
-    rabbitmq_queue: str = "file.embedder.queue"
+    files_grpc_address: str = "upload-manager:50051"
+    scenes_grpc_address: str = "scene-detector-server:50051"
     temp_dir: str = "/tmp/file-embedder"
-    
-    # ChromaDB Configuration
+
     chroma_host: str
     chroma_port: int
+    chroma_upsert_batch_size: int = 100
 
-    # Tesseract Configuration
     tesseract_cmd: Optional[str] = None
-    
-    # S3 Configuration
+
     aws_region: str
-    aws_s3_endpoint: str
+    aws_s3_endpoint: Optional[str] = None
     aws_access_key_id: str
     aws_secret_access_key: str
     aws_s3_bucket: str
-    
-    # Service Configuration
-    service_name: str = "file-embedder"
-    port: int
-    log_level: str = "INFO"
-    
-    # External Service URLs
-    upload_manager_url: str
-    scene_detector_url: str
-    chat_manager_url: str
-    
-    # Model Configuration
+    s3_download_timeout_seconds: float = 300.0
+
     device: str = "cpu"
     clip_model: str = "ViT-B-32"
     text_model: str = "BAAI/bge-base-en-v1.5"
@@ -48,23 +36,17 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_model: str = "meta/llama-3.2-11b-vision-instruct"
     llm_max_concurrent_requests: int = 5
-    max_concurrent_scenes: int = 3
-    cpu_workers: int = max(2, _CPU_COUNT)
-    message_handler_timeout: int = 30  # handlers launch a background task and return immediately
-    mode: str = "production"
-    
-    # Batch / timeout tunables
-    audio_segment_batch_size: int = 5
-    chroma_upsert_batch_size: int = 100
-    chroma_timeout_seconds: int = 30
-    s3_download_timeout_seconds: float = 300.0
-    chat_manager_timeout_seconds: float = 30.0
-    llm_request_timeout: float = 60.0   # per-request timeout for vision LLM (NVIDIA API)
+    llm_request_timeout: float = 60.0
     llm_max_retries: int = 3
     llm_json_retry_count: int = 1
 
-    # YouTube Downloader Configuration
-    youtube_cookies_file: Optional[str] = None  # Path to Netscape-format cookies file
+    cpu_workers: int = max(2, _CPU_COUNT)
+    max_concurrent_jobs: int = max(2, min(_CPU_COUNT // 2, 6))
+    max_concurrent_scenes: int = 3
+    audio_segment_batch_size: int = 5
+
+    youtube_cookies_file: Optional[str] = None
+    # Smallest stream that still has a usable audio track; falls back progressively.
     youtube_format_selector: str = (
         'worst[ext=mp4][height<=480]'
         '/worst[ext=mp4]'
@@ -75,15 +57,21 @@ class Settings(BaseSettings):
         '/best[height<=480]'
         '/best'
     )
-    max_processing_retries: int = 1  # set to >1 via MAX_PROCESSING_RETRIES env var to enable auto-retry
-    max_scene_retries: int = 2                  # retries per individual scene before skipping
-    scene_failure_threshold_ratio: float = 0.5  # abort when >50% of scenes fail after retries
-    scene_failure_threshold_count: int = 5      # or when this many scenes fail (whichever fires first)
 
-    class Config:
-        env_file = ".env.development" if os.getenv("MODE") == "development" else ".env"
-        case_sensitive = False
-        env_file_encoding = 'utf-8'
+    max_processing_retries: int = 1
+    max_scene_retries: int = 2
+    # Abort scene indexing when either threshold is crossed after per-scene retries.
+    scene_failure_threshold_ratio: float = 0.5
+    scene_failure_threshold_count: int = 5
+    # How long scene indexing waits for this file's transcription before indexing without it.
+    transcription_wait_seconds: float = 1800.0
+
+    model_config = SettingsConfigDict(
+        env_file=".env.development" if os.getenv("MODE") == "development" else ".env",
+        case_sensitive=False,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = Settings()

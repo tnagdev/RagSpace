@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package ragspace.events.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "ragspace/common/v1/common.proto";
+
+message Envelope {
+  // Consumers dedupe on this.
+  string id = 1;
+  // Equals the RabbitMQ routing key.
+  string type = 2;
+  google.protobuf.Timestamp occur_time = 3;
+  string correlation_id = 4;
+  string producer = 5;
+
+  oneof payload {
+    UserCreated user_created = 10;
+    UserDeleted user_deleted = 11;
+    FileUploaded file_uploaded = 12;
+    FileStageChanged file_stage_changed = 13;
+    FileScenesDetected file_scenes_detected = 14;
+    FileUpdated file_updated = 15;
+    FileDeleted file_deleted = 16;
+    CollectionDeleted collection_deleted = 17;
+  }
+}
+
+message UserCreated {
+  string user_id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message UserDeleted {
+  string user_id = 1;
+}
+
+message FileUploaded {
+  string file_id = 1;
+  string user_id = 2;
+  string name = 3;
+  ragspace.common.v1.FileType type = 4;
+  string mime_type = 5;
+  int64 size_bytes = 6;
+  string bucket = 7;
+  string key = 8;
+  optional string youtube_url = 9;
+  bool reprocess = 10;
+}
+
+message FileStageChanged {
+  string file_id = 1;
+  string user_id = 2;
+  ragspace.common.v1.ProcessingStage stage = 3;
+  ragspace.common.v1.ProcessingStatus status = 4;
+  optional string error_message = 5;
+  int32 retry_count = 6;
+  // Progress within the stage, 0-100. Relayed to clients without persisting.
+  optional int32 progress_percent = 7;
+  // Facts discovered while processing; merged into the file record.
+  optional string thumbnail_key = 8;
+  google.protobuf.Struct attributes = 9;
+  optional string name = 10;
+  optional int64 size_bytes = 11;
+}
+
+// Scenes are not inlined; consumers page through SceneService.ListScenes.
+message FileScenesDetected {
+  string file_id = 1;
+  string user_id = 2;
+  ragspace.common.v1.FileType type = 3;
+  int32 scene_count = 4;
+}
+
+message FileUpdated {
+  string file_id = 1;
+  string user_id = 2;
+  string name = 3;
+  ragspace.common.v1.UploadStatus upload_status = 4;
+  ragspace.common.v1.ProcessingStatus processing_status = 5;
+  ragspace.common.v1.ProcessingStage processing_stage = 6;
+  optional string error_message = 7;
+  google.protobuf.Timestamp update_time = 8;
+  optional int32 progress_percent = 9;
+}
+
+message FileDeleted {
+  string file_id = 1;
+  string user_id = 2;
+  ragspace.common.v1.FileType type = 3;
+}
+
+message CollectionDeleted {
+  string user_id = 1;
+  // Includes all descendants of the deleted collection.
+  repeated string collection_ids = 2;
+}

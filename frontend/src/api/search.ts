@@ -1,14 +1,32 @@
-import { privateAxios } from './apiClient';
-import type { QueryRequest, QueryResponse } from '@/types/search.types';
+import type { paths } from './schema';
+import { api, unwrap } from './client';
+import type { SearchHit } from './types';
 
-const SEARCH_BASE = '/api/embed';
+export type SearchRequest = paths['/search']['post']['requestBody']['content']['application/json'];
+
+export interface ScopedSearch {
+    query: string;
+    fileIds?: string[];
+    collectionIds?: string[];
+    limit?: number;
+    tuning?: SearchRequest['tuning'];
+}
+
+const hitKey = (hit: SearchHit) => `${hit.fileId}:${hit.sceneId ?? ''}:${hit.startSeconds ?? ''}`;
 
 export const searchAPI = {
-    search: async (params: QueryRequest): Promise<QueryResponse> => {
-        const response = await privateAxios.post<QueryResponse>(
-            `${SEARCH_BASE}/search/advanced`,
-            params
-        );
-        return response.data;
+    search: async (body: SearchRequest) => (await unwrap(api.POST('/search', { body }))).items,
+
+    // The API takes one scope per request (files or a collection); several scopes are searched separately and merged.
+    searchScoped: async ({ query, fileIds = [], collectionIds = [], limit = 20, tuning }: ScopedSearch): Promise<SearchHit[]> => {
+        const requests: SearchRequest[] = collectionIds.map((collectionId) => ({ query, collectionId, limit, tuning }));
+        if (fileIds.length || !requests.length) requests.push({ query, limit, tuning, ...(fileIds.length ? { fileIds } : {}) });
+        const batches = await Promise.all(requests.map(searchAPI.search));
+        const unique = new Map<string, SearchHit>();
+        for (const hit of batches.flat()) {
+            const existing = unique.get(hitKey(hit));
+            if (!existing || existing.score < hit.score) unique.set(hitKey(hit), hit);
+        }
+        return [...unique.values()].sort((a, b) => b.score - a.score).slice(0, limit);
     },
 };

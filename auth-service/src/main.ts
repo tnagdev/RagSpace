@@ -1,65 +1,55 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { authV1, createGrpcServer, listenGrpc, runWithCorrelationId } from '@ragspace/shared-ts';
 import { toNodeHandler } from 'better-auth/node';
-import { auth } from 'auth';
+import { auth, AUTH_BASE_PATH } from '../auth';
+import { AppModule } from './app.module';
+import { AuthRpcService } from './auth/auth-rpc.service';
+import { eventBus } from './events/event-bus';
+import { logger } from './logger';
+import { ProblemFilter, validationException } from './problem.filter';
 
-const logger = new Logger('AuthService');
+const OAUTH_CALLBACK = new RegExp(`^${AUTH_BASE_PATH}/oauth/([a-z-]+)/callback$`);
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: process.env.NODE_ENV === 'production'
-      ? ['error', 'warn', 'log']
-      : ['error', 'warn', 'log', 'debug', 'verbose'],
-  });
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger });
+    app.enableShutdownHooks();
 
-  app.enableShutdownHooks();
+    app.use((req, _res, next) => runWithCorrelationId(req.header('x-correlation-id'), next));
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,   // strip properties without decorators
-      transform: true,   // run class-transformer (e.g. @Transform trims)
-    }),
-  );
+    const betterAuthHandler = toNodeHandler(auth);
+    app.use((req, res, next) => {
+        const match = OAUTH_CALLBACK.exec(req.path);
+        if (!match) return next();
+        const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+        req.url = `${AUTH_BASE_PATH}/callback/${match[1]}${query}`;
+        return betterAuthHandler(req, res);
+    });
 
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000', 'http://localhost:8000', 'http://localhost:8080'];
+    app.useGlobalPipes(
+        new ValidationPipe({
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transform: true,
+            exceptionFactory: validationException,
+        }),
+    );
+    app.useGlobalFilters(new ProblemFilter());
 
-  app.enableCors({
-    origin: allowedOrigins,
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'x-user', 'x-session'],
-    exposedHeaders: ['Set-Cookie'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204
-  });
+    eventBus.start();
 
-  const authHandler = toNodeHandler(auth);
-  app.use((req, res, next) => {
-    if (req.path.startsWith('/api/auth')) {
-      return authHandler(req, res);
-    }
-    const betterAuthProxiedRoutes = ['/auth/forget-password', '/auth/reset-password'];
-    if (betterAuthProxiedRoutes.some(route => req.path.startsWith(route))) {
-      req.url = `/api${req.url}`;
-      return authHandler(req, res);
-    }
-    next();
-  });
+    const grpcServer = createGrpcServer(logger);
+    grpcServer.add(authV1.AuthServiceDefinition, app.get(AuthRpcService));
+    await listenGrpc(grpcServer, logger);
 
-  const port = parseInt(process.env.PORT as string, 10) || 8001;
-  await app.listen(port);
-  logger.log(`Auth Service is running on http://localhost:${port}`);
+    process.on('SIGTERM', () => {
+        void grpcServer.shutdown();
+        void eventBus.close();
+    });
 
-  process.on('SIGTERM', () => {
-    logger.log('SIGTERM received — starting graceful shutdown');
-    setTimeout(() => {
-      logger.error('Graceful shutdown timed out — forcing exit');
-      process.exit(1);
-    }, 30_000).unref();
-  });
+    await app.listen(Number(process.env.PORT) || 8080);
+    logger.log(`HTTP listening on :${Number(process.env.PORT) || 8080}`, 'Bootstrap');
 }
-bootstrap();
+
+void bootstrap();

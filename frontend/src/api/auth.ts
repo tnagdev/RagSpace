@@ -1,66 +1,38 @@
-import { privateAxios, publicAxios } from "./apiClient"
-import { ENDPOINTS } from "./endpoints";
+import { ApiError, api, unwrap } from './client';
+import type { User } from './types';
 
-
-
-export const signUpUser = async (data: SignUpPayload) => {
-    const response = await publicAxios.post<AuthResponse>(ENDPOINTS.SIGNUP, data);
-    return response.data;
+export interface SignUpPayload {
+    name: string;
+    email: string;
+    password: string;
 }
 
-export const loginUser = async (data: LoginPayload) => {
-    const response = await publicAxios.post<AuthResponse>(ENDPOINTS.LOGIN, data);
-    privateAxios.defaults.headers.common.Authorization = `Bearer ${response.data.token}`;
-    sessionStorage.setItem('accessToken', response.data.token);
-    return response.data;
+export interface SignInPayload {
+    email: string;
+    password: string;
 }
 
-export const getCurrentUser = async () => {
-    const token = hasAccessToken();
-    if (token) {
-        privateAxios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    }
-    const response = await privateAxios.get<AuthSession>(ENDPOINTS.GET_CURRENT_USER);
-    return response.data.user;
-}
+export const authAPI = {
+    signUp: async (body: SignUpPayload) => (await unwrap(api.POST('/auth/sign-up', { body }))).user,
+    signIn: async (body: SignInPayload) => (await unwrap(api.POST('/auth/sign-in', { body }))).user,
+    signOut: () => unwrap(api.POST('/auth/sign-out')),
 
-export const logoutUser = async () => {
-    const response = await privateAxios.post<{ message: string }>(ENDPOINTS.LOGOUT);
-    privateAxios.defaults.headers.common.Authorization = '';
-    sessionStorage.removeItem('accessToken');
-    return response.data;
-}
+    // Resolves to null instead of throwing when there is no session, so guards can branch on it.
+    me: async (): Promise<User | null> => {
+        const { data, response } = await api.GET('/me');
+        if (response.status === 401) return null;
+        if (!response.ok || !data) throw new ApiError(response.status, undefined);
+        return data;
+    },
+    updateMe: (body: { name?: string; username?: string | null }) => unwrap(api.PATCH('/me', { body })),
+    deleteMe: () => unwrap(api.DELETE('/me')),
 
-export const hasAccessToken = (): string | null => {
-    return sessionStorage.getItem('accessToken');
-}
+    changePassword: (body: { currentPassword: string; newPassword: string; revokeOtherSessions?: boolean }) =>
+        unwrap(api.POST('/auth/password/change', { body: { revokeOtherSessions: true, ...body } })),
+    forgotPassword: (email: string) => unwrap(api.POST('/auth/password/forgot', { body: { email } })),
+    resetPassword: (token: string, newPassword: string) =>
+        unwrap(api.POST('/auth/password/reset', { body: { token, newPassword } })),
 
-export const clearAuthData = () => {
-    sessionStorage.removeItem('accessToken');
-}
-
-export const updateProfile = async (data: { name?: string; username?: string }) => {
-    const response = await privateAxios.patch<{ user: AuthUser }>(ENDPOINTS.UPDATE_PROFILE, data);
-    return response.data;
-}
-
-export const changePassword = async (data: { currentPassword: string; newPassword: string }) => {
-    const response = await privateAxios.post<{ message: string }>(ENDPOINTS.CHANGE_PASSWORD, data);
-    return response.data;
-}
-
-export const deleteAccount = async () => {
-    const response = await privateAxios.delete<{ message: string }>(ENDPOINTS.DELETE_ACCOUNT);
-    return response.data;
-}
-
-export const forgotPassword = async (email: string) => {
-    const redirectTo = `${window.location.origin}/auth/reset-password`;
-    const response = await publicAxios.post<{ status: boolean }>(ENDPOINTS.FORGOT_PASSWORD, { email, redirectTo });
-    return response.data;
-}
-
-export const resetPassword = async (token: string, newPassword: string) => {
-    const response = await publicAxios.post<{ message: string }>(ENDPOINTS.RESET_PASSWORD, { token, newPassword });
-    return response.data;
-}
+    oauthUrl: (provider: 'google', redirectTo = '/files') =>
+        `/api/v1/auth/oauth/${provider}?redirectTo=${encodeURIComponent(redirectTo)}`,
+};

@@ -1,75 +1,47 @@
-import { privateAxios, API_BASE_URL } from './apiClient';
-import type { ConversationSummary, Conversation, ChatRequest, ChatSSEEvent, GreetingResponse } from '@/types/chat.types';
+import { API_BASE_URL, api, idempotencyKey, readSse, unwrap } from './client';
+import type { ChatStreamEvent, Conversation, Message, Page } from './types';
+
+export interface ConversationFilter {
+    fileId?: string;
+    collectionId?: string;
+}
 
 export const chatAPI = {
-    // Get all conversations with optional filtering
-    getConversations: async (params?: { file_id?: string; collection_id?: string }) =>
-        privateAxios.get<ConversationSummary[]>('/api/conversations', { params }),
+    conversations: (filter: ConversationFilter = {}, cursor?: string): Promise<Page<Conversation>> =>
+        unwrap(api.GET('/conversations', { params: { query: { ...filter, limit: 50, cursor } } })),
+    conversation: (conversationId: string) =>
+        unwrap(api.GET('/conversations/{conversationId}', { params: { path: { conversationId } } })),
+    create: (scope: ConversationFilter = {}) =>
+        unwrap(api.POST('/conversations', { params: { header: { 'Idempotency-Key': idempotencyKey() } }, body: scope })),
+    remove: (conversationId: string) =>
+        unwrap(api.DELETE('/conversations/{conversationId}', { params: { path: { conversationId } } })),
+    messages: (conversationId: string, cursor?: string): Promise<Page<Message>> =>
+        unwrap(
+            api.GET('/conversations/{conversationId}/messages', {
+                params: { path: { conversationId }, query: { limit: 50, cursor } },
+            }),
+        ),
+    greeting: async () => (await unwrap(api.GET('/assistant/greeting'))).greeting,
 
-    // Get specific conversation
-    getConversation: async (conversationId: string) =>
-        privateAxios.get<Conversation>(`/api/conversations/${conversationId}`),
-
-    // Delete conversation
-    deleteConversation: async (conversationId: string) =>
-        privateAxios.delete(`/api/conversations/${conversationId}`),
-
-    // Send chat message (SSE streaming)
-    sendMessage: (payload: ChatRequest) => {
-        const url = `${API_BASE_URL}/api/chat`;
-
-        return fetch(url, {
+    // Streams the reply; a retry with the same key replays the stored answer instead of re-asking the model.
+    send: async function* (
+        conversationId: string,
+        body: { content: string; fileIds?: string[] },
+        options: { key?: string; signal?: AbortSignal } = {},
+    ): AsyncGenerator<ChatStreamEvent> {
+        const response = await fetch(`${API_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'text/event-stream',
+                Accept: 'text/event-stream',
+                'Idempotency-Key': options.key ?? idempotencyKey(),
             },
-            credentials: 'include',
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
+            signal: options.signal,
         });
-    },
-
-    // Stream chat with callback handler
-    streamChat: async (payload: ChatRequest, onEvent: (event: ChatSSEEvent) => void) => {
-        const response = await chatAPI.sendMessage(payload);
-
-        if (!response.ok) {
-            throw new Error('Failed to send message');
+        for await (const message of readSse(response)) {
+            yield JSON.parse(message.data) as ChatStreamEvent;
         }
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-
-        if (!reader) {
-            throw new Error('No response stream');
-        }
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-
-                const data = line.slice(6);
-                if (data === '[DONE]') continue;
-
-                try {
-                    const event: ChatSSEEvent = JSON.parse(data);
-                    onEvent(event);
-                } catch (e) {
-                    console.error('Failed to parse SSE event:', e);
-                }
-            }
-        }
-    },
-
-    // Get personalised AI greeting grounded in the user's file library
-    getGreeting: async (): Promise<GreetingResponse> => {
-        const response = await privateAxios.get<GreetingResponse>('/api/greeting');
-        return response.data;
     },
 };

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useFiles, useStorageStats } from '@/hooks/useUpload';
+import { useFiles } from '@/hooks/useUpload';
+import { useUsage } from '@/hooks/usePayment';
 import { useConversations } from '@/hooks/useChat';
-import { ProcessingStage } from '@/types/upload.types';
 import {
     Archive, BookOpen, Search, Library, Layers, Database, Zap,
     MessageSquare, FileCheck2, ChevronRight,
@@ -81,18 +81,15 @@ export function LibraryRankWidget() {
     const [showTooltip, setShowTooltip] = useState(false);
 
     // Completed / indexed files
-    const { data: indexedData } = useFiles({
-        limit: 1,
-        processingStage: ProcessingStage.COMPLETED,
-    });
-    // All files for total count
-    const { data: allData } = useStorageStats();
+    // The top rank needs 100 indexed files, so one full page decides every rank.
+    const { data: indexedData } = useFiles({ limit: 100, processingStage: 'COMPLETED' });
+    const { data: usage } = useUsage();
     // Conversations
     const { data: convData } = useConversations();
 
-    const indexedCount = indexedData?.total ?? 0;
-    const totalFiles = allData?.fileCount ?? 0;
-    const chatCount = Array.isArray(convData) ? convData.length : 0;
+    const indexedCount = indexedData?.items.length ?? 0;
+    const totalFiles = usage?.storage.fileCount ?? 0;
+    const chatCount = convData?.pages[0]?.items.length ?? 0;
 
     const rank = getRank(indexedCount);
     const xp = getXP(indexedCount, chatCount);
