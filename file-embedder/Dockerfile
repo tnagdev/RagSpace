@@ -8,9 +8,15 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10
+
 COPY file-embedder/requirements.txt ./requirements.txt
-RUN sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
-    pip install --no-cache-dir -r /tmp/reqs-filtered.txt grpcio-tools
+# CPU wheels: no deployment reserves a GPU, and the default CUDA build adds about 3 GB to download and ship.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install -r /tmp/reqs-filtered.txt grpcio-tools
 
 COPY contracts/ ./contracts/
 COPY packages/shared-py ./packages/shared-py
