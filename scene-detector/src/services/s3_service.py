@@ -354,3 +354,21 @@ class S3Service(metaclass=SingletonMeta):
         except Exception as e:
             logger.error(f"Signed URL generation error: {e}", exc_info=True)
             raise
+
+    async def get_signed_urls(
+        self, s3_keys: list[str], expiration: int = 3600, bucket: Optional[str] = None
+    ) -> dict[str, str]:
+        if not s3_keys:
+            return {}
+        sign_kwargs = {'config': self.client_config}
+        if self.public_endpoint_url:
+            sign_kwargs['endpoint_url'] = self.public_endpoint_url
+        async with self.session.client('s3', **sign_kwargs) as s3_client:
+            return {
+                key: await s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': bucket or self.bucket, 'Key': key},
+                    ExpiresIn=expiration,
+                )
+                for key in dict.fromkeys(s3_keys)
+            }

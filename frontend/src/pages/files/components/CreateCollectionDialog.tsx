@@ -1,39 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer } from '@/components/Drawer';
 import Button from '@/components/Button';
-import { useCreateCollection, useUpdateCollection, useCollectionsFlat } from '@/hooks/useCollection';
-import type { CreateCollectionDto, Collection } from '@/types/collection.types';
+import { useCreateCollection, useUpdateCollection, useCollections } from '@/hooks/useCollection';
+import type { Collection } from '@/api/types';
+import { COLLECTION_COLORS, DEFAULT_COLLECTION_COLOR, collectionColor } from '@/lib/collectionColors';
 
 interface CreateCollectionDialogProps {
     isOpen: boolean;
     onClose: () => void;
     parentId?: string;
-    collection?: Collection; // For edit mode
+    collection?: Collection;
 }
-
-const PRESET_COLORS = [
-    '#ef4444', // red
-    '#f97316', // orange
-    '#eab308', // yellow
-    '#22c55e', // green
-    '#14b8a6', // teal
-    '#3b82f6', // blue
-    '#a855f7', // purple
-    '#ec4899', // pink
-];
 
 export const CreateCollectionDialog: React.FC<
     CreateCollectionDialogProps
 > = ({ isOpen, onClose, parentId, collection }) => {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
-    const [color, setColor] = useState(PRESET_COLORS[6]); // Default to purple
+    const [color, setColor] = useState<string>(DEFAULT_COLLECTION_COLOR);
     const [selectedParentId, setSelectedParentId] = useState<string | undefined>(
         parentId,
     );
 
-    const { data } = useCollectionsFlat({ enabled: isOpen });
-    const collections = data?.collections || [];
+    const { data: collections = [] } = useCollections();
     const createCollection = useCreateCollection();
     const updateCollection = useUpdateCollection();
 
@@ -44,14 +33,14 @@ export const CreateCollectionDialog: React.FC<
         if (!isOpen) {
             setName('');
             setDescription('');
-            setColor(PRESET_COLORS[6]);
+            setColor(DEFAULT_COLLECTION_COLOR);
             setSelectedParentId(undefined);
         } else if (collection) {
             // Pre-fill values for edit mode
             setName(collection.name);
             setDescription(collection.description || '');
-            setColor(collection.color || PRESET_COLORS[6]);
-            setSelectedParentId(collection.parentId);
+            setColor(collection.color && /^[a-z]/.test(collection.color) ? collection.color : DEFAULT_COLLECTION_COLOR);
+            setSelectedParentId(collection.parentId ?? undefined);
         } else if (parentId) {
             setSelectedParentId(parentId);
         }
@@ -60,31 +49,29 @@ export const CreateCollectionDialog: React.FC<
     const handleSubmit = async () => {
         if (!name.trim()) return;
 
-        const data: CreateCollectionDto = {
-            name: name.trim(),
-            description: description.trim() || undefined,
-            color,
-            parentId: selectedParentId,
-        };
-
         if (isEditMode && collection) {
             updateCollection.mutate(
                 {
                     collectionId: collection.id,
-                    data,
-                },
-                {
-                    onSuccess: () => {
-                        onClose();
+                    data: {
+                        name: name.trim(),
+                        description: description.trim() || null,
+                        color,
+                        parentId: selectedParentId ?? null,
                     },
-                }
+                },
+                { onSuccess: onClose },
             );
         } else {
-            createCollection.mutate(data, {
-                onSuccess: () => {
-                    onClose();
+            createCollection.mutate(
+                {
+                    name: name.trim(),
+                    description: description.trim() || undefined,
+                    color,
+                    parentId: selectedParentId,
                 },
-            });
+                { onSuccess: onClose },
+            );
         }
     };
 
@@ -164,14 +151,14 @@ export const CreateCollectionDialog: React.FC<
                             Color
                         </label>
                         <div className="flex gap-2.5 flex-wrap">
-                            {PRESET_COLORS.map((presetColor) => (
+                            {COLLECTION_COLORS.map((presetColor) => (
                                 <button
                                     key={presetColor}
                                     type="button"
                                     onClick={() => setColor(presetColor)}
                                     className="w-9 h-9 rounded-lg transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-bg-secondary"
                                     style={{
-                                        backgroundColor: presetColor,
+                                        backgroundColor: collectionColor(presetColor),
                                         border:
                                             color === presetColor
                                                 ? '3px solid var(--color-accent-primary)'

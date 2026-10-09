@@ -8,16 +8,14 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY file-embedder/requirements.txt ./requirements.txt
+RUN sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-filtered.txt grpcio-tools
+
 COPY contracts/ ./contracts/
 COPY packages/shared-py ./packages/shared-py
-RUN pip install --no-cache-dir datamodel-code-generator && \
-    python packages/shared-py/scripts/generate.py
-COPY file-embedder/requirements.txt ./requirements.txt
-
-RUN pip install --no-cache-dir ./packages/shared-py && \
-    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
-    pip install --no-cache-dir -r /tmp/reqs-filtered.txt
+RUN python packages/shared-py/scripts/generate_proto.py && \
+    pip install --no-cache-dir ./packages/shared-py
 
 FROM python:3.11-slim
 
@@ -60,7 +58,7 @@ ENV HF_HOME=/home/appuser/.cache/huggingface
 ENV TORCH_HOME=/home/appuser/.cache/torch
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8080
+EXPOSE 8080 50051
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${PORT:-8080}/health')" || exit 1

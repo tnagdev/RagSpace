@@ -2,10 +2,10 @@ import { type FC } from 'react';
 import { FileText, X, Image, Film, Music, File, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 import { IconButton } from '../../../components/IconButton';
 import { ProgressBar } from '../../../components/ProgressBar';
-import type { FileResponseDto, ProcessingStage } from '@/types/upload.types';
+import type { ApiFile, ProcessingStage } from '@/api/types';
 
 interface FileUploadItemProps {
-    file: FileResponseDto;
+    file: ApiFile;
     progress: number;
     onCancel?: (id: string) => void;
     onRetry?: (id: string) => void;
@@ -66,7 +66,7 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({
     const getFileIcon = () => {
         const iconClass = 'w-10 h-10 rounded-lg flex items-center justify-center';
 
-        switch (file.fileType) {
+        switch (file.type) {
             case 'IMAGE':
                 return (
                     <div className={`${iconClass} bg-blue-500/20`}>
@@ -106,7 +106,7 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({
             <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
                     <p className="text-sm font-medium text-text-primary truncate">
-                        {file.originalFilename}
+                        {file.name}
                     </p>
                     {onCancel && !isCompleted && !isPermanentlyFailed && (
                         <IconButton
@@ -152,7 +152,7 @@ export const FileUploadItem: FC<FileUploadItemProps> = ({
                 {!isUploadFailed && !isPermanentlyFailed && (
                     <>
                         <div className="flex items-center gap-2">
-                            <p className="text-xs text-text-muted">{formatFileSize(file.fileSize)}</p>
+                            <p className="text-xs text-text-muted">{formatFileSize(file.sizeBytes)}</p>
                             <span className="text-xs text-text-muted">•</span>
                             {isRetrying ? (
                                 <div className="flex items-center gap-1.5">

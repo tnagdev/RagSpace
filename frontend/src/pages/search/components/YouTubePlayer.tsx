@@ -1,68 +1,48 @@
-import { useRef, useEffect, useMemo } from 'react';
-import { QueryResult } from '@/types/search.types';
-import { SearchResult } from '@/types/chat.types';
-import { Clock, Youtube, FileText } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
+import { Youtube } from 'lucide-react';
+import type { SearchHit } from '@/api/types';
+import { HitDetails } from './HitDetails';
 
 interface YouTubePlayerProps {
-    result: QueryResult | SearchResult;
+    result: SearchHit;
     youtubeUrl: string;
+}
+
+const VIDEO_ID_PATTERNS = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /youtube\.com\/shorts\/([^&\n?#]+)/,
+];
+
+function youTubeVideoId(url: string): string | null {
+    for (const pattern of VIDEO_ID_PATTERNS) {
+        const match = url.match(pattern);
+        if (match?.[1]) return match[1];
+    }
+    return null;
 }
 
 const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ result, youtubeUrl }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const videoId = youTubeVideoId(youtubeUrl);
+    const startTime = result.startSeconds;
 
-    const getYouTubeVideoId = (url: string): string | null => {
-        const patterns = [
-            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-            /youtube\.com\/shorts\/([^&\n?#]+)/
-        ];
-        for (const pattern of patterns) {
-            const match = url.match(pattern);
-            if (match && match[1]) return match[1];
-        }
-        return null;
-    };
-
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    const videoId = getYouTubeVideoId(youtubeUrl);
-    const startTime = 'scene_details' in result
-        ? result.scene_details?.startTime
-        : result.start_time;
-
-    // Stable embed URL — keyed to videoId only. startTime is intentionally excluded
-    // from deps so timestamp badge clicks do NOT reload the iframe. autoplay=1
-    // starts playback on first load (allowed because the user just clicked a badge).
-    // Subsequent seeks use the YouTube IFrame postMessage API (seekTo effect below).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keyed to the video only, so seeking within it does not reload the iframe; seeks go through postMessage below.
     const embedUrl = useMemo(() => {
         if (!videoId) return null;
-        const start = startTime != null ? `&start=${Math.floor(startTime)}` : '';
-        const url = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1${start}`;
-        console.log('[YouTube] embedUrl computed: videoId=', videoId, 'startTime=', startTime, 'url=', url);
-        return url;
+        const start = startTime !== null ? `&start=${Math.floor(startTime)}` : '';
+        return `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1${start}`;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoId]);
 
-    // Seek and resume playback when startTime changes (timestamp badge click on same video).
     useEffect(() => {
         const win = iframeRef.current?.contentWindow;
-        console.log('[YouTube] seekTo effect: startTime=', startTime, 'win=', !!win, 'videoId=', videoId);
-        if (startTime == null || !win) return;
-        console.log('[YouTube] Sending seekTo + playVideo postMessage to iframe');
+        if (startTime === null || !win) return;
         win.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [startTime, true] }), '*');
         win.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
     }, [startTime]);
 
-    const sceneDetails = 'scene_details' in result ? result.scene_details : undefined;
-    const fileName = 'file_details' in result ? result.file_details?.fileName : result.file_name;
-
     return (
         <div className="flex flex-col gap-4">
-            {/* YouTube Player */}
             <div className="relative bg-black aspect-video rounded-xl overflow-hidden">
                 {embedUrl ? (
                     <iframe
@@ -80,77 +60,13 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ result, youtubeUrl }) => 
                 )}
             </div>
 
-            {/* Metadata Section */}
             <div className="p-6 bg-bg-secondary rounded-xl">
                 <h2 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
-                    <Youtube size={20} className="text-red-500" />
-                    {fileName || 'Unknown Video'}
+                    <Youtube size={20} className="text-danger" />
+                    {result.fileName || 'Unknown Video'}
                 </h2>
-
-                {/* Scene Details */}
-                {sceneDetails && (
-                    <div className="mb-4 p-4 rounded-lg bg-bg-tertiary border border-border-input">
-                        <h3 className="text-sm font-semibold text-text-primary mb-3">
-                            Scene {sceneDetails.sceneNumber}
-                        </h3>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div>
-                                <span className="text-text-muted">Start Time</span>
-                                <div className="text-text-primary font-medium flex items-center gap-1">
-                                    <Clock size={14} />
-                                    {formatTime(sceneDetails.startTime)}
-                                </div>
-                            </div>
-                            <div>
-                                <span className="text-text-muted">End Time</span>
-                                <div className="text-text-primary font-medium flex items-center gap-1">
-                                    <Clock size={14} />
-                                    {formatTime(sceneDetails.endTime)}
-                                </div>
-                            </div>
-                            <div>
-                                <span className="text-text-muted">Duration</span>
-                                <div className="text-text-primary font-medium">
-                                    {sceneDetails.duration.toFixed(2)}s
-                                </div>
-                            </div>
-                            <div>
-                                <span className="text-text-muted">Frames</span>
-                                <div className="text-text-primary font-medium">
-                                    {sceneDetails.startFrame} - {sceneDetails.endFrame}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Transcription/Text */}
-                {'text' in result && result.text && (
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-                            <FileText size={14} />
-                            Transcription
-                        </h3>
-                        <p className="text-sm text-text-secondary leading-relaxed">
-                            {result.text}
-                        </p>
-                    </div>
-                )}
-
-                {'text_content' in result && result.text_content && (
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-                            <FileText size={14} />
-                            Transcription
-                        </h3>
-                        <p className="text-sm text-text-secondary leading-relaxed">
-                            {result.text_content}
-                        </p>
-                    </div>
-                )}
-
-                {/* YouTube URL */}
-                <div className="pt-4 border-t border-border-input">
+                <HitDetails hit={result} snippetLabel="Transcript" />
+                <div className="pt-4 mt-4 border-t border-border-input">
                     <a
                         href={youtubeUrl}
                         target="_blank"

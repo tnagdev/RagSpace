@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { useSubscription } from '@/hooks/usePayment';
 import { usePlansModal } from '@/contexts/PlansModalContext';
-import { PlanType } from '@/types/payment.types';
+import type { PlanType } from '@/api/types';
 import { Tooltip } from '@/components/Tooltip';
 import { Lock } from 'lucide-react';
 
@@ -14,10 +14,11 @@ interface FeatureGuardProps {
     onDisabledClick?: () => void;
 }
 
-const PLAN_HIERARCHY = {
-    [PlanType.FREE]: 0,
-    [PlanType.BASIC]: 1,
-    [PlanType.PRO]: 2,
+const PLAN_HIERARCHY: Record<PlanType, number> = {
+    FREE: 0,
+    BASIC: 1,
+    PRO: 2,
+    ENTERPRISE: 3,
 };
 
 export const FeatureGuard = ({
@@ -31,7 +32,7 @@ export const FeatureGuard = ({
     const { data: subscription } = useSubscription();
     const { openPlansModal } = usePlansModal();
 
-    const currentPlan = subscription?.plan?.type || PlanType.FREE;
+    const currentPlan = subscription?.plan?.type ?? 'FREE';
     const currentPlanLevel = PLAN_HIERARCHY[currentPlan];
     const requiredPlanLevel = PLAN_HIERARCHY[requiredPlan];
     const hasAccess = currentPlanLevel >= requiredPlanLevel;
@@ -88,7 +89,7 @@ export const FeatureGuard = ({
 // Hook for checking feature access
 export const useFeatureAccess = (requiredPlan: PlanType): boolean => {
     const { data: subscription } = useSubscription();
-    const currentPlan = subscription?.plan?.type || PlanType.FREE;
+    const currentPlan = subscription?.plan?.type ?? 'FREE';
     const currentPlanLevel = PLAN_HIERARCHY[currentPlan];
     const requiredPlanLevel = PLAN_HIERARCHY[requiredPlan];
     return currentPlanLevel >= requiredPlanLevel;
@@ -97,5 +98,5 @@ export const useFeatureAccess = (requiredPlan: PlanType): boolean => {
 // Hook for getting current plan
 export const useCurrentPlan = (): PlanType => {
     const { data: subscription } = useSubscription();
-    return subscription?.plan?.type || PlanType.FREE;
+    return subscription?.plan?.type ?? 'FREE';
 };

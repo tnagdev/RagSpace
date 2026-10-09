@@ -1,7 +1,5 @@
 import { useState, useRef } from 'react';
-import { useCurrentUser } from "@/hooks/auth";
-import { clearAuthData } from "@/api/auth";
-import { privateAxios } from "@/api/apiClient";
+import { useCurrentUser, useLogout } from "@/hooks/auth";
 import { ChevronDown, LogOut, Settings } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import Popover from './Popover';
@@ -11,11 +9,10 @@ export function UserProfile() {
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const logout = useLogout();
 
     const handleLogout = () => {
-        clearAuthData();
-        privateAxios.defaults.headers.common.Authorization = '';
-        navigate({ to: '/auth/login' });
+        logout.mutate(undefined, { onSettled: () => navigate({ to: '/auth/login' }) });
     };
 
     if (isLoading) {

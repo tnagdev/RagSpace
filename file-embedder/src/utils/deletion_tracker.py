@@ -1,14 +1,16 @@
-"""Track deleted file IDs within this process to guard ChromaDB writes.
+"""In-process record of deletions, checked before Chroma writes so in-flight work can't resurrect data."""
 
-No lock needed — asyncio is single-threaded; all access is on the event loop.
-"""
-
-_deleted_file_ids: set[str] = set()
+_deleted_files: set[str] = set()
+_deleted_users: set[str] = set()
 
 
-def mark_deleted(file_id: str) -> None:
-    _deleted_file_ids.add(file_id)
+def mark_files_deleted(file_ids: list[str]) -> None:
+    _deleted_files.update(file_ids)
 
 
-def is_deleted(file_id: str) -> bool:
-    return file_id in _deleted_file_ids
+def mark_user_deleted(user_id: str) -> None:
+    _deleted_users.add(user_id)
+
+
+def is_deleted(file_id: str, user_id: str) -> bool:
+    return file_id in _deleted_files or user_id in _deleted_users

@@ -1,155 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { uploadKeys } from './useUpload';
-import type { FileResponseDto, FileListResponseDto } from '@/types/upload.types';
+import { API_BASE_URL } from '@/api/client';
+import type { FileState } from '@/api/types';
+import { patchCachedFile, uploadKeys } from './useUpload';
+import { usageKeys } from './usePayment';
 
-interface FileEventPayload {
-    fileId: string;
-    type: string;
-    progress?: number;
-    stage?: string;
-    file?: FileResponseDto;
-}
+type ProgressHandler = (fileId: string, progress: number, stage: string) => void;
+type SnapshotHandler = (files: FileState[]) => void;
+type UpdateHandler = (file: FileState) => void;
 
-interface ProcessingSnapshotFile {
-    id: string;
-    processingStage: string;
-    uploadStatus: string;
-    processingStatus?: string;
-}
+const TERMINAL = (file: FileState) =>
+    file.processingStatus === 'COMPLETED' || file.processingStatus === 'FAILED' || file.uploadStatus === 'FAILED';
 
-export function useFileEvents(
-    onProgress?: (fileId: string, type: string, progress: number, stage?: string) => void,
-    onSnapshot?: (files: ProcessingSnapshotFile[]) => void,
-): { connected: boolean; hasConnectedOnce: boolean } {
+// One stream per tab: live processing state for the signed-in user's files.
+export function useFileEvents(handlers: {
+    onProgress?: ProgressHandler;
+    onSnapshot?: SnapshotHandler;
+    onUpdate?: UpdateHandler;
+} = {}): { connected: boolean; hasConnectedOnce: boolean } {
     const queryClient = useQueryClient();
     const [connected, setConnected] = useState(false);
-    // Tracks whether the WS has ever successfully connected this session.
-    // Used to suppress the "Reconnecting…" banner on initial page load.
     const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
-    // Keep a stable ref so the effect closure always reads the latest value
-    const connectedRef = useRef(false);
+    const handlersRef = useRef(handlers);
+    handlersRef.current = handlers;
 
     useEffect(() => {
-        let ws: WebSocket | null = null;
-        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-        let attempt = 0;
-        let unmounted = false;
+        // EventSource reconnects on its own; every reconnect starts with a fresh snapshot.
+        const source = new EventSource(`${API_BASE_URL}/events`, { withCredentials: true });
+        let opened = false;
 
-        function setConn(value: boolean) {
-            connectedRef.current = value;
-            setConnected(value);
-        }
+        source.onopen = () => {
+            if (opened) queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+            opened = true;
+            setConnected(true);
+            setHasConnectedOnce(true);
+        };
+        source.onerror = () => setConnected(false);
 
-        function connect(): void {
-            if (unmounted) return;
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws/upload-events`);
+        source.addEventListener('files.snapshot', (event) => {
+            const { files } = JSON.parse((event as MessageEvent<string>).data) as { files: FileState[] };
+            files.forEach((file) => patchCachedFile(queryClient, file));
+            handlersRef.current.onSnapshot?.(files);
+        });
 
-            ws.onopen = () => {
-                const isReconnect = attempt > 0;
-                attempt = 0;
-                setHasConnectedOnce(true);
-                setConn(true);
-                // On reconnect, refresh file list so any FAILED/COMPLETED state that arrived
-                // while disconnected is fetched from DB rather than remaining stale.
-                if (isReconnect) {
-                    queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-                }
-            };
-
-            ws.onmessage = (event: MessageEvent<string>) => {
-                try {
-                    const raw = JSON.parse(event.data) as any;
-
-                    // Handle snapshot message (no fileId, has `files` array)
-                    if (raw.type === 'file.processing.snapshot') {
-                        onSnapshot?.(raw.files ?? []);
-                        return;
-                    }
-
-                    const payload = raw as FileEventPayload;
-                    if (!payload.fileId) return;
-
-                    // file.processing.started / file.processing.completed signal stage
-                    // transitions but carry no meaningful progress value.  Only forward
-                    // progress when the event explicitly sets it — defaulting to 0 would
-                    // reset a bar that was already showing N% mid-stream.
-                    if (payload.type === 'file.processing.started' || payload.type === 'file.processing.completed') {
-                        if (payload.progress !== undefined) {
-                            const stage = payload.stage ?? payload.file?.processingStage;
-                            onProgress?.(payload.fileId, payload.type, payload.progress, stage);
-                        }
-                        // Still fall through to update React Query cache if a file snapshot is present
-                        if (!payload.file) return;
-                    }
-
-                    // Progress-only events — no file update needed
-                    if (payload.progress !== undefined && !payload.file) {
-                        onProgress?.(payload.fileId, payload.type, payload.progress, payload.stage);
-                        return;
-                    }
-
-                    if (!payload.file) return;
-
-                    // Progress event that also carries a file snapshot.
-                    // Use payload.stage (the event's stage) rather than payload.file.processingStage
-                    // (the current DB stage). They can differ during simultaneous pipeline stages
-                    // (e.g. SCENE_DETECTION progress arriving while DB already shows INDEXING).
-                    // stage-keyed wsProgress in FilesPage isolates each stage's progress.
-                    if (payload.progress !== undefined) {
-                        onProgress?.(payload.fileId, payload.type, payload.progress, payload.stage ?? payload.file.processingStage);
-                    }
-
-                    queryClient.setQueryData<FileResponseDto>(
-                        uploadKeys.detail(payload.fileId),
-                        payload.file,
-                    );
-
-                    queryClient.setQueriesData<FileListResponseDto>(
-                        { queryKey: uploadKeys.lists() },
-                        (old) => {
-                            if (!old) return old;
-                            return {
-                                ...old,
-                                files: old.files.map(f =>
-                                    f.id === payload.fileId ? payload.file! : f
-                                ),
-                            };
-                        },
-                    );
-
-                    if (payload.file.processingStage === 'COMPLETED') {
-                        queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-                    }
-                } catch {
-                    // ignore malformed messages
-                }
-            };
-
-            ws.onclose = () => {
-                if (unmounted) return;
-                setConn(false);
-                const jitter = Math.random() * 1000;
-                const delay = Math.min(1_000 * 2 ** attempt + jitter, 30_000);
-                attempt++;
-                reconnectTimer = setTimeout(connect, delay);
-            };
-
-            ws.onerror = () => {
-                ws?.close();
-            };
-        }
-
-        connect();
+        source.addEventListener('file.updated', (event) => {
+            const { file } = JSON.parse((event as MessageEvent<string>).data) as { file: FileState };
+            patchCachedFile(queryClient, file);
+            if (file.progressPercent !== null) {
+                handlersRef.current.onProgress?.(file.id, file.progressPercent, file.processingStage);
+            }
+            handlersRef.current.onUpdate?.(file);
+            if (TERMINAL(file)) {
+                queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
+                queryClient.invalidateQueries({ queryKey: uploadKeys.detail(file.id) });
+                queryClient.invalidateQueries({ queryKey: usageKeys.all });
+            }
+        });
 
         return () => {
-            unmounted = true;
-            if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-            ws?.close();
-            setConn(false);
+            source.close();
+            setConnected(false);
         };
-    }, [queryClient, onProgress, onSnapshot]);
+    }, [queryClient]);
 
     return { connected, hasConnectedOnce };
 }

@@ -7,13 +7,11 @@ import { ProcessingFileItem } from './components/ProcessingFileItem';
 import { FileCard } from './components/FileCard';
 import { FileTableRow } from './components/FileTableRow';
 import Button from '@/components/Button';
-import Pagination from '@/components/Pagination';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import PaymentResultModal from '@/components/payment/PaymentResultModal';
-import { useFiles, useUploadFile, useAbortMultipartUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
+import { useFiles, useInfiniteFiles, useUploadFile, useAbortUpload, useDeleteFile, useSubmitYouTubeLink } from '@/hooks/useUpload';
 import { useFileEvents } from '@/hooks/useFileEvents';
-import type { FileResponseDto } from '@/types/upload.types';
-import { ProcessingStage, UploadStatus } from '@/types/upload.types';
+import type { ApiFile, FileState } from '@/api/types';
 import { CollectionSidePanel } from '@/components/CollectionSidePanel';
 
 interface UploadProgress {
@@ -22,7 +20,7 @@ interface UploadProgress {
 
 interface PollingFile {
     id: string;
-    file: FileResponseDto;
+    file: ApiFile;
     rawFile?: File;
     failed?: boolean;
 }
@@ -41,8 +39,6 @@ const FilesPage = () => {
     const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file');
     const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
     const [pollingFiles, setPollingFiles] = useState<PollingFile[]>([]);
-    const [currentPage, setCurrentPage] = useState<number>(1);
-    const [itemsPerPage, setItemsPerPage] = useState<number>(12);
     const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
     const [isCollectionPanelOpen, setIsCollectionPanelOpen] = useState(false);
     const [selectedFileForCollection, setSelectedFileForCollection] = useState<string | null>(null);
@@ -69,22 +65,23 @@ const FilesPage = () => {
         }
     }, [searchParams.payment, searchParams.plan, searchParams.error, navigate]);
 
-    const { data: completedFilesData, isLoading: isLoadingCompleted, refetch: refetchCompleted } = useFiles(
-        { page: currentPage, limit: itemsPerPage, processingStage: ProcessingStage.COMPLETED },
-        { refetchInterval: false }
-    );
+    const {
+        data: completedFilesData,
+        isLoading: isLoadingCompleted,
+        refetch: refetchCompleted,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+    } = useInfiniteFiles({ processingStage: 'COMPLETED', limit: 24 });
 
-    const { data: processingFilesData, refetch: refetchProcessing } = useFiles(
-        { limit: 100 },
-        { staleTime: 5_000 }
-    );
+    // Files in flight are always among the newest; live updates arrive over /events.
+    const { data: processingFilesData, refetch: refetchProcessing } = useFiles({ limit: 100 }, { staleTime: 5_000 });
 
     const [wsProgress, setWsProgress] = useState<Record<string, number>>({});
     const [stageStartTimes, setStageStartTimes] = useState<Record<string, number>>({});
 
     const handleWsProgress = useCallback(
-        (fileId: string, _type: string, progress: number, stage?: string) => {
-            if (!stage) return;
+        (fileId: string, progress: number, stage: string) => {
             // Key by `fileId:stage` so EMBEDDING events never clobber SCENE_DETECTION
             // progress, and each stage independently tracks its own 0-100% progress.
             const key = `${fileId}:${stage}`;
@@ -96,7 +93,7 @@ const FilesPage = () => {
     );
 
     const handleWsSnapshot = useCallback(
-        (snapshotFiles: Array<{ id: string; processingStage: string; uploadStatus: string; processingStatus?: string }>) => {
+        (snapshotFiles: FileState[]) => {
             // The server marks genuinely stuck UPLOAD files as FAILED before sending the
             // snapshot. Propagate that to any matching entry in pollingFiles.
             const failedIds = new Set(
@@ -110,18 +107,18 @@ const FilesPage = () => {
         [],
     );
 
-    const { connected, hasConnectedOnce } = useFileEvents(handleWsProgress, handleWsSnapshot);
+    const { connected, hasConnectedOnce } = useFileEvents({ onProgress: handleWsProgress, onSnapshot: handleWsSnapshot });
 
     const uploadMutation = useUploadFile();
-    const abortMutation = useAbortMultipartUpload();
+    const abortMutation = useAbortUpload();
     const deleteMutation = useDeleteFile();
     const youtubeSubmitMutation = useSubmitYouTubeLink();
 
-    const completedFiles = completedFilesData?.files || [];
+    const completedFiles = completedFilesData?.pages.flatMap((page) => page.items) ?? [];
 
     const allProcessingFiles = useMemo(() => {
-        const processingFilesFromAPI = (processingFilesData?.files || [])
-            .filter(f => f.processingStage !== ProcessingStage.COMPLETED);
+        const processingFilesFromAPI = (processingFilesData?.items ?? [])
+            .filter(f => f.processingStage !== 'COMPLETED');
         return [
             ...pollingFiles,
             ...processingFilesFromAPI
@@ -130,13 +127,13 @@ const FilesPage = () => {
                     id: file.id,
                     file,
                     rawFile: undefined as File | undefined,
-                    failed: file.uploadStatus === UploadStatus.FAILED,
+                    failed: file.uploadStatus === 'FAILED',
                 }))
         ];
-    }, [processingFilesData?.files, pollingFiles]);
+    }, [processingFilesData?.items, pollingFiles]);
 
     const handleFileComplete = useCallback(
-        async (file: FileResponseDto) => {
+        async (file: ApiFile) => {
             await refetchCompleted();
             setPollingFiles((prev) => prev.filter((f) => f.id !== file.id));
             refetchProcessing();
@@ -145,58 +142,54 @@ const FilesPage = () => {
     );
 
     const uploadSingleFile = useCallback(
-        async (rawFile: File, pollingId: string) => {
+        async (rawFile: File, initialId: string) => {
+            let pollingId = initialId;
             try {
-                await uploadMutation.mutateAsync({
+                const completed = await uploadMutation.mutateAsync({
                     file: rawFile,
-                    onInit: (fileRecord) => {
+                    onCreated: (fileRecord) => {
+                        const previousId = pollingId;
                         setPollingFiles((prev) => prev.map((pf) =>
-                            pf.id === pollingId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf
+                            pf.id === previousId ? { ...pf, id: fileRecord.id, file: fileRecord } : pf
                         ));
                         setUploadProgress((prev) => {
                             const next = { ...prev };
-                            delete next[pollingId];
+                            delete next[previousId];
                             return { ...next, [fileRecord.id]: 0 };
                         });
                         setStageStartTimes((prev) => {
                             const next = { ...prev };
-                            const uploadKey = `${pollingId}:UPLOAD`;
+                            const uploadKey = `${previousId}:UPLOAD`;
                             if (next[uploadKey]) {
                                 next[`${fileRecord.id}:UPLOAD`] = next[uploadKey];
                                 delete next[uploadKey];
                             }
                             return next;
                         });
+                        pollingId = fileRecord.id;
                     },
                     onProgress: (fileRecord, progress) => {
-                        if (fileRecord.id) {
-                            setUploadProgress((prev) => ({ ...prev, [fileRecord.id]: progress }));
-                        }
-                    },
-                    onComplete: (fileRecord) => {
-                        setPollingFiles((prev) =>
-                            prev.map((pf) => pf.id === fileRecord.id ? { ...pf, file: fileRecord } : pf)
-                        );
-                        setUploadProgress((prev) => {
-                            const next = { ...prev };
-                            delete next[fileRecord.id];
-                            return next;
-                        });
-                    },
-                    onError: (_error, fileRecord) => {
-                        const failedId = fileRecord?.id ?? pollingId;
-                        setPollingFiles((prev) =>
-                            prev.map((pf) => pf.id === failedId ? { ...pf, failed: true } : pf)
-                        );
-                        setUploadProgress((prev) => {
-                            const next = { ...prev };
-                            delete next[failedId];
-                            return next;
-                        });
+                        setUploadProgress((prev) => ({ ...prev, [fileRecord.id]: progress }));
                     },
                 });
+                setPollingFiles((prev) =>
+                    prev.map((pf) => pf.id === completed.id ? { ...pf, file: completed } : pf)
+                );
+                setUploadProgress((prev) => {
+                    const next = { ...prev };
+                    delete next[completed.id];
+                    return next;
+                });
             } catch {
-                // onError handles the failed state
+                const failedId = pollingId;
+                setPollingFiles((prev) =>
+                    prev.map((pf) => pf.id === failedId ? { ...pf, failed: true } : pf)
+                );
+                setUploadProgress((prev) => {
+                    const next = { ...prev };
+                    delete next[failedId];
+                    return next;
+                });
             }
         },
         [uploadMutation]
@@ -210,12 +203,11 @@ const FilesPage = () => {
                     id: fakeId,
                     file: {
                         id: fakeId,
-                        originalFilename: file.name,
-                        filename: file.name,
+                        name: file.name,
                         processingStage: 'UPLOAD',
-                        fileSize: file.size,
+                        sizeBytes: file.size,
                         mimeType: file.type,
-                    } as any,
+                    } as ApiFile,
                     rawFile: file,
                     failed: false,
                 }]);
@@ -295,12 +287,11 @@ const FilesPage = () => {
                     id: fakeId,
                     file: {
                         id: fakeId,
-                        originalFilename: 'YouTube Video',
-                        filename: 'YouTube Video',
+                        name: 'YouTube Video',
                         processingStage: 'UPLOAD',
-                        fileSize: 0,
+                        sizeBytes: 0,
                         mimeType: 'video/youtube',
-                    } as any
+                    } as ApiFile
                 }]);
 
                 const fileRecord = await youtubeSubmitMutation.mutateAsync(url);
@@ -315,25 +306,6 @@ const FilesPage = () => {
         },
         [youtubeSubmitMutation]
     );
-
-    const handlePageChange = useCallback((page: number) => {
-        setCurrentPage(page);
-        const contentArea = document.querySelector('.files-content-scroll');
-        if (contentArea) {
-            contentArea.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    }, []);
-
-    const handlePageSizeChange = useCallback((size: number) => {
-        setItemsPerPage(size);
-        setCurrentPage(1);
-        const contentArea = document.querySelector('.files-content-scroll');
-        if (contentArea) {
-            contentArea.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    }, []);
-
-    const totalPages = Math.ceil((completedFilesData?.total || 0) / itemsPerPage);
 
     const refetchAll = useCallback(() => {
         refetchCompleted();
@@ -391,7 +363,7 @@ const FilesPage = () => {
                         </div>
                         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                             {allProcessingFiles.map(({ id, file, failed }) => {
-                                const latestFile = processingFilesData?.files.find(f => f.id === id);
+                                const latestFile = processingFilesData?.items.find(f => f.id === id);
                                 const stage = (latestFile ?? file).processingStage;
                                 // Use XHR progress during upload, then stage-keyed WS progress.
                                 // Keying by stage means EMBEDDING events never reset
@@ -414,7 +386,6 @@ const FilesPage = () => {
                                         onRetry={handleRetryUpload}
                                         failed={failed || latestFile?.processingStatus === 'FAILED'}
                                         eta={eta}
-                                        processingRetryCount={latestFile?.processingRetryCount}
                                     />
                                 );
                             })}
@@ -431,7 +402,7 @@ const FilesPage = () => {
                             Your Media Library
                         </h1>
                         <p className="text-sm text-text-secondary">
-                            {completedFilesData?.total || 0} {completedFilesData?.total === 1 ? 'file' : 'files'}
+                            {completedFiles.length}{hasNextPage ? '+' : ''} {completedFiles.length === 1 ? 'file' : 'files'}
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -504,17 +475,12 @@ const FilesPage = () => {
                         </div>
                     )}
                 </div>
-                {!isLoadingCompleted && totalPages > 1 && (
-                    <Pagination
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        totalItems={completedFilesData?.total || 0}
-                        itemsPerPage={itemsPerPage}
-                        onPageChange={handlePageChange}
-                        onPageSizeChange={handlePageSizeChange}
-                        pageSizeOptions={[12, 24, 48, 96]}
-                        className="sticky bottom-0 pt-3"
-                    />
+                {hasNextPage && (
+                    <div className="flex justify-center pt-3">
+                        <Button variant="secondary" size="md" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                            {isFetchingNextPage ? 'Loading...' : 'Load more'}
+                        </Button>
+                    </div>
                 )}
             </div>
 

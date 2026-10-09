@@ -4,6 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { IoLogoGoogle, IoLogoGithub } from 'react-icons/io5';
 import { signupSchema } from '@/lib/validationSchemas';
 import { useSignUp } from '@/hooks/auth';
+import { authAPI } from '@/api/auth';
 import Button from '@/components/Button';
 
 interface SignupValues {
@@ -16,7 +17,7 @@ interface SignupValues {
 }
 
 const SignupPage = () => {
-    const { mutateAsync: signUpUser, data, isError, isPending } = useSignUp();
+    const { mutateAsync: signUpUser, isPending, error } = useSignUp();
     const navigate = useNavigate();
     const initialValues: SignupValues = {
         firstName: '',
@@ -29,15 +30,12 @@ const SignupPage = () => {
 
     const handleSubmit = async (values: SignupValues) => {
         try {
-            const payload = {
+            await signUpUser({
+                name: `${values.firstName} ${values.lastName}`.trim(),
                 email: values.email,
                 password: values.password,
-                firstName: values.firstName,
-                lastName: values.lastName,
-            }
-            await signUpUser(payload);
-            navigate({ to: '/auth/login', replace: true });
-            console.log('Signup successful:', values);
+            });
+            navigate({ to: '/files', replace: true });
         } catch (error) {
             console.error('Signup failed:', error);
         }
@@ -54,6 +52,12 @@ const SignupPage = () => {
                     Get started with FiloRag for free
                 </p>
             </div>
+
+            {error && (
+                <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {error.message}
+                </div>
+            )}
 
             {/* Signup Form */}
             <Formik
@@ -153,8 +157,7 @@ const SignupPage = () => {
                     icon={<IoLogoGoogle size={20} />}
                     type="button"
                     onClick={() => {
-                        const callbackURL = `${window.location.origin}/auth/callback`;
-                        window.location.href = `/api/auth/google/login?callbackURL=${encodeURIComponent(callbackURL)}`;
+                        window.location.href = authAPI.oauthUrl('google');
                     }}
                 >
                     Google

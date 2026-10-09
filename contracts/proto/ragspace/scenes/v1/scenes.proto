@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package ragspace.scenes.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service SceneService {
+  // Ordered by (file_id, scene_number).
+  rpc ListScenes(ListScenesRequest) returns (ListScenesResponse);
+  // Omits missing and foreign ids.
+  rpc BatchGetScenes(BatchGetScenesRequest) returns (BatchGetScenesResponse);
+}
+
+message Scene {
+  string id = 1;
+  string file_id = 2;
+  string user_id = 3;
+  int32 scene_number = 4;
+  double start_seconds = 5;
+  double end_seconds = 6;
+  int32 start_frame = 7;
+  int32 end_frame = 8;
+  int32 keyframe = 9;
+  double duration_seconds = 10;
+  string thumbnail_key = 11;
+  // Set only when the request sets include_urls.
+  optional string thumbnail_url = 12;
+  google.protobuf.Struct attributes = 13;
+  google.protobuf.Timestamp create_time = 14;
+}
+
+// Inclusive bounds.
+message SecondsRange {
+  optional double min = 1;
+  optional double max = 2;
+}
+
+message ListScenesRequest {
+  string user_id = 1;
+  // Empty means all of the user's files.
+  repeated string file_ids = 2;
+  SecondsRange start_seconds = 3;
+  SecondsRange end_seconds = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+  bool include_urls = 7;
+}
+
+message ListScenesResponse {
+  repeated Scene scenes = 1;
+  string next_page_token = 2;
+}
+
+message BatchGetScenesRequest {
+  string user_id = 1;
+  repeated string scene_ids = 2;
+  bool include_urls = 3;
+}
+
+message BatchGetScenesResponse {
+  repeated Scene scenes = 1;
+}

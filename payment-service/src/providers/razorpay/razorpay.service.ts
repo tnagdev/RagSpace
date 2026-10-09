@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay = require('razorpay');
 import { createHmac } from 'crypto';
@@ -7,6 +7,7 @@ import {
     CheckoutParams,
     CheckoutResult,
     PlanChangeOptions,
+    signaturesMatch,
 } from '../payment-provider.interface';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class RazorpayService implements IPaymentProvider {
     }
 
     async createCheckoutSession(params: CheckoutParams): Promise<CheckoutResult> {
+        if (!this.client) throw new ServiceUnavailableException('Razorpay is not configured');
         try {
             const subscription = await this.client.subscriptions.create({
                 plan_id: params.variantId,
@@ -152,7 +154,7 @@ export class RazorpayService implements IPaymentProvider {
         }
     }
 
-    verifyWebhookSignature(signature: string, payload: string): boolean {
+    verifyWebhookSignature(signature: string, payload: Buffer): boolean {
         const secret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET');
 
         if (!secret) {
@@ -160,11 +162,7 @@ export class RazorpayService implements IPaymentProvider {
             return false;
         }
 
-        const expectedSignature = createHmac('sha256', secret)
-            .update(payload)
-            .digest('hex');
-
-        return expectedSignature === signature;
+        return signaturesMatch(createHmac('sha256', secret).update(payload).digest('hex'), signature);
     }
 
     async createRefund(paymentId: string, amount?: number, reason?: string): Promise<any> {

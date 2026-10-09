@@ -1,0 +1,226 @@
+syntax = "proto3";
+
+package ragspace.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "ragspace/common/v1/common.proto";
+
+service BillingService {
+  rpc ListPlans(ListPlansRequest) returns (ListPlansResponse);
+  rpc GetSubscription(GetSubscriptionRequest) returns (GetSubscriptionResponse);
+  // Free to paid returns checkout_url; a higher plan upgrades now; a lower plan
+  // is scheduled for the end of the period.
+  rpc ChangePlan(ChangePlanRequest) returns (ChangePlanResponse);
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
+  rpc PauseSubscription(PauseSubscriptionRequest) returns (PauseSubscriptionResponse);
+  rpc ResumeSubscription(ResumeSubscriptionRequest) returns (ResumeSubscriptionResponse);
+  rpc CancelScheduledChange(CancelScheduledChangeRequest) returns (CancelScheduledChangeResponse);
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  // Atomic check-and-increment. A replayed request_id returns the
+  // original result without consuming again.
+  rpc ConsumeQuota(ConsumeQuotaRequest) returns (ConsumeQuotaResponse);
+  rpc ReleaseQuota(ReleaseQuotaRequest) returns (ReleaseQuotaResponse);
+  rpc HandleWebhook(HandleWebhookRequest) returns (HandleWebhookResponse);
+}
+
+enum PlanType {
+  PLAN_TYPE_UNSPECIFIED = 0;
+  PLAN_TYPE_FREE = 1;
+  PLAN_TYPE_BASIC = 2;
+  PLAN_TYPE_PRO = 3;
+  PLAN_TYPE_ENTERPRISE = 4;
+}
+
+enum BillingInterval {
+  BILLING_INTERVAL_UNSPECIFIED = 0;
+  BILLING_INTERVAL_MONTHLY = 1;
+  BILLING_INTERVAL_YEARLY = 2;
+}
+
+enum PlanComparison {
+  PLAN_COMPARISON_UNSPECIFIED = 0;
+  PLAN_COMPARISON_CURRENT = 1;
+  PLAN_COMPARISON_UPGRADE = 2;
+  PLAN_COMPARISON_DOWNGRADE = 3;
+}
+
+enum SubscriptionStatus {
+  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATUS_ACTIVE = 1;
+  SUBSCRIPTION_STATUS_TRIALING = 2;
+  SUBSCRIPTION_STATUS_PAST_DUE = 3;
+  SUBSCRIPTION_STATUS_PAUSED = 4;
+  SUBSCRIPTION_STATUS_CANCELLED = 5;
+  SUBSCRIPTION_STATUS_EXPIRED = 6;
+}
+
+enum ScheduledChangeKind {
+  SCHEDULED_CHANGE_KIND_UNSPECIFIED = 0;
+  SCHEDULED_CHANGE_KIND_DOWNGRADE = 1;
+  SCHEDULED_CHANGE_KIND_CANCEL_TO_FREE = 2;
+}
+
+enum PaymentProvider {
+  PAYMENT_PROVIDER_UNSPECIFIED = 0;
+  PAYMENT_PROVIDER_LEMON_SQUEEZY = 1;
+  PAYMENT_PROVIDER_RAZORPAY = 2;
+}
+
+message Money {
+  int64 amount_minor = 1;
+  // ISO 4217.
+  string currency = 2;
+}
+
+message PlanLimit {
+  ragspace.common.v1.UsageMetric metric = 1;
+  // 0 means unlimited.
+  int64 limit = 2;
+}
+
+message Plan {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  PlanType type = 4;
+  BillingInterval interval = 5;
+  Money price = 6;
+  repeated PlanLimit limits = 7;
+  repeated string features = 8;
+  // Set only when ListPlansRequest has a user_id.
+  PlanComparison comparison = 9;
+}
+
+message ScheduledChange {
+  ScheduledChangeKind kind = 1;
+  string plan_id = 2;
+  google.protobuf.Timestamp effective_time = 3;
+}
+
+message Subscription {
+  string id = 1;
+  string user_id = 2;
+  Plan plan = 3;
+  SubscriptionStatus status = 4;
+  google.protobuf.Timestamp current_period_start_time = 5;
+  google.protobuf.Timestamp current_period_end_time = 6;
+  bool cancel_at_period_end = 7;
+  optional google.protobuf.Timestamp cancel_time = 8;
+  optional google.protobuf.Timestamp trial_end_time = 9;
+  optional ScheduledChange scheduled_change = 10;
+  optional google.protobuf.Timestamp next_payment_time = 11;
+  google.protobuf.Timestamp create_time = 12;
+  google.protobuf.Timestamp update_time = 13;
+}
+
+message ListPlansRequest {
+  optional string user_id = 1;
+}
+
+message ListPlansResponse {
+  repeated Plan plans = 1;
+}
+
+message GetSubscriptionRequest {
+  string user_id = 1;
+}
+
+message GetSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message ChangePlanRequest {
+  string user_id = 1;
+  string plan_id = 2;
+  string request_id = 3;
+  // Prefilled on the provider's checkout page.
+  string email = 4;
+}
+
+message ChangePlanResponse {
+  Subscription subscription = 1;
+  optional string checkout_url = 2;
+}
+
+message CancelSubscriptionRequest {
+  string user_id = 1;
+  bool immediate = 2;
+}
+
+message CancelSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message PauseSubscriptionRequest {
+  string user_id = 1;
+}
+
+message PauseSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message ResumeSubscriptionRequest {
+  string user_id = 1;
+}
+
+message ResumeSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message CancelScheduledChangeRequest {
+  string user_id = 1;
+}
+
+message CancelScheduledChangeResponse {
+  Subscription subscription = 1;
+}
+
+message GetUsageRequest {
+  string user_id = 1;
+}
+
+message QuotaUsage {
+  ragspace.common.v1.UsageMetric metric = 1;
+  int64 used = 2;
+  // 0 means unlimited.
+  int64 limit = 3;
+  optional google.protobuf.Timestamp reset_time = 4;
+}
+
+message GetUsageResponse {
+  PlanType plan_type = 1;
+  repeated QuotaUsage quotas = 2;
+}
+
+message ConsumeQuotaRequest {
+  string user_id = 1;
+  ragspace.common.v1.UsageMetric metric = 2;
+  int64 amount = 3;
+  string request_id = 4;
+}
+
+message ConsumeQuotaResponse {
+  bool allowed = 1;
+  int64 used = 2;
+  // 0 means unlimited.
+  int64 limit = 3;
+}
+
+message ReleaseQuotaRequest {
+  string user_id = 1;
+  ragspace.common.v1.UsageMetric metric = 2;
+  int64 amount = 3;
+  string request_id = 4;
+}
+
+message ReleaseQuotaResponse {}
+
+message HandleWebhookRequest {
+  PaymentProvider provider = 1;
+  // Unparsed, so the provider signature can be verified.
+  bytes body = 2;
+  // Lower-cased names.
+  map<string, string> headers = 3;
+}
+
+message HandleWebhookResponse {}

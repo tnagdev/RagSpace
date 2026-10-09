@@ -6,7 +6,9 @@
     "dev": "vite dev --port 3000 --mode development",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:api": "openapi-typescript ../contracts/openapi/public.v1.yaml -o src/api/schema.d.ts",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.0.6",
@@ -19,11 +21,11 @@
     "@tanstack/react-start": "^1.132.0",
     "@tanstack/router-plugin": "^1.132.0",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "axios": "^1.13.2",
     "formik": "^2.4.9",
     "lucide-react": "^0.544.0",
     "moment": "^2.30.1",
     "nitro": "latest",
+    "openapi-fetch": "^0.14.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.5.0",
@@ -44,6 +46,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^27.0.0",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.2",
     "vite": "^7.1.7",
     "vitest": "^3.0.5",

@@ -224,3 +224,13 @@ model PaymentHistory {
     @@map("payment_history")
     @@schema("payment")
 }
+
+model IdempotencyKey {
+    key       String   @id
+    response  Json
+    createdAt DateTime @default(now())
+
+    @@index([createdAt])
+    @@map("idempotency_keys")
+    @@schema("payment")
+}

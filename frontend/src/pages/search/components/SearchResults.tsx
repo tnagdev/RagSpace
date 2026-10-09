@@ -1,38 +1,29 @@
 import { Accordion } from '@/components/Accordion';
-import { QueryResult } from '@/types/search.types';
-import { FileType } from '@/types/upload.types';
+import type { SearchHit } from '@/api/types';
 import { Clock, Film, Image as ImageIcon, Star, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SearchResultsProps {
-    results: QueryResult[];
-    onSceneClick: (result: QueryResult) => void;
-    selectedResult?: QueryResult;
+    results: SearchHit[];
+    onSceneClick: (result: SearchHit) => void;
+    selectedResult?: SearchHit;
 }
 
 const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, selectedResult }) => {
     // Group results by file
     const groupedResults = results.reduce((acc, result) => {
-        const fileId = result.file_id;
+        const fileId = result.fileId;
         if (!acc[fileId]) {
             acc[fileId] = [];
         }
         acc[fileId].push(result);
         return acc;
-    }, {} as Record<string, QueryResult[]>);
+    }, {} as Record<string, SearchHit[]>);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    const formatFileSize = (bytes: number): string => {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
     };
 
     const getScoreColor = (score: number) => {
@@ -63,10 +54,8 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
 
             {Object.entries(groupedResults).map(([fileId, fileResults]) => {
                 const firstResult = fileResults[0];
-                const fileDetails = firstResult.file_details;
-                const isVideo = firstResult.file_type === FileType.VIDEO || firstResult.file_type === 'VIDEO' || 
-                                firstResult.file_type === FileType.YOUTUBE_VIDEO || firstResult.file_type === 'YOUTUBE_VIDEO';
-                const isImage = firstResult.file_type === FileType.IMAGE || firstResult.file_type === 'IMAGE';
+                                const isVideo = firstResult.fileType === 'VIDEO' || firstResult.fileType === 'YOUTUBE_VIDEO';
+                const isImage = firstResult.fileType === 'IMAGE';
 
                 // For videos with multiple scenes, use accordion
                 if (isVideo && fileResults.length > 1) {
@@ -81,10 +70,10 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                         id: fileId,
                                         title: (
                                             <div className="flex items-start gap-4 py-1">
-                                                {(firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
+                                                {(firstResult.thumbnailUrl) && (
                                                     <img
-                                                        src={firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
-                                                        alt={firstResult.scene_details?.thumbnailUrl ? `Scene ${firstResult.scene_details.sceneNumber}` : fileDetails?.fileName}
+                                                        src={firstResult.thumbnailUrl}
+                                                        alt={firstResult.sceneNumber ? `Scene ${firstResult.sceneNumber}` : firstResult.fileName}
                                                         className="w-32 h-24 object-cover rounded"
                                                     />
                                                 )}
@@ -92,7 +81,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <Film size={20} className="text-accent-primary" />
                                                         <span className="font-medium text-text-primary truncate flex-1">
-                                                            {fileDetails?.fileName || firstResult.file_name || 'Unknown File'}
+                                                            {firstResult.fileName || 'Unknown File'}
                                                         </span>
                                                         <span className={cn("ml-auto flex items-center gap-1 text-sm font-medium shrink-0", getScoreColor(firstResult.score))}>
                                                             <Star size={14} fill="currentColor" />
@@ -106,15 +95,12 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                                             <Video size={12} />
                                                             Video
                                                         </span>
-                                                        {fileDetails?.fileSize && (
-                                                            <span>{formatFileSize(fileDetails.fileSize)}</span>
-                                                        )}
                                                         <span>{fileResults.length} scene{fileResults.length !== 1 ? 's' : ''}</span>
                                                     </div>
 
-                                                    {firstResult.text && (
+                                                    {firstResult.snippet && (
                                                         <p className="text-sm text-text-secondary line-clamp-2">
-                                                            {firstResult.text}
+                                                            {firstResult.snippet}
                                                         </p>
                                                     )}
                                                 </div>
@@ -133,34 +119,34 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                                         )}
                                                     >
                                                         <div className="flex items-start gap-3">
-                                                            {(result.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
+                                                            {(result.thumbnailUrl) && (
                                                                 <img
-                                                                    src={result.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
-                                                                    alt={result.scene_details?.thumbnailUrl ? `Scene ${result.scene_details.sceneNumber}` : fileDetails?.fileName}
+                                                                    src={result.thumbnailUrl}
+                                                                    alt={result.sceneNumber ? `Scene ${result.sceneNumber}` : result.fileName}
                                                                     className="w-24 h-16 object-cover rounded"
                                                                 />
                                                             )}
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="flex items-center gap-2 mb-1">
                                                                     <span className="text-sm font-medium text-text-primary">
-                                                                        Scene {result.scene_details?.sceneNumber ?? result.scene_index ?? idx + 1}
+                                                                        Scene {result.sceneNumber ?? idx + 1}
                                                                     </span>
                                                                     <span className={cn("flex items-center gap-1 text-xs font-medium", getScoreColor(result.score))}>
                                                                         <Star size={12} fill="currentColor" />
                                                                         {(result.score * 100).toFixed(0)}%
                                                                     </span>
                                                                 </div>
-                                                                {result.scene_details && (
+                                                                {result.startSeconds !== null && result.endSeconds !== null && (
                                                                     <div className="flex items-center gap-2 text-xs text-text-muted mb-2">
                                                                         <Clock size={12} />
                                                                         <span>
-                                                                            {formatTime(result.scene_details.startTime)} - {formatTime(result.scene_details.endTime)}
+                                                                            {formatTime(result.startSeconds)} - {formatTime(result.endSeconds)}
                                                                         </span>
                                                                     </div>
                                                                 )}
-                                                                {result.text && (
+                                                                {result.snippet && (
                                                                     <p className="text-sm text-text-secondary line-clamp-2">
-                                                                        {result.text}
+                                                                        {result.snippet}
                                                                     </p>
                                                                 )}
                                                             </div>
@@ -191,17 +177,17 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                         )}
                     >
                         <div className="flex items-start gap-4">
-                            {isImage && (fileDetails?.thumbnailUrl || fileDetails?.url) && (
+                            {isImage && (firstResult.thumbnailUrl || firstResult.fileUrl) && (
                                 <img
-                                    src={fileDetails?.thumbnailUrl || fileDetails?.url}
-                                    alt={fileDetails.fileName}
+                                    src={firstResult.thumbnailUrl ?? firstResult.fileUrl ?? undefined}
+                                    alt={firstResult.fileName}
                                     className="w-32 h-24 object-cover rounded"
                                 />
                             )}
-                            {isVideo && (firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl) && (
+                            {isVideo && (firstResult.thumbnailUrl) && (
                                 <img
-                                    src={firstResult.scene_details?.thumbnailUrl || fileDetails?.thumbnailUrl}
-                                    alt={firstResult.scene_details?.thumbnailUrl ? `Scene ${firstResult.scene_details.sceneNumber}` : fileDetails?.fileName}
+                                    src={firstResult.thumbnailUrl}
+                                    alt={firstResult.sceneNumber ? `Scene ${firstResult.sceneNumber}` : firstResult.fileName}
                                     className="w-32 h-24 object-cover rounded"
                                 />
                             )}
@@ -213,7 +199,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                         <Film size={20} className="text-accent-primary" />
                                     )}
                                     <span className="font-medium text-text-primary truncate flex-1">
-                                        {fileDetails?.fileName || firstResult.file_name || 'Unknown File'}
+                                        {firstResult.fileName || 'Unknown File'}
                                     </span>
                                     <span className={cn("ml-auto flex items-center gap-1 text-sm font-medium shrink-0", getScoreColor(firstResult.score))}>
                                         <Star size={14} fill="currentColor" />
@@ -227,14 +213,11 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSceneClick, se
                                         {isImage ? <ImageIcon size={12} /> : <Video size={12} />}
                                         {isImage ? 'Image' : 'Video'}
                                     </span>
-                                    {fileDetails?.fileSize && (
-                                        <span>{formatFileSize(fileDetails.fileSize)}</span>
-                                    )}
                                 </div>
 
-                                {firstResult.text && (
+                                {firstResult.snippet && (
                                     <p className="text-sm text-text-secondary line-clamp-2">
-                                        {firstResult.text}
+                                        {firstResult.snippet}
                                     </p>
                                 )}
                             </div>

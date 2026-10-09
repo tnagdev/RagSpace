@@ -1,186 +1,52 @@
-import {
-    useQuery,
-    useMutation,
-    useQueryClient,
-    type UseQueryOptions,
-    type UseMutationOptions,
-} from '@tanstack/react-query';
-import { paymentAPI } from '@/api/payment';
-import type {
-    Plan,
-    Subscription,
-    UsageStats,
-    CheckoutSession,
-} from '@/types/payment.types';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { billingAPI } from '@/api/billing';
+import type { ChangePlanResult, Subscription } from '@/api/types';
 
 export const paymentKeys = {
-    all: ['payment'] as const,
+    all: ['billing'] as const,
     plans: () => [...paymentKeys.all, 'plans'] as const,
-    plansWithComparison: () => [...paymentKeys.plans(), 'with-comparison'] as const,
-    plan: (id: string) => [...paymentKeys.plans(), id] as const,
     subscription: () => [...paymentKeys.all, 'subscription'] as const,
-    usage: () => [...paymentKeys.all, 'usage'] as const,
 };
 
-// Plans
-export const usePlans = (
-    options?: Omit<UseQueryOptions<Plan[], Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: paymentKeys.plans(),
-        queryFn: paymentAPI.getPlans,
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        ...options,
-    });
+export const usageKeys = {
+    all: ['usage'] as const,
 };
 
-export const usePlansWithComparison = (
-    options?: Omit<UseQueryOptions<Plan[], Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: paymentKeys.plansWithComparison(),
-        queryFn: paymentAPI.getPlansWithComparison,
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        ...options,
-    });
-};
+function refreshBilling(queryClient: QueryClient) {
+    queryClient.invalidateQueries({ queryKey: paymentKeys.all });
+    queryClient.invalidateQueries({ queryKey: usageKeys.all });
+}
 
-export const usePlan = (
-    id: string,
-    options?: Omit<UseQueryOptions<Plan, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: paymentKeys.plan(id),
-        queryFn: () => paymentAPI.getPlanById(id),
-        enabled: !!id,
-        staleTime: 5 * 60 * 1000,
-        ...options,
-    });
-};
+// Plans carry a comparison against the caller's plan, so the cache is per-session.
+export const usePlans = () => useQuery({ queryKey: paymentKeys.plans(), queryFn: billingAPI.plans, staleTime: 5 * 60_000 });
 
-// Subscription
-export const useSubscription = (
-    options?: Omit<UseQueryOptions<Subscription | null, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: paymentKeys.subscription(),
-        queryFn: paymentAPI.getCurrentSubscription,
-        staleTime: 1 * 60 * 1000, // 1 minute
-        ...options,
-    });
-};
+export const useSubscription = () =>
+    useQuery({ queryKey: paymentKeys.subscription(), queryFn: billingAPI.subscription, staleTime: 60_000 });
 
-// Usage Stats
-export const useUsageStats = (
-    options?: Omit<UseQueryOptions<UsageStats, Error>, 'queryKey' | 'queryFn'>
-) => {
-    return useQuery({
-        queryKey: paymentKeys.usage(),
-        queryFn: paymentAPI.getUsageStats,
-        staleTime: 30 * 1000, // 30 seconds
-        ...options,
-    });
-};
+export const useUsage = () => useQuery({ queryKey: usageKeys.all, queryFn: billingAPI.usage, staleTime: 30_000 });
 
-// Create Checkout
-export const useCreateCheckout = (
-    options?: UseMutationOptions<CheckoutSession, Error, string>
-) => {
-    return useMutation({
-        mutationFn: paymentAPI.createCheckout,
-        ...options,
-    });
-};
-
-// Upgrade Subscription
-export const useUpgradeSubscription = (
-    options?: UseMutationOptions<Subscription, Error, string>
-) => {
+export const useChangePlan = () => {
     const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.upgradeSubscription,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-            queryClient.invalidateQueries({ queryKey: paymentKeys.usage() });
+    return useMutation<ChangePlanResult, Error, string>({
+        mutationFn: (planId) => billingAPI.changePlan(planId),
+        onSuccess: (result) => {
+            if (!result.checkoutUrl) refreshBilling(queryClient);
         },
-        ...options,
     });
 };
 
-// Downgrade Subscription
-export const useDowngradeSubscription = (
-    options?: UseMutationOptions<Subscription, Error, string>
-) => {
+function useSubscriptionMutation<TArgs = void>(fn: (args: TArgs) => Promise<Subscription>) {
     const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.downgradeSubscription,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-            queryClient.invalidateQueries({ queryKey: paymentKeys.usage() });
+    return useMutation<Subscription, Error, TArgs>({
+        mutationFn: fn,
+        onSuccess: (subscription) => {
+            queryClient.setQueryData(paymentKeys.subscription(), subscription);
+            refreshBilling(queryClient);
         },
-        ...options,
     });
-};
+}
 
-// Cancel Subscription
-export const useCancelSubscription = (
-    options?: UseMutationOptions<Subscription, Error, boolean>
-) => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.cancelSubscription,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-            queryClient.invalidateQueries({ queryKey: paymentKeys.usage() });
-        },
-        ...options,
-    });
-};
-
-// Pause Subscription
-export const usePauseSubscription = (
-    options?: UseMutationOptions<Subscription, Error, void>
-) => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.pauseSubscription,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-        },
-        ...options,
-    });
-};
-
-// Resume Subscription
-export const useResumeSubscription = (
-    options?: UseMutationOptions<Subscription, Error, void>
-) => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.resumeSubscription,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-        },
-        ...options,
-    });
-};
-
-// Cancel Scheduled Change
-export const useCancelScheduledChange = (
-    options?: UseMutationOptions<Subscription, Error, void>
-) => {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: paymentAPI.cancelScheduledChange,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-        },
-        ...options,
-    });
-};
+export const useCancelSubscription = () => useSubscriptionMutation((immediate: boolean) => billingAPI.cancel(immediate));
+export const usePauseSubscription = () => useSubscriptionMutation(() => billingAPI.pause());
+export const useResumeSubscription = () => useSubscriptionMutation(() => billingAPI.resume());
+export const useCancelScheduledChange = () => useSubscriptionMutation(() => billingAPI.cancelScheduledChange());

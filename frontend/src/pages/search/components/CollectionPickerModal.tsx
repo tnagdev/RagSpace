@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Folder, Check } from 'lucide-react';
 import Button from '@/components/Button';
 import { Drawer } from '@/components/Drawer';
-import { Collection } from '@/types/collection.types';
-import { useCollectionsFlat } from '@/hooks/useCollection';
+import type { Collection } from '@/api/types';
+import { useCollections } from '@/hooks/useCollection';
+import { collectionColor } from '@/lib/collectionColors';
 import { cn } from '@/lib/utils';
 
 interface CollectionPickerModalProps {
@@ -35,7 +36,7 @@ const CollectionPickerModal: React.FC<CollectionPickerModalProps> = ({
         }
     }, [selectedCollectionIds, isOpen]);
 
-    const { data, isLoading } = useCollectionsFlat({ enabled: isOpen });
+    const { data: collections = [], isLoading } = useCollections();
 
     const toggleCollection = (collection: Collection) => {
         // Don't allow toggling collections that are already attached
@@ -51,8 +52,7 @@ const CollectionPickerModal: React.FC<CollectionPickerModalProps> = ({
     };
 
     const handleConfirm = () => {
-        const collections = data?.collections.filter(c => localSelected.has(c.id)) || [];
-        onSelectCollections(collections);
+        onSelectCollections(collections.filter((c) => localSelected.has(c.id)));
         onClose();
     };
 
@@ -96,12 +96,12 @@ const CollectionPickerModal: React.FC<CollectionPickerModalProps> = ({
                             <p className="text-sm text-text-muted">Loading collections...</p>
                         </div>
                     </div>
-                ) : data?.collections && data.collections.length > 0 ? (
+                ) : collections.length > 0 ? (
                     <div className="space-y-2">
-                        {data.collections.map((collection) => {
+                        {collections.map((collection) => {
                             const isAlreadyAdded = selectedCollectionIds.includes(collection.id);
                             const isSelected = localSelected.has(collection.id);
-                            const fileCount = collection._count?.fileCollections || 0;
+                            const fileCount = collection.fileCount;
 
                             return (
                                 <button
@@ -122,15 +122,13 @@ const CollectionPickerModal: React.FC<CollectionPickerModalProps> = ({
                                     <div
                                         className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                                         style={{
-                                            backgroundColor: collection.color
-                                                ? `${collection.color}20`
-                                                : 'var(--color-accent-primary-10)'
+                                            backgroundColor: `color-mix(in srgb, ${collectionColor(collection.color)} 12%, transparent)`
                                         }}
                                     >
                                         <Folder
                                             className="w-5 h-5"
                                             style={{
-                                                color: collection.color || 'var(--color-accent-primary)'
+                                                color: collectionColor(collection.color)
                                             }}
                                         />
                                     </div>

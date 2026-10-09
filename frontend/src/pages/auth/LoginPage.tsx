@@ -4,6 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { IoMailOutline, IoLockClosedOutline, IoLogoGoogle } from 'react-icons/io5';
 import { loginSchema } from '@/lib/validationSchemas';
 import { useLogin } from '@/hooks/auth';
+import { authAPI } from '@/api/auth';
 import Button from '@/components/Button';
 
 interface LoginValues {
@@ -13,7 +14,7 @@ interface LoginValues {
 }
 
 const LoginPage = () => {
-    const { mutateAsync, isPending, isError } = useLogin();
+    const { mutateAsync, isPending, error } = useLogin();
     const navigate = useNavigate();
     const oauthError = new URLSearchParams(window.location.search).get('error');
     const initialValues: LoginValues = {
@@ -24,10 +25,7 @@ const LoginPage = () => {
 
     const handleSubmit = async (values: LoginValues) => {
         try {
-            await mutateAsync({
-                emailOrUsername: values.email,
-                password: values.password,
-            });
+            await mutateAsync({ email: values.email, password: values.password });
             navigate({ to: '/', replace: true });
         } catch (error) {
             console.error('Login failed:', error);
@@ -50,6 +48,12 @@ const LoginPage = () => {
                     {oauthError === 'oauth_failed'
                         ? 'Google sign-in failed. Please try again.'
                         : decodeURIComponent(oauthError)}
+                </div>
+            )}
+
+            {error && (
+                <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {error.message}
                 </div>
             )}
 
@@ -132,8 +136,7 @@ const LoginPage = () => {
                 type="button"
                 fullWidth
                 onClick={() => {
-                    const callbackURL = `${window.location.origin}/auth/callback`;
-                    window.location.href = `/api/auth/google/login?callbackURL=${encodeURIComponent(callbackURL)}`;
+                    window.location.href = authAPI.oauthUrl('google');
                 }}
             >
                 Google

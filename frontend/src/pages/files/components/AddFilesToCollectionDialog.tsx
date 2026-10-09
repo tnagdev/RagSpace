@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Modal } from '@/components/Modal';
 import Button from '@/components/Button';
-import { useAddFilesToCollection, useCollectionsFlat } from '@/hooks/useCollection';
+import { useAddFilesToCollection, useCollections } from '@/hooks/useCollection';
 
 interface AddFilesToCollectionDialogProps {
     isOpen: boolean;
@@ -14,8 +14,7 @@ export const AddFilesToCollectionDialog: React.FC<
 > = ({ isOpen, onClose, fileIds }) => {
     const [selectedCollectionId, setSelectedCollectionId] = useState<string>('');
 
-    const { data } = useCollectionsFlat({ enabled: isOpen });
-    const collections = data?.collections || [];
+    const { data: collections = [] } = useCollections();
     const addFilesToCollection = useAddFilesToCollection();
 
     const handleSubmit = async () => {
@@ -24,7 +23,7 @@ export const AddFilesToCollectionDialog: React.FC<
         addFilesToCollection.mutate(
             {
                 collectionId: selectedCollectionId,
-                data: { fileIds },
+                fileIds,
             },
             {
                 onSuccess: () => {

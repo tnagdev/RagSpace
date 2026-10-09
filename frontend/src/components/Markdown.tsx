@@ -6,21 +6,16 @@ import { Copy, Check } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import TimestampBadge from '@/components/TimestampBadge';
 import ImageBadge from '@/components/ImageBadge';
+import type { SearchHit } from '@/api/types';
 
-interface TimestampSource {
-    file_id?: string;
-    file_name?: string;
-    file_type?: string | null;
-    start_time?: number | null;
-    thumbnail_url?: string | null;
-}
+type TimestampSource = Pick<SearchHit, 'fileId' | 'fileName' | 'fileType' | 'startSeconds' | 'thumbnailUrl'>;
 
 interface MarkdownProps {
     content: string;
     className?: string;
     onTimestampClick?: (seconds: number) => void;
     onImageClick?: (fileId: string) => void;
-    searchResults?: TimestampSource[];
+    hits?: TimestampSource[];
 }
 
 // Matches (Xs), (Xs - Ys), ((Xs - Ys)) — handles decimals, single or double parens.
@@ -49,17 +44,17 @@ function findThumbnail(results: TimestampSource[] | undefined, seconds: number):
     let best: TimestampSource | undefined;
     let bestDist = 30; // max 30s tolerance
     for (const r of results) {
-        if (r.start_time == null) continue;
-        const d = Math.abs(r.start_time - seconds);
+        if (r.startSeconds == null) continue;
+        const d = Math.abs(r.startSeconds - seconds);
         if (d < bestDist) { bestDist = d; best = r; }
     }
-    return best?.thumbnail_url ?? undefined;
+    return best?.thumbnailUrl ?? undefined;
 }
 
 function findImageResult(results: TimestampSource[] | undefined, fileName: string): TimestampSource | undefined {
     if (!results?.length) return undefined;
-    return results.find((r) => r.file_name === fileName)
-        ?? results.find((r) => r.file_name?.toLowerCase() === fileName.toLowerCase());
+    return results.find((r) => r.fileName === fileName)
+        ?? results.find((r) => r.fileName?.toLowerCase() === fileName.toLowerCase());
 }
 
 const customTheme = {
@@ -98,7 +93,7 @@ const CopyButton = ({ code }: { code: string }) => {
     );
 };
 
-const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestampClick, onImageClick, searchResults }) => {
+const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestampClick, onImageClick, hits }) => {
     let processedContent = onTimestampClick ? injectTimestampCodes(content) : content;
     if (onImageClick) processedContent = injectImageCodes(processedContent);
 
@@ -115,13 +110,13 @@ const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestam
                         if (codeString.startsWith('@@img:') && onImageClick) {
                             const sepIdx = codeString.indexOf('@@', 6);
                             const fileName = codeString.slice(6, sepIdx);
-                            const matched = findImageResult(searchResults, fileName);
-                            if (matched?.file_id) {
+                            const matched = findImageResult(hits, fileName);
+                            if (matched?.fileId) {
                                 return (
                                     <ImageBadge
                                         fileName={fileName}
-                                        thumbnailUrl={matched.thumbnail_url ?? undefined}
-                                        fileId={matched.file_id}
+                                        thumbnailUrl={matched.thumbnailUrl ?? undefined}
+                                        fileId={matched.fileId}
                                         onClick={onImageClick}
                                     />
                                 );
@@ -146,7 +141,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content, className = '', onTimestam
                                 <TimestampBadge
                                     seconds={seconds}
                                     endSeconds={endSeconds}
-                                    thumbnailUrl={findThumbnail(searchResults, seconds)}
+                                    thumbnailUrl={findThumbnail(hits, seconds)}
                                     onClick={onTimestampClick}
                                 />
                             );

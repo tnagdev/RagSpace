@@ -1,8 +1,6 @@
 import { type FC } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { UsageMetricType } from '@/types/payment.types';
-import { useStorageStats } from '@/hooks/useUpload';
-import { useUsageStats } from '@/hooks/usePayment';
+import { useUsage } from '@/hooks/usePayment';
 
 interface UsageWidgetProps {
     variant?: 'sidebar' | 'settings';
@@ -12,17 +10,17 @@ interface UsageWidgetProps {
 // Helper functions
 const getQuotaLabel = (metric: string): string => {
     switch (metric) {
-        case UsageMetricType.STORAGE:
+        case 'STORAGE':
             return 'Storage';
-        case UsageMetricType.CONVERSATIONS:
+        case 'CONVERSATIONS':
             return 'AI Conversations';
-        case UsageMetricType.FILE_CONVERSATIONS:
+        case 'FILE_CONVERSATIONS':
             return 'File Chats';
-        case UsageMetricType.YOUTUBE_VIDEOS:
+        case 'YOUTUBE_VIDEOS':
             return 'YouTube Videos';
-        case UsageMetricType.MAX_VIDEO_LENGTH:
+        case 'MAX_VIDEO_LENGTH':
             return 'Max Video Length';
-        case UsageMetricType.MAX_AUDIO_DURATION:
+        case 'MAX_AUDIO_DURATION':
             return 'Max Audio Duration';
         default:
             return metric;
@@ -31,7 +29,7 @@ const getQuotaLabel = (metric: string): string => {
 
 const formatUsageValue = (metric: string, value: number): string => {
     switch (metric) {
-        case UsageMetricType.STORAGE: {
+        case 'STORAGE': {
             const tb = value / (1024 * 1024 * 1024 * 1024);
             const gb = value / (1024 * 1024 * 1024);
             const mb = value / (1024 * 1024);
@@ -42,17 +40,17 @@ const formatUsageValue = (metric: string, value: number): string => {
             if (kb >= 1) return `${kb.toFixed(0)}KB`;
             return `${value}B`;
         }
-        case UsageMetricType.MAX_VIDEO_LENGTH:
-        case UsageMetricType.MAX_AUDIO_DURATION: {
+        case 'MAX_VIDEO_LENGTH':
+        case 'MAX_AUDIO_DURATION': {
             const hours = Math.floor(value / 3600);
             const minutes = Math.floor((value % 3600) / 60);
             if (hours > 0) return `${hours}h ${minutes}m`;
             if (minutes > 0) return `${minutes}m`;
             return `${value}s`;
         }
-        case UsageMetricType.CONVERSATIONS:
-        case UsageMetricType.FILE_CONVERSATIONS:
-        case UsageMetricType.YOUTUBE_VIDEOS:
+        case 'CONVERSATIONS':
+        case 'FILE_CONVERSATIONS':
+        case 'YOUTUBE_VIDEOS':
             return value.toString();
         default:
             return value.toString();
@@ -60,13 +58,14 @@ const formatUsageValue = (metric: string, value: number): string => {
 };
 
 const isPerVideoLimit = (metric: string): boolean => {
-    return metric === UsageMetricType.MAX_VIDEO_LENGTH ||
-        metric === UsageMetricType.MAX_AUDIO_DURATION;
+    return metric === 'MAX_VIDEO_LENGTH' ||
+        metric === 'MAX_AUDIO_DURATION';
 };
 
 export const UsageWidget: FC<UsageWidgetProps> = ({ variant = 'sidebar', className = '' }) => {
-    const { data: storageStats, isLoading: isLoadingStorage } = useStorageStats();
-    const { data: usage, isLoading: isLoadingUsage } = useUsageStats();
+    const { data: usage, isLoading: isLoadingUsage } = useUsage();
+    const storageStats = usage?.storage;
+    const isLoadingStorage = isLoadingUsage;
 
     const isSidebar = variant === 'sidebar';
 
@@ -89,14 +88,14 @@ export const UsageWidget: FC<UsageWidgetProps> = ({ variant = 'sidebar', classNa
     }
 
     // Find storage quota from usage stats
-    const storageQuota = usage?.quotas?.find(q => q.metric === UsageMetricType.STORAGE);
+    const storageQuota = usage?.quotas?.find(q => q.metric === 'STORAGE');
 
     return (
         <div className={`space-y-3 ${className}`}>
             {/* Storage from storage stats and usage quota */}
             {storageStats && storageQuota && (() => {
                 const usedBytes = storageStats.usedBytes;
-                const limitBytes = storageQuota.limit;
+                const limitBytes = storageStats.limitBytes;
                 const isUnlimited = limitBytes === 0;
                 const usedPercentage = isUnlimited ? 0 : (usedBytes / limitBytes) * 100;
 
@@ -110,7 +109,7 @@ export const UsageWidget: FC<UsageWidgetProps> = ({ variant = 'sidebar', classNa
                                 usedPercentage >= 80 ? 'text-yellow-500' :
                                     styles.textMuted
                                 }`}>
-                                {formatUsageValue(UsageMetricType.STORAGE, usedBytes)} / {isUnlimited ? '∞' : formatUsageValue(UsageMetricType.STORAGE, limitBytes)}
+                                {formatUsageValue('STORAGE', usedBytes)} / {isUnlimited ? '∞' : formatUsageValue('STORAGE', limitBytes)}
                             </span>
                         </div>
                         {!isUnlimited && (
@@ -148,7 +147,7 @@ export const UsageWidget: FC<UsageWidgetProps> = ({ variant = 'sidebar', classNa
                 <>
                     {usage.quotas.map((quota) => {
                         // Skip storage as we already show it above
-                        if (quota.metric === UsageMetricType.STORAGE) return null;
+                        if (quota.metric === 'STORAGE') return null;
 
                         const isUnlimited = quota.limit === 0;
                         const percentage = isUnlimited ? 0 : (quota.used / quota.limit) * 100;

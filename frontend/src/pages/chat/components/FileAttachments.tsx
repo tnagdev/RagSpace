@@ -1,8 +1,8 @@
-import { FileResponseDto } from '@/types/upload.types';
+import type { ApiFile } from '@/api/types';
 import { X, FileVideo, FileImage, File as FileIcon } from 'lucide-react';
 
 interface FileAttachmentsProps {
-    files: FileResponseDto[];
+    files: ApiFile[];
     onRemoveFile: (fileId: string) => void;
 }
 
@@ -22,7 +22,7 @@ const FileAttachments: React.FC<FileAttachmentsProps> = ({ files, onRemoveFile }
                              rounded-lg text-sm group hover:border-accent-primary/50 transition-colors"
                 >
                     <div className="text-text-secondary">{getFileIcon(file.mimeType)}</div>
-                    <span className="text-white text-xs truncate max-w-37.5">{file.filename}</span>
+                    <span className="text-white text-xs truncate max-w-37.5">{file.name}</span>
                     <button
                         onClick={() => onRemoveFile(file.id)}
                         className="text-text-secondary hover:text-danger transition-colors"

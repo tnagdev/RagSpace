@@ -2,8 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
 import { useFiles } from '@/hooks/useUpload';
-import { FileType, ProcessingStage, UploadStatus } from '@/types/upload.types';
-import type { FileResponseDto } from '@/types/upload.types';
+import type { ApiFile, FileType } from '@/api/types';
 import {
     MessageSquare,
     FileVideo,
@@ -32,8 +31,8 @@ function formatBytes(bytes: number) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function FileRow({ file, onClick }: { file: FileResponseDto; onClick: () => void }) {
-    const cfg = FILE_ICONS[file.fileType] ?? FILE_ICONS.OTHER;
+function FileRow({ file, onClick }: { file: ApiFile; onClick: () => void }) {
+    const cfg = FILE_ICONS[file.type] ?? FILE_ICONS.OTHER;
     const Icon = cfg.icon;
     const [hovered, setHovered] = useState(false);
 
@@ -60,12 +59,12 @@ function FileRow({ file, onClick }: { file: FileResponseDto; onClick: () => void
                 <span
                     className="block text-sm font-medium truncate"
                     style={{ color: 'var(--color-text-primary)' }}
-                    title={file.originalFilename}
+                    title={file.name}
                 >
-                    {file.originalFilename}
+                    {file.name}
                 </span>
                 <span className="block text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    {formatBytes(file.fileSize)}
+                    {formatBytes(file.sizeBytes)}
                 </span>
             </span>
 
@@ -91,10 +90,10 @@ export function QuickChatLauncher() {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
 
-    const { data } = useFiles({ limit: 20, uploadStatus: UploadStatus.COMPLETED });
+    const { data } = useFiles({ limit: 20, uploadStatus: 'COMPLETED' });
 
-    const readyFiles = (data?.files ?? [])
-        .filter((f) => f.processingStage === ProcessingStage.COMPLETED)
+    const readyFiles = (data?.items ?? [])
+        .filter((f) => f.processingStage === 'COMPLETED')
         .slice(0, 8);
 
     // Position dropdown under trigger
@@ -134,7 +133,7 @@ export function QuickChatLauncher() {
         };
     }, [open]);
 
-    const goToChat = (file: FileResponseDto) => {
+    const goToChat = (file: ApiFile) => {
         setOpen(false);
         navigate({ to: '/files/$id/chat', params: { id: file.id } });
     };

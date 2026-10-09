@@ -1,25 +1,22 @@
-from typing import Annotated, Optional
+from typing import Optional
+
+from ragspace.common.v1 import common_pb2
+from ragspace.files.v1 import files_pb2
 from typing_extensions import TypedDict
-from langchain_core.messages import BaseMessage
-from langgraph.graph.message import add_messages
 
 
 class AgentState(TypedDict):
     user_message: str
-    conversation_id: str
     user_id: str
-    file_ids: Optional[list[str]]
+    file_ids: list[str]
     conversation_history: list[dict]
     conversation_summary: Optional[str]
+    attached_files: list[files_pb2.File]
     intent: Optional[str]
-    file_types: Optional[list[str]]
     query_modality: Optional[str]
-    character_name: Optional[str]
-    search_results: Optional[list[dict]]
-    tool_outputs: Optional[list[dict]]
+    search_results: list[common_pb2.SearchHit]
     retrieved_context: Optional[str]
-    messages: Annotated[list[BaseMessage], add_messages]
     final_response: Optional[str]
-    attached_files: Optional[list[dict]]
     tools_used: list[str]
-    sse_events: list[dict]
+    # Progress events emitted by the node that produced this update; see chat_runner for the wire format.
+    events: list[dict]

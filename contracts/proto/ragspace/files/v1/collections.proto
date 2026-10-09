@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package ragspace.files.v1;
+
+import "google/protobuf/timestamp.proto";
+import "ragspace/files/v1/files.proto";
+
+service CollectionService {
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+  rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+  // Child collections first, then files.
+  rpc ListCollectionItems(ListCollectionItemsRequest) returns (ListCollectionItemsResponse);
+  rpc UpdateCollection(UpdateCollectionRequest) returns (UpdateCollectionResponse);
+  // Also deletes descendants. Publishes collection.deleted, plus file.deleted
+  // per file when delete_files is set.
+  rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+  // Idempotent; ids already in the collection are ignored.
+  rpc AddCollectionFiles(AddCollectionFilesRequest) returns (AddCollectionFilesResponse);
+  // Idempotent; the files themselves are not deleted.
+  rpc RemoveCollectionFiles(RemoveCollectionFilesRequest) returns (RemoveCollectionFilesResponse);
+  rpc ResolveCollectionFileIds(ResolveCollectionFileIdsRequest) returns (ResolveCollectionFileIdsResponse);
+}
+
+message Collection {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  optional string description = 4;
+  optional string color = 5;
+  optional string parent_id = 6;
+  int32 file_count = 7;
+  int32 child_count = 8;
+  google.protobuf.Timestamp create_time = 9;
+  google.protobuf.Timestamp update_time = 10;
+}
+
+message CreateCollectionRequest {
+  string user_id = 1;
+  string name = 2;
+  optional string description = 3;
+  optional string color = 4;
+  optional string parent_id = 5;
+  string request_id = 6;
+}
+
+message CreateCollectionResponse {
+  Collection collection = 1;
+}
+
+message GetCollectionRequest {
+  string user_id = 1;
+  string collection_id = 2;
+}
+
+message GetCollectionResponse {
+  Collection collection = 1;
+}
+
+message ListCollectionsRequest {
+  string user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+  // Unset returns every collection the user owns, flat.
+  oneof parent_filter {
+    bool top_level_only = 4;
+    string parent_id = 5;
+  }
+}
+
+message ListCollectionsResponse {
+  repeated Collection collections = 1;
+  string next_page_token = 2;
+}
+
+message ListCollectionItemsRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListCollectionItemsResponse {
+  repeated CollectionItem items = 1;
+  string next_page_token = 2;
+}
+
+message CollectionItem {
+  oneof item {
+    Collection collection = 1;
+    CollectionFile file = 2;
+  }
+}
+
+message CollectionFile {
+  File file = 1;
+  google.protobuf.Timestamp add_time = 2;
+}
+
+message UpdateCollectionRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  optional string name = 3;
+  optional string description = 4;
+  optional string color = 5;
+  optional string parent_id = 6;
+  bool move_to_top_level = 7;
+}
+
+message UpdateCollectionResponse {
+  Collection collection = 1;
+}
+
+message DeleteCollectionRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  bool delete_files = 3;
+}
+
+message DeleteCollectionResponse {
+  int32 deleted_collection_count = 1;
+  int32 deleted_file_count = 2;
+}
+
+message AddCollectionFilesRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  repeated string file_ids = 3;
+}
+
+message AddCollectionFilesResponse {
+  Collection collection = 1;
+}
+
+message RemoveCollectionFilesRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  repeated string file_ids = 3;
+}
+
+message RemoveCollectionFilesResponse {
+  Collection collection = 1;
+}
+
+message ResolveCollectionFileIdsRequest {
+  string user_id = 1;
+  string collection_id = 2;
+  bool recursive = 3;
+}
+
+message ResolveCollectionFileIdsResponse {
+  repeated string file_ids = 1;
+}

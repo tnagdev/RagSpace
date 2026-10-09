@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { FileResponseDto, FileType } from '@/types/upload.types';
-import { QueryResult } from '@/types/search.types';
-import { Collection, CollectionAttachment } from '@/types/collection.types';
+import { useState } from 'react';
+import type { ApiFile, Collection, SearchHit } from '@/api/types';
+import type { CollectionAttachment } from '@/types/attachments';
 import { useSearch } from '@/hooks/useSearch';
-import { collectionAPI } from '@/api/collection';
 import SearchInput from './components/SearchInput';
 import Attachments from '@/components/Attachments';
 import Popover from '@/components/Popover';
@@ -16,9 +14,9 @@ import CollectionPickerModal from './components/CollectionPickerModal';
 import { AlertCircle, Search, Film, Folder, FilePlus } from 'lucide-react';
 
 const SearchPage: React.FC = () => {
-    const [attachedFiles, setAttachedFiles] = useState<FileResponseDto[]>([]);
+    const [attachedFiles, setAttachedFiles] = useState<ApiFile[]>([]);
     const [attachedCollections, setAttachedCollections] = useState<CollectionAttachment[]>([]);
-    const [selectedResult, setSelectedResult] = useState<QueryResult | undefined>();
+    const [selectedResult, setSelectedResult] = useState<SearchHit | undefined>();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
     const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
@@ -26,23 +24,11 @@ const SearchPage: React.FC = () => {
 
     const searchMutation = useSearch();
 
-    const handleSearch = async (query: string) => {
-        // Resolve collection file IDs
-        let collectionFileIds: string[] = [];
-        try {
-            const fileIdPromises = attachedCollections.map(c => collectionAPI.getCollectionFiles(c.id));
-            const fileIdArrays = await Promise.all(fileIdPromises);
-            collectionFileIds = [...new Set(fileIdArrays.flat())]; // Deduplicate
-        } catch (err) {
-            console.error('Failed to resolve collection files:', err);
-        }
-
-        // Combine file IDs from direct attachments and collections
-        const allFileIds = [...new Set([...attachedFiles.map(f => f.id), ...collectionFileIds])];
-
+    const handleSearch = (query: string) => {
         searchMutation.mutate({
             query,
-            file_ids: allFileIds.length > 0 ? allFileIds : undefined,
+            fileIds: attachedFiles.map((f) => f.id),
+            collectionIds: attachedCollections.map((c) => c.id),
         });
     };
 
@@ -54,7 +40,7 @@ const SearchPage: React.FC = () => {
         setAttachedCollections(collections => collections.filter(c => c.id !== collectionId));
     };
 
-    const handleSelectFiles = (files: FileResponseDto[]) => {
+    const handleSelectFiles = (files: ApiFile[]) => {
         setAttachedFiles(files);
     };
 
@@ -63,19 +49,19 @@ const SearchPage: React.FC = () => {
             id: c.id,
             name: c.name,
             color: c.color,
-            fileCount: c._count?.fileCollections || 0,
+            fileCount: c.fileCount,
         }));
         setAttachedCollections(collectionAttachments);
     };
 
-    const handleSceneClick = (result: QueryResult) => {
+    const handleSceneClick = (result: SearchHit) => {
         setSelectedResult(result);
     };
 
-    const isYouTubeVideo = selectedResult?.file_type === FileType.YOUTUBE_VIDEO || selectedResult?.file_type === 'YOUTUBE_VIDEO';
-    const isVideo = selectedResult?.file_type === FileType.VIDEO || selectedResult?.file_type === 'VIDEO';
-    const isImage = selectedResult?.file_type === FileType.IMAGE || selectedResult?.file_type === 'IMAGE';
-    const youtubeUrl = selectedResult?.file_details?.youtubeUrl;
+    const isYouTubeVideo = selectedResult?.fileType === 'YOUTUBE_VIDEO';
+    const isVideo = selectedResult?.fileType === 'VIDEO';
+    const isImage = selectedResult?.fileType === 'IMAGE';
+    const youtubeUrl = selectedResult?.youtubeUrl;
 
     return (
         <div className="h-full flex flex-col">
@@ -134,7 +120,7 @@ const SearchPage: React.FC = () => {
 
                             {searchMutation.data ? (
                                 <SearchResults
-                                    results={searchMutation.data.results}
+                                    results={searchMutation.data}
                                     onSceneClick={handleSceneClick}
                                     selectedResult={selectedResult}
                                 />

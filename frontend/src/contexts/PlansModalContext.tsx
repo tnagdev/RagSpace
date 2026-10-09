@@ -1,6 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { setUsageErrorHandler } from '@/api/apiClient';
-import type { UsageErrorData } from '@/types/payment.types';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { onQuotaExceeded } from '@/api/client';
 
 interface PlansModalContextType {
     isOpen: boolean;
@@ -33,24 +32,17 @@ export const PlansModalProvider = ({ children }: { children: ReactNode }) => {
         setReason(undefined);
     };
 
-    // Set up usage error handler on mount
-    useEffect(() => {
-        const handleUsageError = (errorData: UsageErrorData) => {
-            const message = errorData.message || 'You have reached your plan limit. Please upgrade to continue.';
-            openPlansModal(message);
-        };
-
-        setUsageErrorHandler(handleUsageError);
-
-        return () => {
-            setUsageErrorHandler(() => { });
-        };
-    }, []);
+    // Any 402 from the API means a plan limit was hit; offer an upgrade.
+    useEffect(
+        () =>
+            onQuotaExceeded((problem) =>
+                openPlansModal(problem.detail ?? 'You have reached your plan limit. Please upgrade to continue.'),
+            ),
+        [],
+    );
 
     return (
-        <PlansModalContext.Provider
-            value={{ isOpen, openPlansModal, closePlansModal, reason }}
-        >
+        <PlansModalContext.Provider value={{ isOpen, openPlansModal, closePlansModal, reason }}>
             {children}
         </PlansModalContext.Provider>
     );

@@ -8,7 +8,6 @@ import { NavLink } from './NavLink';
 import { UsageWidget } from './UsageWidget';
 import { usePlansModal } from '@/contexts/PlansModalContext';
 import { useSubscription } from '@/hooks/usePayment';
-import { PlanType } from '@/types/payment.types';
 
 
 interface SidebarProps {
@@ -37,7 +36,7 @@ export const Sidebar: FC<SidebarProps> = ({ className }) => {
     const { data: subscription } = useSubscription();
     const [isUsageExpanded, setIsUsageExpanded] = useState(false);
 
-    const isOnPaidPlan = subscription?.plan?.type !== PlanType.FREE;
+    const isOnPaidPlan = subscription?.plan?.type !== 'FREE';
 
     const handleNavClick = async (item: any, e: React.MouseEvent) => {
         if (item?.path === '/countries') {

@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package ragspace.chat.v1;
+
+import "google/protobuf/timestamp.proto";
+import "ragspace/common/v1/common.proto";
+
+service ChatService {
+  // Consumes FILE_CONVERSATIONS quota when scoped to a file or collection,
+  // CONVERSATIONS otherwise.
+  rpc CreateConversation(CreateConversationRequest) returns (CreateConversationResponse);
+  // Most recently updated first.
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+  rpc DeleteConversation(DeleteConversationRequest) returns (DeleteConversationResponse);
+  // Newest first.
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  // The final event is always done or error.
+  rpc SendMessage(SendMessageRequest) returns (stream SendMessageResponse);
+  rpc GetGreeting(GetGreetingRequest) returns (GetGreetingResponse);
+}
+
+message Conversation {
+  string id = 1;
+  string user_id = 2;
+  optional string title = 3;
+  optional string file_id = 4;
+  optional string collection_id = 5;
+  int32 message_count = 6;
+  optional string last_message_preview = 7;
+  google.protobuf.Timestamp create_time = 8;
+  google.protobuf.Timestamp update_time = 9;
+}
+
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_USER = 1;
+  MESSAGE_ROLE_ASSISTANT = 2;
+}
+
+message Message {
+  string id = 1;
+  string conversation_id = 2;
+  MessageRole role = 3;
+  string content = 4;
+  repeated ragspace.common.v1.SearchHit hits = 5;
+  repeated string file_ids = 6;
+  repeated string tools_used = 7;
+  google.protobuf.Timestamp create_time = 8;
+}
+
+message CreateConversationRequest {
+  string user_id = 1;
+  optional string file_id = 2;
+  optional string collection_id = 3;
+  string request_id = 4;
+}
+
+message CreateConversationResponse {
+  Conversation conversation = 1;
+}
+
+message ListConversationsRequest {
+  string user_id = 1;
+  optional string file_id = 2;
+  optional string collection_id = 3;
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListConversationsResponse {
+  repeated Conversation conversations = 1;
+  string next_page_token = 2;
+}
+
+message GetConversationRequest {
+  string user_id = 1;
+  string conversation_id = 2;
+}
+
+message GetConversationResponse {
+  Conversation conversation = 1;
+}
+
+message DeleteConversationRequest {
+  string user_id = 1;
+  string conversation_id = 2;
+}
+
+message DeleteConversationResponse {}
+
+message ListMessagesRequest {
+  string user_id = 1;
+  string conversation_id = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+  string next_page_token = 2;
+}
+
+message SendMessageRequest {
+  string user_id = 1;
+  string conversation_id = 2;
+  string content = 3;
+  // Defaults to the conversation's scope.
+  repeated string file_ids = 4;
+  // A replay streams the stored reply instead of calling the model again.
+  string request_id = 5;
+}
+
+message SendMessageResponse {
+  oneof event {
+    StepEvent step = 1;
+    ToolEvent tool = 2;
+    ResultsEvent results = 3;
+    DeltaEvent delta = 4;
+    DoneEvent done = 5;
+    ErrorEvent error = 6;
+  }
+}
+
+enum StepStatus {
+  STEP_STATUS_UNSPECIFIED = 0;
+  STEP_STATUS_STARTED = 1;
+  STEP_STATUS_DONE = 2;
+  STEP_STATUS_FAILED = 3;
+}
+
+message StepEvent {
+  string step = 1;
+  string label = 2;
+  StepStatus status = 3;
+  optional string error = 4;
+  optional string error_code = 5;
+}
+
+enum ToolStatus {
+  TOOL_STATUS_UNSPECIFIED = 0;
+  TOOL_STATUS_STARTED = 1;
+  TOOL_STATUS_DONE = 2;
+}
+
+message ToolEvent {
+  string tool = 1;
+  ToolStatus status = 2;
+  // Set on STARTED.
+  optional string arguments_json = 3;
+  // Set on DONE.
+  optional int32 result_count = 4;
+}
+
+enum ResultsKind {
+  RESULTS_KIND_UNSPECIFIED = 0;
+  RESULTS_KIND_SEARCH = 1;
+  RESULTS_KIND_SCENE_THUMBNAILS = 2;
+}
+
+message ResultsEvent {
+  ResultsKind kind = 1;
+  repeated ragspace.common.v1.SearchHit hits = 2;
+}
+
+message DeltaEvent {
+  string text = 1;
+}
+
+message DoneEvent {
+  string message_id = 1;
+  repeated string tools_used = 2;
+  int32 result_count = 3;
+}
+
+message ErrorEvent {
+  string code = 1;
+  string message = 2;
+}
+
+message GetGreetingRequest {
+  string user_id = 1;
+  // The caller's name from the session; the greeting addresses them by first name.
+  string display_name = 2;
+}
+
+message GetGreetingResponse {
+  string greeting = 1;
+}

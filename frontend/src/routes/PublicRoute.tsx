@@ -4,10 +4,10 @@ import { AuthLayout } from "../layouts/AuthLayout";
 import { RedirectOutlet, type NavRoute } from "./PrivateRoute";
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
-import AuthCallbackPage from "@/pages/auth/AuthCallbackPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
-import { hasAccessToken } from "@/api/auth";
+import { sessionQuery } from "@/hooks/auth";
+import { queryClient } from "@/lib/queryClient";
 
 
 const NavRoutes: NavRoute[] = [
@@ -27,11 +27,6 @@ const NavRoutes: NavRoute[] = [
         component: () => <SignupPage />,
     },
     {
-        name: 'callback',
-        path: 'callback',
-        component: () => <AuthCallbackPage />,
-    },
-    {
         name: 'forgot-password',
         path: 'forgot-password',
         component: () => <ForgotPasswordPage />,
@@ -46,9 +41,9 @@ const NavRoutes: NavRoute[] = [
 const _PublicRoute = createRoute({
     path: 'auth',
     getParentRoute: () => MainRoute,
-    beforeLoad: () => {
-        if (hasAccessToken()) {
-            console.log('User already authenticated, redirecting to app');
+    beforeLoad: async () => {
+        const user = await queryClient.ensureQueryData(sessionQuery).catch(() => null);
+        if (user) {
             throw redirect({ to: '/files' });
         }
     },

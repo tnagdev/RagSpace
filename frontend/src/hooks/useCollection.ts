@@ -1,171 +1,108 @@
-import {
-    useMutation,
-    useQuery,
-    useQueryClient,
-    type UseMutationOptions,
-    type UseQueryOptions,
-} from '@tanstack/react-query';
-import { collectionAPI } from '@/api/collection';
-import type {
-    Collection,
-    CollectionWithItems,
-    CreateCollectionDto,
-    UpdateCollectionDto,
-    AddFilesToCollectionDto,
-    RemoveFilesFromCollectionDto,
-    DeleteCollectionResponse,
-} from '@/types/collection.types';
+import { type QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type CollectionInput, collectionsAPI } from '@/api/collections';
+import type { Collection } from '@/api/types';
 import { uploadKeys } from './useUpload';
+
+export interface CollectionNode extends Collection {
+    children: CollectionNode[];
+}
 
 export const collectionKeys = {
     all: ['collections'] as const,
-    lists: () => [...collectionKeys.all, 'list'] as const,
-    list: (parentId?: string | null) => [...collectionKeys.lists(), parentId] as const,
-    flat: () => [...collectionKeys.all, 'flat'] as const,
+    tree: () => [...collectionKeys.all, 'tree'] as const,
     details: () => [...collectionKeys.all, 'detail'] as const,
-    detail: (id: string, page?: number, limit?: number) => [...collectionKeys.details(), id, page, limit] as const,
+    detail: (id: string) => [...collectionKeys.details(), id] as const,
+    items: (id: string) => [...collectionKeys.all, 'items', id] as const,
 };
 
-export const useCollections = (
-    parentId?: string | null,
-    options?: Omit<UseQueryOptions<Collection[], Error>, 'queryKey' | 'queryFn'>,
-) => {
-    return useQuery({
-        queryKey: collectionKeys.list(parentId),
-        queryFn: () => collectionAPI.getCollections(parentId),
-        ...options,
+export function buildTree(collections: Collection[]): CollectionNode[] {
+    const nodes = new Map(collections.map((c) => [c.id, { ...c, children: [] as CollectionNode[] }]));
+    const roots: CollectionNode[] = [];
+    for (const node of nodes.values()) {
+        const parent = node.parentId ? nodes.get(node.parentId) : undefined;
+        if (parent) parent.children.push(node);
+        else roots.push(node);
+    }
+    const sort = (list: CollectionNode[]) => {
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        list.forEach((n) => sort(n.children));
+    };
+    sort(roots);
+    return roots;
+}
+
+function refreshCollections(queryClient: QueryClient, collectionId?: string) {
+    queryClient.invalidateQueries({ queryKey: collectionKeys.tree() });
+    if (collectionId) {
+        queryClient.invalidateQueries({ queryKey: collectionKeys.detail(collectionId) });
+        queryClient.invalidateQueries({ queryKey: collectionKeys.items(collectionId) });
+    }
+}
+
+// Every collection, flat; derive the tree with buildTree.
+export const useCollections = () => useQuery({ queryKey: collectionKeys.tree(), queryFn: collectionsAPI.listAll });
+
+export const useCollection = (collectionId: string) =>
+    useQuery({
+        queryKey: collectionKeys.detail(collectionId),
+        queryFn: () => collectionsAPI.get(collectionId),
+        enabled: !!collectionId,
     });
-};
 
-export const useCollectionsFlat = (
-    options?: Omit<UseQueryOptions<{
-        collections: Collection[];
-        pagination: { total: number; page: number; limit: number; totalPages: number };
-    }, Error>, 'queryKey' | 'queryFn'>,
-) => {
-    return useQuery({
-        queryKey: collectionKeys.flat(),
-        queryFn: () => collectionAPI.getCollectionsFlat(),
-        ...options,
+export const useCollectionItems = (collectionId: string) =>
+    useInfiniteQuery({
+        queryKey: collectionKeys.items(collectionId),
+        queryFn: ({ pageParam }) => collectionsAPI.items(collectionId, pageParam),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
+        enabled: !!collectionId,
     });
-};
 
-export const useCollection = (
-    collectionId: string,
-    page?: number,
-    limit?: number,
-    options?: Omit<UseQueryOptions<CollectionWithItems, Error>, 'queryKey' | 'queryFn'>,
-) => {
-    return useQuery({
-        queryKey: collectionKeys.detail(collectionId, page, limit),
-        queryFn: () => collectionAPI.getCollection(collectionId, page, limit),
-        ...options,
-        enabled: options?.enabled !== undefined ? options.enabled : !!collectionId,
-    });
-};
-
-export const useCreateCollection = (
-    options?: UseMutationOptions<Collection, Error, CreateCollectionDto>,
-) => {
+export const useCreateCollection = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: (data: CreateCollectionDto) =>
-            collectionAPI.createCollection(data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
-        },
-        ...options,
+        mutationFn: (body: { name: string; description?: string; color?: string; parentId?: string }) =>
+            collectionsAPI.create(body),
+        onSuccess: (collection) => refreshCollections(queryClient, collection.parentId ?? undefined),
     });
 };
 
-export const useUpdateCollection = (
-    options?: UseMutationOptions<
-        Collection,
-        Error,
-        { collectionId: string; data: UpdateCollectionDto }
-    >,
-) => {
+export const useUpdateCollection = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: ({ collectionId, data }) =>
-            collectionAPI.updateCollection(collectionId, data),
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
-            queryClient.invalidateQueries({
-                queryKey: collectionKeys.detail(data.id),
-            });
-        },
-        ...options,
+        mutationFn: ({ collectionId, data }: { collectionId: string; data: CollectionInput }) =>
+            collectionsAPI.update(collectionId, data),
+        onSuccess: (collection) => refreshCollections(queryClient, collection.id),
     });
 };
 
-export const useDeleteCollection = (
-    options?: UseMutationOptions<
-        DeleteCollectionResponse,
-        Error,
-        { collectionId: string; deleteFiles?: boolean }
-    >,
-) => {
+export const useDeleteCollection = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: ({ collectionId, deleteFiles }) =>
-            collectionAPI.deleteCollection(collectionId, deleteFiles),
-        onSuccess: (_, variables) => {
-            queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
-            queryClient.removeQueries({
-                queryKey: collectionKeys.detail(variables.collectionId),
-            });
-            if (variables.deleteFiles) {
-                queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-            }
+        mutationFn: ({ collectionId, deleteFiles }: { collectionId: string; deleteFiles?: boolean }) =>
+            collectionsAPI.remove(collectionId, deleteFiles),
+        onSuccess: (_result, { collectionId, deleteFiles }) => {
+            queryClient.removeQueries({ queryKey: collectionKeys.detail(collectionId) });
+            queryClient.invalidateQueries({ queryKey: collectionKeys.all });
+            if (deleteFiles) queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
         },
-        ...options,
     });
 };
 
-export const useAddFilesToCollection = (
-    options?: UseMutationOptions<
-        Collection,
-        Error,
-        { collectionId: string; data: AddFilesToCollectionDto }
-    >,
-) => {
+export const useAddFilesToCollection = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: ({ collectionId, data }) =>
-            collectionAPI.addFilesToCollection(collectionId, data),
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({
-                queryKey: collectionKeys.detail(data.id),
-            });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-        },
-        ...options,
+        mutationFn: ({ collectionId, fileIds }: { collectionId: string; fileIds: string[] }) =>
+            collectionsAPI.addFiles(collectionId, fileIds),
+        onSuccess: (collection) => refreshCollections(queryClient, collection.id),
     });
 };
 
-export const useRemoveFilesFromCollection = (
-    options?: UseMutationOptions<
-        Collection,
-        Error,
-        { collectionId: string; data: RemoveFilesFromCollectionDto }
-    >,
-) => {
+export const useRemoveFilesFromCollection = () => {
     const queryClient = useQueryClient();
-
     return useMutation({
-        mutationFn: ({ collectionId, data }) =>
-            collectionAPI.removeFilesFromCollection(collectionId, data),
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({
-                queryKey: collectionKeys.detail(data.id),
-            });
-            queryClient.invalidateQueries({ queryKey: uploadKeys.lists() });
-        },
-        ...options,
+        mutationFn: ({ collectionId, fileIds }: { collectionId: string; fileIds: string[] }) =>
+            collectionsAPI.removeFiles(collectionId, fileIds),
+        onSuccess: (collection) => refreshCollections(queryClient, collection.id),
     });
 };

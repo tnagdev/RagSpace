@@ -1,8 +1,7 @@
 #!/bin/bash
 set -e
 
-# Determine which service to start (default to combined mode for backward compatibility)
-SERVICE_MODE="${1:-main.py}"
+SERVICE_MODE="${1:-main_server.py}"
 
 echo "Generating Prisma client..."
 prisma generate --schema ./prisma/schema.prisma

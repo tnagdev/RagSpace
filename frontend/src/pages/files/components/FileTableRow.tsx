@@ -1,11 +1,12 @@
 import { type FC, useState } from 'react';
 import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, Eye, Youtube } from 'lucide-react';
 import moment from 'moment';
-import type { FileResponseDto, FileType } from '@/types/upload.types';
+import type { ApiFile, FileType } from '@/api/types';
+import { fileDuration } from '@/lib/files';
 import Button from '@/components/Button';
 
 interface FileTableRowProps {
-    file: FileResponseDto;
+    file: ApiFile;
     onDelete?: (id: string) => void;
 }
 
@@ -44,23 +45,23 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
     const [showActions, setShowActions] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    const fileConfig = fileTypeConfig[file.fileType] || fileTypeConfig.OTHER;
+    const fileConfig = fileTypeConfig[file.type] || fileTypeConfig.OTHER;
     const IconComponent = fileConfig.icon;
 
     const handleDownload = () => {
-        if (file.s3Url) {
-            window.open(file.s3Url, '_blank');
+        if (file.downloadUrl) {
+            window.open(file.downloadUrl, '_blank');
         }
     };
 
     const handleView = () => {
-        if (file.s3Url) {
-            window.open(file.s3Url, '_blank');
+        if (file.downloadUrl) {
+            window.open(file.downloadUrl, '_blank');
         }
     };
 
     const handleDelete = async () => {
-        if (window.confirm(`Are you sure you want to delete "${file.originalFilename}"?`)) {
+        if (window.confirm(`Are you sure you want to delete "${file.name}"?`)) {
             setIsDeleting(true);
             try {
                 await onDelete?.(file.id);
@@ -83,7 +84,7 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                         {file.thumbnailUrl ? (
                             <img
                                 src={file.thumbnailUrl}
-                                alt={file.originalFilename}
+                                alt={file.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                     e.currentTarget.style.display = 'none';
@@ -101,10 +102,10 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                     </div>
                     <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-text-primary group-hover:text-accent-primary truncate max-w-xs transition-colors duration-200">
-                            {file.originalFilename}
+                            {file.name}
                         </p>
                         <p className="text-xs text-text-muted truncate">
-                            {file.filename}
+                            {file.name}
                         </p>
                     </div>
                 </div>
@@ -116,7 +117,7 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                         <span className="text-xs text-text-muted uppercase">Type</span>
                         <span className={`inline-flex items-center gap-1 text-xs font-semibold ${fileConfig.color}`}>
                             <IconComponent className="w-3 h-3" />
-                            {file.fileType === 'YOUTUBE_VIDEO' ? 'YouTube' : file.fileType}
+                            {file.type === 'YOUTUBE_VIDEO' ? 'YouTube' : file.type}
                         </span>
                     </div>
 
@@ -124,16 +125,16 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-xs text-text-muted uppercase">Size</span>
                         <span className="text-xs font-medium text-text-secondary">
-                            {formatFileSize(file.fileSize)}
+                            {formatFileSize(file.sizeBytes)}
                         </span>
                     </div>
 
                     {/* Duration for video files */}
-                    {(file.fileType === 'VIDEO' || file.fileType === 'YOUTUBE_VIDEO') && (file.metadata as any)?.duration && (
+                    {(file.type === 'VIDEO' || file.type === 'YOUTUBE_VIDEO') && fileDuration(file) !== null && (
                         <div className="flex flex-col items-center gap-1">
                             <span className="text-xs text-text-muted uppercase">Duration</span>
                             <span className="text-xs font-medium text-text-secondary">
-                                {formatDuration((file.metadata as any).duration)}
+                                {formatDuration(fileDuration(file)!)}
                             </span>
                         </div>
                     )}
@@ -162,7 +163,7 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                         size="sm"
                         icon={<Eye className="w-4 h-4" />}
                         onClick={handleView}
-                        disabled={!file.s3Url}
+                        disabled={!file.downloadUrl}
                         title="View"
                     />
                     <Button
@@ -170,7 +171,7 @@ export const FileTableRow: FC<FileTableRowProps> = ({ file, onDelete }) => {
                         size="sm"
                         icon={<Download className="w-4 h-4" />}
                         onClick={handleDownload}
-                        disabled={!file.s3Url}
+                        disabled={!file.downloadUrl}
                         title="Download"
                     />
                     <Button

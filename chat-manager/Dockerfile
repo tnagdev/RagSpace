@@ -7,21 +7,17 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install shared-py non-editably (editable installs break multi-stage Docker builds)
+COPY chat-manager/requirements.txt ./requirements.txt
+RUN sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
+    pip install --no-cache-dir --user -r /tmp/reqs-filtered.txt grpcio-tools
+
 COPY contracts/ ./contracts/
 COPY packages/shared-py ./packages/shared-py
-RUN pip install --no-cache-dir --user datamodel-code-generator && \
-    python -m datamodel_code_generator --version && \
-    python packages/shared-py/scripts/generate.py
-COPY chat-manager/requirements.txt ./requirements.txt
-
-RUN pip install --no-cache-dir --user ./packages/shared-py && \
-    sed '/shared-py/d' requirements.txt > /tmp/reqs-filtered.txt && \
-    pip install --no-cache-dir --user -r /tmp/reqs-filtered.txt
+RUN python packages/shared-py/scripts/generate_proto.py && \
+    pip install --no-cache-dir --user ./packages/shared-py
 
 FROM python:3.11-slim
 
-# Install runtime dependencies for Prisma + Node.js
 RUN apt-get update && apt-get install -y \
     libatomic1 \
     openssl \
@@ -49,7 +45,7 @@ ENV PYTHONPATH=/app
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8080
+EXPOSE 8080 50051
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()" || exit 1

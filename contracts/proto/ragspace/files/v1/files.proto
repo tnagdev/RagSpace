@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package ragspace.files.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "ragspace/common/v1/common.proto";
+
+service FileService {
+  rpc GetFile(GetFileRequest) returns (GetFileResponse);
+  // Omits missing and foreign ids.
+  rpc BatchGetFiles(BatchGetFilesRequest) returns (BatchGetFilesResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc RenameFile(RenameFileRequest) returns (RenameFileResponse);
+  // Releases STORAGE quota and publishes file.deleted.
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+  // Republishes file.uploaded.
+  rpc ReprocessFile(ReprocessFileRequest) returns (ReprocessFileResponse);
+  // Consumes STORAGE quota.
+  rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
+  // Publishes file.uploaded.
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+  // Releases STORAGE quota.
+  rpc AbortUpload(AbortUploadRequest) returns (AbortUploadResponse);
+  // YouTube URLs only. Consumes YOUTUBE_VIDEOS quota and publishes
+  // file.uploaded.
+  rpc ImportFile(ImportFileRequest) returns (ImportFileResponse);
+  rpc GetStorageStats(GetStorageStatsRequest) returns (GetStorageStatsResponse);
+}
+
+message File {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  string original_name = 4;
+  int64 size_bytes = 5;
+  string mime_type = 6;
+  ragspace.common.v1.FileType type = 7;
+  ragspace.common.v1.UploadStatus upload_status = 8;
+  ragspace.common.v1.ProcessingStatus processing_status = 9;
+  ragspace.common.v1.ProcessingStage processing_stage = 10;
+  optional string error_message = 11;
+  int32 processing_retry_count = 12;
+  optional string youtube_url = 13;
+  google.protobuf.Struct attributes = 14;
+  StorageLocation storage = 15;
+  // Set only when the request sets include_urls.
+  optional string download_url = 16;
+  // Set only when the request sets include_urls.
+  optional string thumbnail_url = 17;
+  google.protobuf.Timestamp create_time = 18;
+  google.protobuf.Timestamp update_time = 19;
+  optional google.protobuf.Timestamp upload_complete_time = 20;
+  optional google.protobuf.Timestamp processing_start_time = 21;
+  optional google.protobuf.Timestamp processing_complete_time = 22;
+}
+
+message StorageLocation {
+  string bucket = 1;
+  string key = 2;
+  optional string thumbnail_key = 3;
+}
+
+message GetFileRequest {
+  string user_id = 1;
+  string file_id = 2;
+  bool include_urls = 3;
+}
+
+message GetFileResponse {
+  File file = 1;
+}
+
+message BatchGetFilesRequest {
+  string user_id = 1;
+  repeated string file_ids = 2;
+  bool include_urls = 3;
+}
+
+message BatchGetFilesResponse {
+  repeated File files = 1;
+}
+
+message ListFilesRequest {
+  string user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+  optional ragspace.common.v1.FileType type = 4;
+  optional ragspace.common.v1.UploadStatus upload_status = 5;
+  optional ragspace.common.v1.ProcessingStatus processing_status = 6;
+  optional ragspace.common.v1.ProcessingStage processing_stage = 7;
+  // Direct members only, not descendant collections.
+  optional string collection_id = 8;
+  repeated string file_ids = 9;
+  bool include_urls = 10;
+}
+
+message ListFilesResponse {
+  repeated File files = 1;
+  string next_page_token = 2;
+}
+
+message RenameFileRequest {
+  string user_id = 1;
+  string file_id = 2;
+  string name = 3;
+}
+
+message RenameFileResponse {
+  File file = 1;
+}
+
+message DeleteFileRequest {
+  string user_id = 1;
+  string file_id = 2;
+}
+
+message DeleteFileResponse {}
+
+message ReprocessFileRequest {
+  string user_id = 1;
+  string file_id = 2;
+}
+
+message ReprocessFileResponse {
+  File file = 1;
+}
+
+message CreateUploadRequest {
+  string user_id = 1;
+  string file_name = 2;
+  int64 size_bytes = 3;
+  string mime_type = 4;
+  string request_id = 5;
+}
+
+// The S3 multipart upload id stays server-side; the upload is addressed by
+// file.id.
+message CreateUploadResponse {
+  File file = 1;
+  int64 part_size_bytes = 2;
+  repeated UploadPart parts = 3;
+  google.protobuf.Timestamp url_expire_time = 4;
+}
+
+message UploadPart {
+  int32 part_number = 1;
+  string url = 2;
+}
+
+message CompleteUploadRequest {
+  string user_id = 1;
+  string file_id = 2;
+  repeated CompletedPart parts = 3;
+}
+
+message CompletedPart {
+  int32 part_number = 1;
+  string etag = 2;
+}
+
+message CompleteUploadResponse {
+  File file = 1;
+}
+
+message AbortUploadRequest {
+  string user_id = 1;
+  string file_id = 2;
+}
+
+message AbortUploadResponse {}
+
+message ImportFileRequest {
+  string user_id = 1;
+  string url = 2;
+  string request_id = 3;
+}
+
+message ImportFileResponse {
+  File file = 1;
+}
+
+message GetStorageStatsRequest {
+  string user_id = 1;
+}
+
+message GetStorageStatsResponse {
+  int64 used_bytes = 1;
+  int32 file_count = 2;
+}

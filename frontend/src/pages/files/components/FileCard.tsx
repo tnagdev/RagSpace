@@ -2,11 +2,12 @@ import { type FC, useState } from 'react';
 import { FileVideo, FileImage, FileAudio, FileText, File, Trash2, Download, MoreVertical, Clock, HardDrive, Youtube, FolderPlus, FolderMinus, MessageSquare } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import moment from 'moment';
-import type { FileResponseDto, FileType } from '@/types/upload.types';
+import type { ApiFile, FileType } from '@/api/types';
+import { fileDimensions, fileDuration } from '@/lib/files';
 import Popover from '@/components/Popover';
 
 interface FileCardProps {
-    file: FileResponseDto;
+    file: ApiFile;
     onDelete?: (id: string) => void;
     onAddToCollection?: (fileId: string) => void;
     onRemoveFromCollection?: (fileId: string) => void;
@@ -73,7 +74,7 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
     const [showMenu, setShowMenu] = useState(false);
     const [menuButtonRef, setMenuButtonRef] = useState<HTMLElement | null>(null);
     const navigate = useNavigate();
-    const config = fileTypeConfig[file.fileType];
+    const config = fileTypeConfig[file.type];
     const Icon = config.icon;
 
     return (
@@ -90,7 +91,7 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                         {file.thumbnailUrl ? (
                             <img
                                 src={file.thumbnailUrl}
-                                alt={file.originalFilename}
+                                alt={file.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                     // Show icon on error
@@ -135,16 +136,16 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                         </button>
                         <button
                             onClick={() => {
-                                if (file.fileType === 'YOUTUBE_VIDEO' && file.youtubeUrl) {
+                                if (file.type === 'YOUTUBE_VIDEO' && file.youtubeUrl) {
                                     window.open(file.youtubeUrl, '_blank');
-                                } else if (file.s3Url) {
-                                    window.open(file.s3Url, '_blank');
+                                } else if (file.downloadUrl) {
+                                    window.open(file.downloadUrl, '_blank');
                                 }
                                 setShowMenu(false);
                             }}
                             className="w-full px-4 py-2.5 text-left text-sm text-text-secondary hover:text-text-primary hover:bg-sidebar-hover transition-all flex items-center gap-3"
                         >
-                            {file.fileType === 'YOUTUBE_VIDEO' ? (
+                            {file.type === 'YOUTUBE_VIDEO' ? (
                                 <>
                                     <Youtube className="w-4 h-4" />
                                     Open in YouTube
@@ -198,9 +199,9 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                 {/* File Name */}
                 <h3
                     className="text-base font-semibold text-text-primary truncate mb-1 group-hover:text-accent-primary transition-colors"
-                    title={file.originalFilename}
+                    title={file.name}
                 >
-                    {file.originalFilename}
+                    {file.name}
                 </h3>
 
                 {/* File Type Badge */}
@@ -211,7 +212,7 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                         }}
                     >
                         <Icon className={`w-3.5 h-3.5 ${config.color}`} />
-                        {file.fileType === 'YOUTUBE_VIDEO' ? 'YouTube' : file.fileType.toLowerCase()}
+                        {file.type === 'YOUTUBE_VIDEO' ? 'YouTube' : file.type.toLowerCase()}
                     </span>
                 </div>
 
@@ -222,7 +223,7 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                             <HardDrive className="w-3.5 h-3.5" />
                             Size
                         </span>
-                        <span className="text-text-secondary font-medium">{formatFileSize(file.fileSize)}</span>
+                        <span className="text-text-secondary font-medium">{formatFileSize(file.sizeBytes)}</span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs">
@@ -235,25 +236,25 @@ export const FileCard: FC<FileCardProps> = ({ file, onDelete, onAddToCollection,
                         </span>
                     </div>
 
-                    {(file.fileType === 'VIDEO' || file.fileType === 'YOUTUBE_VIDEO') && (file.metadata as any)?.duration && (
+                    {(file.type === 'VIDEO' || file.type === 'YOUTUBE_VIDEO') && fileDuration(file) !== null && (
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-text-muted flex items-center gap-1.5">
                                 <Clock className="w-3.5 h-3.5" />
                                 Duration
                             </span>
                             <span className="text-text-secondary font-medium">
-                                {formatDuration((file.metadata as any).duration)}
+                                {formatDuration(fileDuration(file)!)}
                             </span>
                         </div>
                     )}
 
-                    {file.metadata && typeof file.metadata === 'object' && (
+                    {fileDimensions(file) && (
                         <>
-                            {(file.metadata as any).dimensions && (
+                            {fileDimensions(file) && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-text-muted">Dimensions</span>
                                     <span className="text-text-secondary font-medium">
-                                        {(file.metadata as any).dimensions}
+                                        {fileDimensions(file)}
                                     </span>
                                 </div>
                             )}

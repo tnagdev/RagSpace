@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package ragspace.common.v1;
+
+enum FileType {
+  FILE_TYPE_UNSPECIFIED = 0;
+  FILE_TYPE_VIDEO = 1;
+  FILE_TYPE_IMAGE = 2;
+  FILE_TYPE_AUDIO = 3;
+  FILE_TYPE_DOCUMENT = 4;
+  FILE_TYPE_YOUTUBE_VIDEO = 5;
+  FILE_TYPE_OTHER = 6;
+}
+
+enum UploadStatus {
+  UPLOAD_STATUS_UNSPECIFIED = 0;
+  UPLOAD_STATUS_PENDING = 1;
+  UPLOAD_STATUS_UPLOADING = 2;
+  UPLOAD_STATUS_COMPLETED = 3;
+  UPLOAD_STATUS_FAILED = 4;
+  UPLOAD_STATUS_CANCELLED = 5;
+}
+
+enum ProcessingStatus {
+  PROCESSING_STATUS_UNSPECIFIED = 0;
+  PROCESSING_STATUS_NOT_STARTED = 1;
+  PROCESSING_STATUS_IN_PROGRESS = 2;
+  PROCESSING_STATUS_COMPLETED = 3;
+  PROCESSING_STATUS_FAILED = 4;
+  PROCESSING_STATUS_SKIPPED = 5;
+}
+
+// Advances only, in declaration order. The files service drops out-of-order
+// transitions.
+enum ProcessingStage {
+  PROCESSING_STAGE_UNSPECIFIED = 0;
+  PROCESSING_STAGE_UPLOAD = 1;
+  PROCESSING_STAGE_EMBEDDING = 2;
+  PROCESSING_STAGE_SCENE_DETECTION = 3;
+  PROCESSING_STAGE_INDEXING = 4;
+  PROCESSING_STAGE_COMPLETED = 5;
+}
+
+// MAX_* metrics are limits in seconds, not counters.
+enum UsageMetric {
+  USAGE_METRIC_UNSPECIFIED = 0;
+  USAGE_METRIC_CONVERSATIONS = 1;
+  USAGE_METRIC_STORAGE = 2;
+  USAGE_METRIC_FILE_CONVERSATIONS = 3;
+  USAGE_METRIC_YOUTUBE_VIDEOS = 4;
+  USAGE_METRIC_MAX_VIDEO_LENGTH = 5;
+  USAGE_METRIC_MAX_AUDIO_DURATION = 6;
+}
+
+message VisualDescription {
+  optional string summary = 1;
+  repeated string objects = 2;
+  optional string setting = 3;
+  optional string style = 4;
+  repeated string colors = 5;
+}
+
+message SearchHit {
+  string file_id = 1;
+  string file_name = 2;
+  FileType file_type = 3;
+  optional string scene_id = 4;
+  optional int32 scene_number = 5;
+  optional int32 segment_index = 6;
+  double score = 7;
+  double text_score = 8;
+  double image_score = 9;
+  optional double start_seconds = 10;
+  optional double end_seconds = 11;
+  optional string snippet = 12;
+  optional string thumbnail_url = 13;
+  optional string file_url = 14;
+  optional string youtube_url = 15;
+  optional VisualDescription visual = 16;
+}

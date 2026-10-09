@@ -20,8 +20,8 @@ export interface TableColumn<T> {
     className?: string;
 }
 
-export function Table({ data, columns, className, tableClassName, headerClassName, onRowClick, maxCols = 5 }: TableProps<any>) {
-    const tableStyle = {}// maxCols ? { maxHeight: `${(maxCols + 1) * 27}px` } : {};
+export function Table({ data, columns, className, tableClassName, headerClassName, onRowClick }: TableProps<any>) {
+    const tableStyle = {};
 
     return (
         <div className={twMerge('overflow-auto relative h-full bg-white rounded-2xl shadow-sm', className)} style={tableStyle}>

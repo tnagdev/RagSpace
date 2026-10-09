@@ -1,9 +1,4 @@
 export default () => ({
-    port: parseInt(process.env.PORT as string, 10) || 3002,
-    nodeEnv: process.env.NODE_ENV,
-    database: {
-        url: process.env.DATABASE_URL,
-    },
     aws: {
         region: process.env.AWS_REGION,
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -14,18 +9,7 @@ export default () => ({
             publicEndpoint: process.env.AWS_S3_PUBLIC_ENDPOINT,
         },
     },
-    rabbitmq: {
-        url: process.env.RABBITMQ_URL,
-        exchange: process.env.RABBITMQ_EXCHANGE,
-        queue: process.env.RABBITMQ_QUEUE,
-    },
     upload: {
-        maxFileSize: parseInt(process.env.MAX_FILE_SIZE as string, 10),
-        allowedFileTypes: process.env.ALLOWED_FILE_TYPES?.split(',')
+        maxFileSize: Number(process.env.MAX_FILE_SIZE) || 1024 * 1024 * 1024,
     },
-    authServiceUrl: process.env.AUTH_SERVICE_URL,
-    paymentServiceUrl: process.env.PAYMENT_SERVICE_URL || 'http://localhost:8006',
-    allowedWsOrigins: process.env.CORS_ORIGIN
-        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-        : [],
 });

@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package ragspace.search.v1;
+
+import "google/protobuf/struct.proto";
+import "ragspace/common/v1/common.proto";
+
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc GetFileContent(GetFileContentRequest) returns (GetFileContentResponse);
+}
+
+message SearchRequest {
+  string user_id = 1;
+  string query = 2;
+  // Empty means all of the user's files. At most 1000.
+  repeated string file_ids = 3;
+  repeated ragspace.common.v1.FileType file_types = 4;
+  // Default 10, max 50.
+  int32 limit = 5;
+  SearchTuning tuning = 6;
+}
+
+message SearchTuning {
+  reserved 5, 7;
+  reserved "adaptive_scoring", "enhanced_text_model";
+
+  optional double text_weight = 1;
+  optional double image_weight = 2;
+  optional double threshold = 3;
+  optional bool dynamic_retrieval = 4;
+  optional bool query_expansion = 6;
+}
+
+message SearchResponse {
+  repeated ragspace.common.v1.SearchHit hits = 1;
+}
+
+message GetFileContentRequest {
+  string user_id = 1;
+  string file_id = 2;
+  bool include_visual_metadata = 3;
+}
+
+enum SegmentKind {
+  SEGMENT_KIND_UNSPECIFIED = 0;
+  SEGMENT_KIND_VISUAL = 1;
+  SEGMENT_KIND_AUDIO = 2;
+}
+
+message ContentSegment {
+  SegmentKind kind = 1;
+  optional string scene_id = 2;
+  optional int32 scene_number = 3;
+  optional int32 segment_index = 4;
+  optional double start_seconds = 5;
+  optional double end_seconds = 6;
+  optional string text = 7;
+  optional ragspace.common.v1.VisualDescription visual = 8;
+  optional string thumbnail_url = 9;
+}
+
+// segments and transcript are set for audio and video; visual for images.
+message GetFileContentResponse {
+  string file_id = 1;
+  string file_name = 2;
+  ragspace.common.v1.FileType file_type = 3;
+  optional string mime_type = 4;
+  optional double duration_seconds = 5;
+  repeated ContentSegment segments = 6;
+  optional string transcript = 7;
+  optional ragspace.common.v1.VisualDescription visual = 8;
+  // Pre-rendered context block for the LLM prompt.
+  string summary_context = 9;
+  google.protobuf.Struct character_registry = 10;
+  google.protobuf.Struct narrative_summary = 11;
+  optional string file_url = 12;
+  optional string thumbnail_url = 13;
+}

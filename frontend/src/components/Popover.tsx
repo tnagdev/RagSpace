@@ -14,8 +14,8 @@ type Alignment = 'start' | 'center' | 'end';
 
 const Popover: React.FC<PopoverProps> = ({ isOpen, onClose, trigger, children, className = '' }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
-    const [position, setPosition] = useState<Position>('bottom');
-    const [alignment, setAlignment] = useState<Alignment>('start');
+    const [, setPosition] = useState<Position>('bottom');
+    const [, setAlignment] = useState<Alignment>('start');
     const [coordinates, setCoordinates] = useState({ top: 0, left: 0 });
     const [isPositioned, setIsPositioned] = useState(false);
 

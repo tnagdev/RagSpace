@@ -1,15 +1,15 @@
 import { type FC, useEffect } from 'react';
 import { FileUploadItem } from './FileUploadItem';
-import type { FileResponseDto } from '@/types/upload.types';
+import type { ApiFile } from '@/api/types';
 
 interface ProcessingFileItemProps {
     fileId: string;
-    initialFile: FileResponseDto;
+    initialFile: ApiFile;
     progress: number;
-    onComplete?: (file: FileResponseDto) => void;
+    onComplete?: (file: ApiFile) => void;
     onCancel: (id: string) => void;
     onRetry?: (id: string) => void;
-    latestFile?: FileResponseDto;
+    latestFile?: ApiFile;
     failed?: boolean;
     eta?: string;
     processingRetryCount?: number;

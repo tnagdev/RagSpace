@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatAPI } from '@/api/chat';
+import { useQueryClient } from '@tanstack/react-query';
+import { chatKeys, useGreeting } from '@/hooks/useChat';
 import { Sparkles, RefreshCw } from 'lucide-react';
 
-const GREETING_QUERY_KEY = ['greeting'] as const;
 
 /** Typewriter effect — reveals `target` one character at a time */
 function useTypewriter(target: string, speed = 28) {
@@ -34,19 +33,13 @@ function useTypewriter(target: string, speed = 28) {
 export function AIGreeting() {
     const queryClient = useQueryClient();
 
-    const { data, isFetching } = useQuery({
-        queryKey: GREETING_QUERY_KEY,
-        queryFn: () => chatAPI.getGreeting(),
-        staleTime: 60 * 60 * 1000,   // treat as fresh for 1 hour
-        gcTime: 60 * 60 * 1000,
-        retry: false,
-    });
+    const { data, isFetching } = useGreeting();
 
-    const greeting = data?.greeting ?? '';
+    const greeting = data ?? '';
     const { displayed, done } = useTypewriter(greeting);
 
     const refresh = () => {
-        queryClient.invalidateQueries({ queryKey: GREETING_QUERY_KEY });
+        queryClient.invalidateQueries({ queryKey: chatKeys.greeting() });
     };
 
     // Nothing to show while the very first fetch is in flight

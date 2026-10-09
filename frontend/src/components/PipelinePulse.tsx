@@ -1,77 +1,78 @@
 import { useFiles } from '@/hooks/useUpload';
-import { ProcessingStage, ProcessingStatus } from '@/types/upload.types';
 import { useNavigate } from '@tanstack/react-router';
 import { Upload, Cpu, Film, Database, CheckCircle2, AlertCircle } from 'lucide-react';
 
 const STAGES = [
     {
-        stage: ProcessingStage.UPLOAD,
+        stage: 'UPLOAD',
         icon: Upload,
         label: 'Upload',
         short: 'Up',
     },
     {
-        stage: ProcessingStage.EMBEDDING,
+        stage: 'EMBEDDING',
         icon: Cpu,
         label: 'Embed',
         short: 'Em',
     },
     {
-        stage: ProcessingStage.SCENE_DETECTION,
+        stage: 'SCENE_DETECTION',
         icon: Film,
         label: 'Scene',
         short: 'Sc',
     },
     {
-        stage: ProcessingStage.INDEXING,
+        stage: 'INDEXING',
         icon: Database,
         label: 'Index',
         short: 'Idx',
     },
     {
-        stage: ProcessingStage.COMPLETED,
+        stage: 'COMPLETED',
         icon: CheckCircle2,
         label: 'Done',
         short: 'Done',
     },
 ] as const;
 
+const PROCESSING_STAGES = ['UPLOAD', 'EMBEDDING', 'SCENE_DETECTION', 'INDEXING', 'COMPLETED'] as const;
+
 export function PipelinePulse() {
     const navigate = useNavigate();
 
     const { data } = useFiles(
-        { limit: 200 },
+        { limit: 100 },
         {
             refetchInterval: (query) => {
-                const files = query.state.data?.files ?? [];
+                const files = query.state.data?.items ?? [];
                 const hasActive = files.some(
-                    (f) => f.processingStatus === ProcessingStatus.IN_PROGRESS
+                    (f) => f.processingStatus === 'IN_PROGRESS'
                 );
                 return hasActive ? 3000 : false;
             },
         }
     );
 
-    const files = data?.files ?? [];
+    const files = data?.items ?? [];
 
     // Count files per stage
     const counts = Object.fromEntries(
-        Object.values(ProcessingStage).map((s) => [s, 0])
-    ) as Record<ProcessingStage, number>;
+        PROCESSING_STAGES.map((s) => [s, 0])
+    ) as Record<string, number>;
     for (const f of files) counts[f.processingStage]++;
 
     const activeCount = files.filter(
-        (f) => f.processingStatus === ProcessingStatus.IN_PROGRESS
+        (f) => f.processingStatus === 'IN_PROGRESS'
     ).length;
     const failedCount = files.filter(
-        (f) => f.processingStatus === ProcessingStatus.FAILED
+        (f) => f.processingStatus === 'FAILED'
     ).length;
     const totalCount = files.length;
 
     // Determine which stages have actively processing files
     const activeStages = new Set(
         files
-            .filter((f) => f.processingStatus === ProcessingStatus.IN_PROGRESS)
+            .filter((f) => f.processingStatus === 'IN_PROGRESS')
             .map((f) => f.processingStage)
     );
 
@@ -124,7 +125,7 @@ export function PipelinePulse() {
                 {STAGES.map(({ stage, icon: Icon, label }, i) => {
                     const count = counts[stage];
                     const isActive = activeStages.has(stage);
-                    const isCompleted = stage === ProcessingStage.COMPLETED;
+                    const isCompleted = stage === 'COMPLETED';
 
                     return (
                         <span key={stage} className="flex items-center gap-1">

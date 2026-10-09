@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { FileVideo, FileImage, FileAudio, FileText, File, Search as SearchIcon, X, Check } from 'lucide-react';
+import { FileVideo, FileImage, FileAudio, FileText, File, Check } from 'lucide-react';
 import Button from '@/components/Button';
 import { Drawer } from '@/components/Drawer';
-import { FileResponseDto, FileType, ProcessingStatus } from '@/types/upload.types';
+import type { ApiFile, FileType } from '@/api/types';
 import { useFiles } from '@/hooks/useUpload';
 import { cn } from '@/lib/utils';
 
 interface FilePickerModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSelectFiles: (files: FileResponseDto[]) => void;
+    onSelectFiles: (files: ApiFile[]) => void;
     selectedFileIds: string[];
     title?: string;
     description?: string;
@@ -38,12 +38,12 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     const { data, isLoading } = useFiles(
         {
             limit: 100,
-            processingStatus: ProcessingStatus.COMPLETED
+            processingStatus: 'COMPLETED'
         },
         { enabled: isOpen }
     );
 
-    const toggleFile = (file: FileResponseDto) => {
+    const toggleFile = (file: ApiFile) => {
         // Don't allow toggling files that are already in the collection
         if (selectedFileIds.includes(file.id)) return;
 
@@ -57,7 +57,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     };
 
     const handleConfirm = () => {
-        const files = data?.files.filter(f => localSelected.has(f.id)) || [];
+        const files = data?.items.filter(f => localSelected.has(f.id)) || [];
         onSelectFiles(files);
         onClose();
     };
@@ -147,10 +147,10 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                             <p className="text-sm text-text-muted">Loading files...</p>
                         </div>
                     </div>
-                ) : data?.files && data.files.length > 0 ? (
+                ) : data?.items && data.items.length > 0 ? (
                     <div className="space-y-3">
-                        {data.files.map((file) => {
-                            const config = fileTypeConfig[file.fileType];
+                        {data.items.map((file) => {
+                            const config = fileTypeConfig[file.type];
                             const Icon = config.icon;
                             const isAlreadyAdded = selectedFileIds.includes(file.id);
                             const isSelected = localSelected.has(file.id);
@@ -174,7 +174,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                                     {file.thumbnailUrl ? (
                                         <img
                                             src={file.thumbnailUrl}
-                                            alt={file.originalFilename}
+                                            alt={file.name}
                                             className="w-16 h-12 object-cover rounded shrink-0"
                                             onError={(e) => {
                                                 // Fallback to icon on error
@@ -194,12 +194,12 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                                     {/* File Info */}
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium text-text-primary truncate">
-                                            {file.originalFilename}
+                                            {file.name}
                                         </div>
                                         <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
-                                            <span className="uppercase">{file.fileType}</span>
+                                            <span className="uppercase">{file.type}</span>
                                             <span>•</span>
-                                            <span>{formatFileSize(file.fileSize || 0)}</span>
+                                            <span>{formatFileSize(file.sizeBytes || 0)}</span>
                                         </div>
                                     </div>
 

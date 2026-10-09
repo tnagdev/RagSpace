@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { CheckCircle, ArrowRight } from 'lucide-react';
 import Button from '@/components/Button';
 import { useQueryClient } from '@tanstack/react-query';
-import { paymentKeys } from '@/hooks/usePayment';
+import { paymentKeys, usageKeys } from '@/hooks/usePayment';
 
 const PaymentSuccessPage = () => {
     const navigate = useNavigate();
@@ -12,7 +12,7 @@ const PaymentSuccessPage = () => {
     useEffect(() => {
         // Invalidate subscription and usage queries to refetch updated data
         queryClient.invalidateQueries({ queryKey: paymentKeys.subscription() });
-        queryClient.invalidateQueries({ queryKey: paymentKeys.usage() });
+        queryClient.invalidateQueries({ queryKey: usageKeys.all });
     }, [queryClient]);
 
     const handleContinue = () => {
